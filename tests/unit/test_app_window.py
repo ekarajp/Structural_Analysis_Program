@@ -716,7 +716,9 @@ def test_load_menu_and_click_tools(window, app):
     floors = [a.name for a in m.areas.values() if a.story == "Story1"][:2]
     # 1) command first: set the load, pick two floors (clicks), right-click applies
     st.set_tool("area_load")
-    assert "1. set the load" in hint.text() and "Area Load" in hint.text()
+    # the guide shows only the next step
+    assert "Next: pick the floors / walls" in hint.text() and "Area Load" in hint.text()
+    assert "1." not in hint.text() and "2." not in hint.text()
     po = window.object_props
     assert {"load_pattern", "load_value", "area_distribution"} <= set(po.editors) and "area_span" not in po.editors
     assert po.apply_button.isVisible() is False or not po.apply_button.isEnabled()
@@ -726,7 +728,7 @@ def test_load_menu_and_click_tools(window, app):
         _click(vp, c[0], c[1], c[2])
     app.processEvents()
     assert st.areas == set(floors) and not window.doc.model.panel_loads  # picked, not yet applied
-    assert "2 floors / walls picked" in hint.text()
+    assert "Next: press Enter" in hint.text() and "2 picked floors / walls" in hint.text()
     assert po.apply_button.isEnabled()
     vp.interactor.SetEventPosition(5, 5)
     vp._right_press = (5, 5)
@@ -748,7 +750,7 @@ def test_load_menu_and_click_tools(window, app):
     assert st.tool.editing and st.settings.load_mode == "Replace"
     po = window.object_props
     assert po.editors["load_value"].value() == 4.0 and "Editing" in po.hint.text()
-    assert "1 floor / wall picked" in hint.text()
+    assert "1 picked floor / wall" in hint.text()
     po.editors["load_value"].setValue(6.0)
     po.editors["area_distribution"].setCurrentText("Two-way to frames")
     po.apply_button.click()
@@ -1164,16 +1166,33 @@ def test_deformed_shape_ghosts_the_undeformed_model(window, app):
     m = _with_objects(window, app)
     window.doc.set_results(analyze(window.doc.model, ["Dead"]))
     vp = window.views.viewports[1]
+    other = window.views.viewports[0]
+    window.views.set_active(vp)
     window.state.set_display(display_case="Dead", deformed=True)
     app.processEvents()
     frames = dict(zip(vp._scene_keys, vp._scene_actors))["frames_Beam"]
     assert frames.GetProperty().GetOpacity() <= vp.GHOST_OPACITY + 1e-9
+    # Display commands act on the active window only
+    assert not other.result_display.get("deformed")
+    window.views.set_active(other)
+    assert not window.act_deformed.isChecked()  # the toolbar shows the active window's display
+    window.views.set_active(vp)
+    assert window.act_deformed.isChecked()
     import vtk
     assert any(isinstance(a, vtk.vtkScalarBarActor) for a in vp._overlay_actors)
     window.state.set_display(deformed=False)
     app.processEvents()
     frames = dict(zip(vp._scene_keys, vp._scene_actors))["frames_Beam"]
     assert frames.GetProperty().GetOpacity() > vp.GHOST_OPACITY
+    # the analysis mesh (Set Display Options): only after an analysis, in that window
+    n0 = len(vp._overlay_actors)
+    o = vp.display_options
+    o.analysis_mesh = True
+    vp.set_display_options(o)
+    assert len(vp._overlay_actors) > n0
+    window.doc.set_results(None)
+    vp.update_overlays()
+    assert len(vp._overlay_actors) <= n0
 
 
 @gui

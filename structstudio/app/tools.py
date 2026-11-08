@@ -80,6 +80,13 @@ def point_in_polygon(p: XY, poly: Sequence[XY]) -> bool:
     return inside
 
 
+def next_step(title: str, step: str, key: str = "") -> str:
+    """The guide at the bottom left: the command and only the step to do next."""
+    step = step.strip().rstrip(".")
+    text = f"{title}  \u25B8  Next: {step[:1].lower() + step[1:]}"
+    return text + (f"   ({key})" if key else "")
+
+
 # -------------------------------------------------------------------- planes
 @dataclass
 class Plane:
@@ -484,9 +491,8 @@ class Tool:
         """What to do next - shown at the bottom left of the window."""
         title = self.title or self.name.replace("_", " ").title()
         if self.points:
-            step = self.next_prompt or "click the next point"
-            return f"{title}  >  {step}   (Enter / double-click = finish, right-click / Esc = end)"
-        return f"{title}  >  {self.prompt}   (values: Properties of Object, Esc = select tool)"
+            return next_step(title, self.next_prompt or "click the next point", "Enter = finish")
+        return next_step(title, self.prompt)
 
     # ---- context
     @property
@@ -670,10 +676,9 @@ class SelectTool(Tool):
     def hint(self, state=None) -> str:
         n = state.count if state is not None else 0
         if n:
-            return (f"Select  >  {n} object(s) selected  >  choose a command (Assign / Load / Edit) to change them, "
-                    f"right-click = object information, Delete = delete, Esc = clear")
-        return ("Select  >  click an object (Ctrl = add), drag left-to-right = window, right-to-left = crossing  >  "
-                "then choose a command - or choose a command first")
+            return next_step("Select", f"choose a command (Assign / Edit / Load) for the {n} selected object(s)",
+                             "Esc = clear")
+        return next_step("Select", "click an object or drag a window to select")
 
 
 class SelectLineTool(Tool):
@@ -719,8 +724,7 @@ class BeamTool(Tool):
         mode = self._arc_mode()
         if mode is None:
             return super().hint(state)
-        return (f"{self.title}  >  {mode} ({LINE_SHAPES[mode]})  >  {self.prompt}   "
-                f"(Esc = end; Line shape in Properties of Object)")
+        return next_step(f"{self.title} ({mode})", self.prompt[:1].lower() + self.prompt[1:])
 
     def cancel(self):
         super().cancel()
@@ -1981,13 +1985,10 @@ class LoadPickTool(Tool):
         n = len(self.picked(state)) if state is not None else 0
         title = self.title
         if n == 0:
-            return (f"{title}  >  1. set the load in Properties of Object  >  2. click {self.plural()} or drag a "
-                    f"window to pick them  >  3. Enter / right-click / Apply   (Esc = select tool)")
-        what = f"{n} {self.plural(n)} picked"
-        if self.editing:
-            what += f" - the form shows their {self.settings.load_pattern} load; change it"
-        return (f"{title}  >  {what}  >  Enter / right-click / Apply = {self.settings.load_mode.lower()}   "
-                f"(click = add / remove, Esc = clear)")
+            return next_step(title, f"pick the {self.plural()} (click or drag a window)")
+        verb = self.settings.load_mode.lower()
+        return next_step(title, f"press Enter (or right-click) to {verb} the load on the {n} picked "
+                                f"{self.plural(n)}", "Esc = clear")
 
 
 class JointLoadTool(LoadPickTool):
@@ -2132,11 +2133,9 @@ class FrameSectionTool(LoadPickTool):
         self._default_section()
         sec = self.settings.frame_section or "(none)"
         if n == 0:
-            return (f"{self.title}  >  1. choose the section in Properties of Object (now: {sec})  >  "
-                    f"2. click frames or drag a window to pick them  >  3. Enter / right-click = assign   "
-                    f"(Esc = select tool)")
-        return (f"{self.title}  >  {n} {self.plural(n)} picked  >  Enter / right-click = assign section {sec}   "
-                f"(click = add / remove, Esc = clear the picks)")
+            return next_step(f"{self.title} ({sec})", "pick the frames (click or drag a window)")
+        return next_step(f"{self.title} ({sec})", f"press Enter (or right-click) to assign it to the {n} "
+                                                  f"picked {self.plural(n)}", "Esc = clear")
 
 
 class AreaLoadTool(LoadPickTool):

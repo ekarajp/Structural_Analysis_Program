@@ -784,6 +784,16 @@ def _spring_symbols(model: Model, points) -> vtk.vtkActor:
     return _actor_from_polydata(poly, COLORS["support"], 2.0, lighting=False)
 
 
+RELEASE_RING_AT = 0.12  # pin symbol: this fraction of the member length in from the released end
+
+
+def _release_rings(points) -> vtk.vtkPropAssembly:
+    ring = vtk.vtkPropAssembly()
+    ring.AddPart(_front_marks(points, COLORS.get("release", (0.10, 0.65, 0.25)), 12.0 * gsize("joint_size"),
+                              "ring", 3.2))
+    return ring
+
+
 def _release_dots(model: Model, frames) -> Optional[vtk.vtkPropAssembly]:
     """ETABS style pin symbol: a ring near each end with a moment release (a member
     pinned at its start shows one ring by its start joint), drawn over the model."""
@@ -793,18 +803,15 @@ def _release_dots(model: Model, frames) -> Optional[vtk.vtkPropAssembly]:
         L = float(np.linalg.norm(b - a))
         if L <= 0:
             continue
-        k = 0.12  # well in from the joint: clear of the joint square / selected-joint mark
+        k = RELEASE_RING_AT  # well in from the joint: clear of the joint square / selected-joint mark
         if any(f.releases_i[3:]) or any(f.releases_i[:3]):
             pts.append(a + k * (b - a))
         if any(f.releases_j[3:]) or any(f.releases_j[:3]):
             pts.append(b + k * (a - b))
     if not pts:
         return None
-    # a thin green circle, see-through in the middle (not a square: squares are joints)
-    ring = vtk.vtkPropAssembly()
-    ring.AddPart(_front_marks(pts, COLORS.get("release", (0.10, 0.65, 0.25)), 12.0 * gsize("joint_size"),
-                              "ring", 3.2))
-    return ring
+    # a green circle, see-through in the middle (not a square: squares are joints)
+    return _release_rings(pts)
 
 
 def _local_axes_actors(model: Model, frames) -> List[vtk.vtkActor]:
@@ -1114,7 +1121,8 @@ def build_deformed_actor(model: Model, results, case: str, scale: Optional[float
 
 def build_deformed_mesh_actors(model: Model, results, case: str, mode: Optional[int] = None,
                                frames: Optional[set] = None, areas: Optional[set] = None,
-                               shells: bool = True, extruded: bool = False) -> Tuple[List[vtk.vtkProp], float]:
+                               shells: bool = True, extruded: bool = False,
+                               releases: bool = False) -> Tuple[List[vtk.vtkProp], float]:
     """Deformed shape of the analysis mesh coloured by the displacement (ETABS
     style): shell elements as surfaces, frame elements as lines, with a colour
     scale.  A slab sagging between its beams shows, not only the object corners.
@@ -1157,29 +1165,58 @@ def build_deformed_mesh_actors(model: Model, results, case: str, mode: Optional[
     X0 = np.array([n.xyz for n in am.nodes], float) / Lf
     seg = max(ext / 80.0, 1e-9)
     fpts, fval, flines, fel = [], [], [], []
-    for f in sel_fr:
+
+    def deflected(f, x):
+        """Displacement of analysis frame element f at fraction x of its length."""
         a, b = X0[f.node_i], X0[f.node_j]
         L = float(np.linalg.norm(b - a))
-        if L <= 0:
-            continue
         e = (b - a) / L
         di, dj = D[f.node_i, :3], D[f.node_j, :3]
         hinged = bool(np.any(f.releases_i[3:]) or np.any(f.releases_j[3:]))
         ri = np.cross(D[f.node_i, 3:6], e) * L if not hinged else np.zeros(3)
         rj = np.cross(D[f.node_j, 3:6], e) * L if not hinged else np.zeros(3)
         ti, tj = di - (di @ e) * e, dj - (dj @ e) * e
+        h1, h2, h3, h4 = 1 - 3 * x * x + 2 * x ** 3, x - 2 * x * x + x ** 3, 3 * x * x - 2 * x ** 3, -x * x + x ** 3
+        if hinged:
+            h1, h2, h3, h4 = 1 - x, 0.0, x, 0.0
+        return ((1 - x) * (di @ e) + x * (dj @ e)) * e + h1 * ti + h2 * ri + h3 * tj + h4 * rj
+
+    for f in sel_fr:
+        a, b = X0[f.node_i], X0[f.node_j]
+        L = float(np.linalg.norm(b - a))
+        if L <= 0:
+            continue
         n = int(min(10, max(1, math.ceil(L / seg))))
         start = len(fpts)
         for k in range(n + 1):
             x = k / n
-            h1, h2, h3, h4 = 1 - 3 * x * x + 2 * x ** 3, x - 2 * x * x + x ** 3, 3 * x * x - 2 * x ** 3, -x * x + x ** 3
-            if hinged:
-                h1, h2, h3, h4 = 1 - x, 0.0, x, 0.0
-            d = ((1 - x) * (di @ e) + x * (dj @ e)) * e + h1 * ti + h2 * ri + h3 * tj + h4 * rj
+            d = deflected(f, x)
             fpts.append(a + x * (b - a) + scale * d)
             fval.append(float(np.linalg.norm(d)) * fac)
         flines.append(list(range(start, len(fpts))))
         fel.append(f)
+    # pin symbols ride on the deflected members (same place along the member as undeformed)
+    ring_pts = []
+    if releases:
+        by_obj = {}
+        for f in sel_fr:
+            by_obj.setdefault(f.object, []).append(f)
+        for name, els in by_obj.items():
+            obj = model.frames.get(name)
+            if obj is None:
+                continue
+            ends = [(t, rel) for t, rel in ((RELEASE_RING_AT, obj.releases_i), (1.0 - RELEASE_RING_AT, obj.releases_j))
+                    if any(rel[1:3]) or any(rel[3:])]
+            for t, _ in ends:
+                f = next((el for el in els if el.rel_start - 1e-9 <= t <= el.rel_end + 1e-9), None)
+                if f is None:
+                    continue
+                span = max(f.rel_end - f.rel_start, 1e-12)
+                x = min(max((t - f.rel_start) / span, 0.0), 1.0)
+                a, b = X0[f.node_i], X0[f.node_j]
+                if float(np.linalg.norm(b - a)) <= 0:
+                    continue
+                ring_pts.append(a + x * (b - a) + scale * deflected(f, x))
     if fval:
         vmax = max(vmax, max(fval))
     lut, (vmin, vmax), step = result_lut(0.0, vmax or 1e-12)
@@ -1247,6 +1284,8 @@ def build_deformed_mesh_actors(model: Model, results, case: str, mode: Optional[
             prop.SetAmbient(0.35)
             prop.SetDiffuse(0.75)
         actors.append(actor)
+    if ring_pts:
+        actors.append(_release_rings(ring_pts))
     actors.append(legend_bar(lut, title, vmin, vmax, step))
     return actors, scale
 
@@ -1852,6 +1891,11 @@ def _text_labels(pts: vtk.vtkPoints, texts: vtk.vtkStringArray, color, size: int
     tp.SetBold(bold or background)
     mapper = vtk.vtkLabelPlacementMapper()
     mapper.SetInputConnection(hier.GetOutputPort())
+    # every label that fits is placed, whatever the zoom: the default level-of-detail
+    # traversal of the label octree dropped most of them once the view was zoomed in
+    # (a parallel projection zooms by scale, not by moving the camera closer)
+    mapper.SetIteratorType(vtk.vtkLabelHierarchy.FULL_SORT)
+    mapper.SetMaximumLabelFraction(1.0)
     if background:
         mapper.SetShapeToRoundedRect()
         mapper.SetStyleToFilled()

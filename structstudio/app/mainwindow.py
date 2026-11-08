@@ -1222,6 +1222,40 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
     def _active_changed(self, vp):
         self.state.update_hint()  # the window title already names the view
         self._sync_display_actions()
+        self._sync_result_toolbar(vp)
+
+    def _sync_result_toolbar(self, vp):
+        """Another window became active: the Results / Loads toolbar shows what that
+        window displays (and the next Display command changes that window only)."""
+        rd = getattr(vp, "result_display", None)
+        if not rd or not hasattr(self, "case_box"):
+            return
+        for k, v in rd.items():  # the active window's values, without redrawing anything
+            setattr(self.state, k, set(v) if k == "load_kinds" else v)
+        widgets = (self.case_box, self.mode_box, self.diagram_box, self.frame_color_box, self.load_box,
+                   self.act_deformed, self.act_reactions, *self.load_kind_actions.values())
+        for w in widgets:
+            w.blockSignals(True)
+        try:
+            self.case_box.setCurrentText(rd.get("display_case") or "")
+            if not rd.get("display_case") and self.case_box.count():
+                self.case_box.setCurrentIndex(-1)
+            self.mode_box.setValue(int(rd.get("display_mode") or 0))
+            self.diagram_box.setCurrentText(rd.get("display_diagram") or "None")
+            self.frame_color_box.setCurrentText(rd.get("display_frame_color") or "None")
+            self.load_box.setCurrentText(rd.get("load_pattern") or "(none)")
+            self.act_deformed.setChecked(bool(rd.get("deformed")))
+            self.act_reactions.setChecked(bool(rd.get("show_reactions")))
+            kinds = rd.get("load_kinds") or set()
+            for k, a in self.load_kind_actions.items():
+                a.setChecked(k in kinds)
+        finally:
+            for w in widgets:
+                w.blockSignals(False)
+        if hasattr(self, "act_mesh"):
+            self.act_mesh.blockSignals(True)
+            self.act_mesh.setChecked(bool(getattr(vp.display_options, "analysis_mesh", False)))
+            self.act_mesh.blockSignals(False)
 
     def _sync_display_actions(self):
         """View-menu check marks follow the display options of the active window."""
@@ -1381,7 +1415,14 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         self._display_changed()
 
     def toggle_mesh(self, checked: bool):
-        self.state.set_display(show_mesh=bool(checked))
+        """Display > Show Analysis Mesh: the active window's display option (shown after
+        an analysis; the same switch as in Set Display Options)."""
+        vp = self.viewport
+        o = vp.display_options
+        o.analysis_mesh = bool(checked)
+        vp.set_display_options(o)
+        if checked and self.doc.results is None:
+            self.state.status.emit("The analysis mesh shows after the analysis has run")
 
     def closeEvent(self, event):
         self.views.save()

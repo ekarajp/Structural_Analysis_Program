@@ -261,6 +261,16 @@ class ViewState(QtCore.QObject):
         return list(self.frames), list(self.areas), list(self.points)
 
     # ------------------------------------------------------------ display
+    # what a model window shows of the results / loads: each window keeps its own
+    # copy (Display commands change the active window only); the values here are
+    # those of the active window, the toolbar's
+    WINDOW_DISPLAY = ("display_case", "display_mode", "display_diagram", "display_frame_color", "deformed",
+                      "show_reactions", "load_pattern", "load_kinds")
+
+    def window_display(self) -> dict:
+        """The current (active window's) result / load display, as a dict."""
+        return {k: (set(getattr(self, k)) if k == "load_kinds" else getattr(self, k)) for k in self.WINDOW_DISPLAY}
+
     def set_display(self, **kw):
         for k, v in kw.items():
             setattr(self, k, v)

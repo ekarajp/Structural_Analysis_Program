@@ -217,14 +217,19 @@ class ModelViewport(QtWidgets.QWidget):
         self.display_button.clicked.connect(lambda: self.display_requested.emit(self))
         # one story / grid line up or down (plans: next story above / below; elevations: the
         # next grid line) - also Page Up / Page Down in the window
+        # drawn as light chips with dark arrows: they stay visible on the coloured
+        # header of the active window (Qt's arrow buttons took the header colour)
         self.step_up = QtWidgets.QToolButton()
-        self.step_up.setArrowType(QtCore.Qt.UpArrow)
-        self.step_up.setAutoRaise(True)
+        self.step_up.setObjectName("stepButton")
+        self.step_up.setText("\u25B2")
         self.step_up.clicked.connect(lambda: self.step_where(+1))
         self.step_down = QtWidgets.QToolButton()
-        self.step_down.setArrowType(QtCore.Qt.DownArrow)
-        self.step_down.setAutoRaise(True)
+        self.step_down.setObjectName("stepButton")
+        self.step_down.setText("\u25BC")
         self.step_down.clicked.connect(lambda: self.step_where(-1))
+        for b in (self.step_up, self.step_down):
+            b.setCursor(QtCore.Qt.PointingHandCursor)
+            b.setFixedSize(22, 20)
         hl.addWidget(self.kind_box)
         hl.addWidget(self.where_box)
         hl.addWidget(self.step_up)
@@ -313,6 +318,8 @@ class ModelViewport(QtWidgets.QWidget):
         self.results_box.toggled.connect(self._results_toggled)
         self.doc.on_change(self._on_doc_change)
         self.state.selection_changed.connect(self.rebuild)
+        # this window's own result / load display (Display commands act on the active window)
+        self.result_display = self.state.window_display() if hasattr(self.state, "window_display") else {}
         self.state.display_changed.connect(self._on_display_changed)
         if hasattr(self.state, "nav_changed"):
             self.state.nav_changed.connect(self._on_nav_changed)
@@ -567,7 +574,13 @@ class ModelViewport(QtWidgets.QWidget):
         ui = theme.active().ui()
         color = ui["accent"] if on else ui["header_off"]
         fg = ui["accent_text"] if on else ui["header_off_text"]
-        self.header.setStyleSheet(f"#viewHeader {{ background: {color}; }} QLabel, QCheckBox {{ color: {fg}; }}")
+        self.header.setStyleSheet(
+            f"#viewHeader {{ background: {color}; }} QLabel, QCheckBox {{ color: {fg}; }}"
+            "QToolButton#stepButton { background: #f7f9fb; color: #1f2a36; border: 1px solid #8a96a3;"
+            " border-radius: 3px; font-size: 9pt; font-weight: 700; padding: 0px; }"
+            "QToolButton#stepButton:hover { background: #ffffff; border-color: #33475b; }"
+            "QToolButton#stepButton:pressed { background: #d8e2ec; }"
+            "QToolButton#stepButton:disabled { color: #a9b2bb; background: #e9edf1; }")
 
     def apply_theme(self):
         """Re-read the active colours (theme switch / colour edit) and redraw."""
@@ -761,6 +774,10 @@ class ModelViewport(QtWidgets.QWidget):
             self.update_overlays()
 
     def _on_display_changed(self):
+        """A Display command (the toolbar's case / diagram / deformed ...): the active
+        window takes it; the other windows keep showing what they show."""
+        if getattr(self, "_active", False) and hasattr(self.state, "window_display"):
+            self.result_display = self.state.window_display()
         self.rebuild()
 
     GHOST_OPACITY = 0.18
@@ -985,61 +1002,71 @@ class ModelViewport(QtWidgets.QWidget):
             self.renderer.RemoveActor(a)
         self._overlay_actors = []
         st = self.state
+        from types import SimpleNamespace
+        rd = SimpleNamespace(**{k: getattr(st, k, None) for k in getattr(st, "WINDOW_DISPLAY", ())})
+        for k, v in (self.result_display or {}).items():
+            setattr(rd, k, v)
         res = self.doc.results
-        shown = bool(res is not None and st.display_case and self.config.results)
+        shown = bool(res is not None and rd.display_case and self.config.results)
         extr = bool(getattr(self.display_options, "extrude", False))
-        fcol = getattr(st, "display_frame_color", None) if shown and st.display_mode is None else None
-        contour_on = shown and st.display_diagram in SHELL_COMPONENTS and st.display_mode is None
-        if shown and (st.deformed or st.display_mode is not None):
+        fcol = getattr(rd, "display_frame_color", None) if shown and rd.display_mode is None else None
+        contour_on = shown and rd.display_diagram in SHELL_COMPONENTS and rd.display_mode is None
+        if shown and (rd.deformed or rd.display_mode is not None):
             self._ghost_scene(False)
             self._ghost_scene(True)
         else:
             self._ghost_scene(False)
         # objects a result is drawn on are hidden (a faint copy in the same place
         # would wash the colours out): shells under a contour, members under colours
-        hide = ((("areas",) if contour_on and not st.deformed else ()) + (("frames", "column_markers") if fcol and not st.deformed else ()))
+        hide = ((("areas",) if contour_on and not rd.deformed else ()) + (("frames", "column_markers") if fcol and not rd.deformed else ()))
+        if shown and (rd.deformed or rd.display_mode is not None):
+            hide += ("releases",)  # the pin symbols are drawn on the deflected members instead
         self._hide_scene(hide)
-        if getattr(st, "show_mesh", False):
+        if getattr(self.display_options, "analysis_mesh", False) and res is not None:
+            # Set Display Options > Analysis mesh: the mesh the analysis used (nothing
+            # before an analysis)
             try:
                 _, ar, _ = self._view_sets()
-                self._overlay_actors += scene.build_mesh_actors(self.doc.model, self.doc.analysis_mesh(), areas=ar)
-            except Exception as exc:  # an incomplete model cannot be meshed: say so, keep drawing
-                self.state.report(exc)
-        if res is not None and st.display_case and self.config.results:
+                self._overlay_actors += scene.build_mesh_actors(self.doc.model, res.am, areas=ar)
+            except Exception as exc:
+                print("mesh display error:", exc)
+        if res is not None and rd.display_case and self.config.results:
             try:
                 # a plan / elevation window shows the results of its own plan / frame line only
                 fr, ar, pt = self._view_sets()
-                if st.deformed or st.display_mode is not None:
+                if rd.deformed or rd.display_mode is not None:
                     # the shell contour (if shown) is already drawn deformed: then only the frames
-                    contour = st.display_diagram in SHELL_COMPONENTS and st.display_mode is None
-                    actors, _ = scene.build_deformed_mesh_actors(self.doc.model, res, st.display_case,
-                                                                 mode=st.display_mode, frames=fr, areas=ar,
-                                                                 shells=not contour, extruded=extr)
+                    contour = rd.display_diagram in SHELL_COMPONENTS and rd.display_mode is None
+                    actors, _ = scene.build_deformed_mesh_actors(self.doc.model, res, rd.display_case,
+                                                                 mode=rd.display_mode, frames=fr, areas=ar,
+                                                                 shells=not contour, extruded=extr,
+                                                                 releases=bool(getattr(self.display_options,
+                                                                                       "releases", True)))
                     if contour:
                         actors = [a for a in actors if not isinstance(a, vtk.vtkScalarBarActor)]
                     self._overlay_actors += actors
-                if st.display_diagram and st.display_mode is None:
-                    if st.display_diagram in SHELL_COMPONENTS:
-                        actors, _ = scene.build_contour_actors(self.doc.model, res, st.display_case,
-                                                               st.display_diagram, deformed=st.deformed, areas=ar,
+                if rd.display_diagram and rd.display_mode is None:
+                    if rd.display_diagram in SHELL_COMPONENTS:
+                        actors, _ = scene.build_contour_actors(self.doc.model, res, rd.display_case,
+                                                               rd.display_diagram, deformed=rd.deformed, areas=ar,
                                                                extruded=extr)
                     else:
                         dfr = fr
                         if self.config.kind == "plan" and fr is not None:  # columns are seen end-on in a plan
                             dfr = {n for n in fr if self.doc.model.frames[n].type != "Column"}
                         actors, _ = scene.build_diagram_actors(
-                            self.doc.model, res, st.display_case, st.display_diagram, frames=dfr,
+                            self.doc.model, res, rd.display_case, rd.display_diagram, frames=dfr,
                             view_normal=scene.VIEW_NORMALS.get(self.config.kind))
                     self._overlay_actors += actors
-                if fcol and not st.deformed:
+                if fcol and not rd.deformed:
                     from .result_view import frame_color_actors
-                    actors = frame_color_actors(self.doc.model, res, st.display_case, fcol, frames=fr,
+                    actors = frame_color_actors(self.doc.model, res, rd.display_case, fcol, frames=fr,
                                                 extruded=extr)
-                    if st.display_diagram in SHELL_COMPONENTS:  # one colour scale on screen: the contour's
+                    if rd.display_diagram in SHELL_COMPONENTS:  # one colour scale on screen: the contour's
                         actors = [a for a in actors if not isinstance(a, vtk.vtkScalarBarActor)]
                     self._overlay_actors += actors
-                if st.show_reactions and st.display_mode is None:
-                    self._overlay_actors += scene.build_reaction_actors(self.doc.model, res, st.display_case,
+                if rd.show_reactions and rd.display_mode is None:
+                    self._overlay_actors += scene.build_reaction_actors(self.doc.model, res, rd.display_case,
                                                                         points=pt)
             except Exception as exc:  # display must never crash the app
                 print("overlay error:", exc)
@@ -1048,13 +1075,13 @@ class ModelViewport(QtWidgets.QWidget):
                 self._overlay_actors += scene.build_panel_actors(self.doc.model, getattr(st, "panels", None))
         except Exception as exc:
             print("panel display error:", exc)
-        if st.load_pattern and st.load_pattern in self.doc.model.load_patterns:
+        if rd.load_pattern and rd.load_pattern in self.doc.model.load_patterns:
             try:
                 kind = self.config.kind
                 fr, ar, pt = self._view_sets()
                 self._overlay_actors += scene.build_load_actors(
-                    self.doc.model, st.load_pattern, frames=fr, areas=ar, points=pt,
-                    kinds=getattr(st, "load_kinds", None), view=kind if kind in scene.VIEW_NORMALS else "3d",
+                    self.doc.model, rd.load_pattern, frames=fr, areas=ar, points=pt,
+                    kinds=getattr(rd, "load_kinds", None), view=kind if kind in scene.VIEW_NORMALS else "3d",
                     level=self.plane().value if kind in scene.VIEW_NORMALS else None)
             except Exception as exc:
                 print("load display error:", exc)

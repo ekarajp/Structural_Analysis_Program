@@ -49,6 +49,8 @@ class DisplayOptions:
     reference_x: bool = True
     reference_y: bool = True
     reference_z: bool = True
+    # the mesh the analysis used (floors / walls); nothing before an analysis
+    analysis_mesh: bool = False
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -102,7 +104,8 @@ GROUPS: List[Tuple[str, List[Tuple[str, str]]]] = [
     ("Other", [("extrude", "Extrude frames and areas (real sections)"), ("fill_areas", "Fill areas"),
                ("edges", "Show edges"), ("grid_lines", "Grid lines"), ("grid_bubbles", "Grid bubbles (A, B, 1, 2)"),
                ("grid_vertical", "Vertical grid lines in 3D (column lines)"),
-               ("story_plane", "Shade the plan story in 3D windows")]),
+               ("story_plane", "Shade the plan story in 3D windows"),
+               ("analysis_mesh", "Analysis mesh of floors / walls (after an analysis)")]),
     ("Reference lines (CYPE 3D)", [("reference_lines", "Reference lines through joints"),
                                    ("reference_x", "   parallel to X"), ("reference_y", "   parallel to Y"),
                                    ("reference_z", "   parallel to Z")]),
