@@ -53,6 +53,70 @@ class _SharpVTKWidget(QVTKRenderWindowInteractor):
 _DPR_EVENTS = tuple(getattr(QtCore.QEvent.Type, n) for n in ("DevicePixelRatioChange", "ScreenChangeInternal")
                     if hasattr(QtCore.QEvent.Type, n))
 
+def view_dpr(view) -> float:
+    """Physical / logical pixels of the window (VTK events and projections are in
+    physical pixels; apertures are set in logical, device-independent pixels)."""
+    w = getattr(view, "vtk_widget", None)
+    try:
+        return max(float(w.devicePixelRatioF()), 1.0) if w is not None else 1.0
+    except Exception:
+        return 1.0
+
+def view_snap_objects(view):
+    """(frames, areas, points) a snap may target in this window: what it shows -
+    its plan / elevation, minus objects made invisible and object types switched
+    off in its display options (None: no limit of that kind)."""
+    m = view.doc.model
+    vis = None
+    try:
+        plane_of = getattr(view, "_scene_plane", None)
+        vis = scene.visible_sets(m, view.config.story if view.config.kind == "plan" else None,
+                                 plane_of() if plane_of else None)
+    except Exception:
+        vis = None
+    hf, ha, hp = getattr(view, "hidden", (set(), set(), set()))
+    fr, ar, pt = (set(vis[0]), set(vis[1]), set(vis[2])) if vis else (None, None, None)
+    o = getattr(view, "display_options", None)
+    ft = o is not None and hasattr(o, "shows_frame_type")
+    at = o is not None and hasattr(o, "shows_area_type")
+    if hf or (ft and not all(o.shows_frame_type(t) for t in ("Beam", "Column", "Brace", "Null"))):
+        fr = {n for n in (fr if fr is not None else m.frames)
+              if n not in hf and (not ft or o.shows_frame_type(m.frames[n].type))}
+    if ha or (at and not all(o.shows_area_type(t) for t in ("Floor", "Wall", "Ramp", "Opening"))):
+        ar = {n for n in (ar if ar is not None else m.areas)
+              if n not in ha and (not at or o.shows_area_type(m.areas[n].type))}
+    if hp:
+        pt = {n for n in (pt if pt is not None else m.points) if n not in hp}
+    return fr, ar, pt
+
+
+def view_work_plane_point(view, x: int, y: int):
+    """3D: where a click with nothing snapped lands - the work plane of the form
+    (through the last picked point: horizontal XY, or vertical XZ / YZ).  With no
+    picked point, or "Snap only", there is no free point in 3D (a depth can not be
+    guessed from the screen) (D14)."""
+    tool = view.state.tool
+    mode = getattr(tool.settings, "work_plane_3d", "Snap only")
+    if not getattr(tool, "points", None) or mode.startswith("Snap"):
+        return None, ""
+    base = np.asarray(tool.points[-1], float)
+    k = {"XY": 2, "XZ": 1, "YZ": 0}.get(mode[:2], 2)
+    p0, d = view._ray(x, y)
+    if abs(d[k]) < 1e-12:
+        return None, ""
+    t = (base[k] - p0[k]) / d[k]
+    if t < 0:
+        return None, ""
+    p = p0 + t * d
+    p[k] = base[k]
+    return (float(p[0]), float(p[1]), float(p[2])), f"{mode[:2]} plane {'XYZ'[k]} = {base[k]:g}"
+
+
+def _hit_key(h):
+    """Identity of a snap candidate (kind, object, location) - for keeping an N choice."""
+    return (h.kind, h.target, tuple(round(float(c), 9) for c in h.xyz))
+
+
 class SelectionBox:
     """The drag box of window / crossing selection and Zoom Window, drawn inside the
     render window as a translucent filled rectangle with a border (the selection-box
@@ -914,7 +978,7 @@ class ModelViewport(QtWidgets.QWidget):
         """The frame nearest to display (x, y) within the pick tolerance (joints ignored)."""
         m = self.doc.model
         vis = self.visible()
-        best, best_d = None, self.PICK_PIXELS * 1.5
+        best, best_d = None, self.PICK_PIXELS * 1.5 * view_dpr(self)
         for f in m.frames.values():
             if not vis(f):
                 continue
@@ -1343,7 +1407,9 @@ class ModelViewport(QtWidgets.QWidget):
 
     # ---------------------------------------------------------- geometry
     def _world_tolerance(self) -> float:
-        """World size of PICK_PIXELS at the focal plane."""
+        """World size of PICK_PIXELS (logical, device-independent pixels) at the focal
+        plane: the logical height of the widget, so it is the same on every display
+        scaling - like the snap aperture (D16)."""
         cam = self.renderer.GetActiveCamera()
         h = self.vtk_widget.height() or 1
         if cam.GetParallelProjection():
@@ -1396,8 +1462,15 @@ class ModelViewport(QtWidgets.QWidget):
         p[k] = pl.value
         return float(p[0]), float(p[1]), float(p[2])
 
+    def _dpr(self) -> float:
+        return view_dpr(self)
+
+    def _snap_objects(self):
+        return view_snap_objects(self)
+
     def _snap_engine(self, x: int, y: int):
         from .snap import SnapEngine, reference_lines_for
+        from .tools import plane_band
         st = self.state
         pl = self.plane()
         prev = st.tool.points[-1] if getattr(st.tool, "points", None) else None
@@ -1405,13 +1478,20 @@ class ModelViewport(QtWidgets.QWidget):
         o = self.display_options
         if st.snap.reference and getattr(o, "reference_lines", False):
             refs = reference_lines_for(self.doc.model, pl, (o.reference_x, o.reference_y, o.reference_z))
-        depth = None
+        depth = near = None
+        cam = self.renderer.GetActiveCamera()
         if pl.kind == "3d":
-            eye = np.asarray(self.renderer.GetActiveCamera().GetPosition(), float)
-            dop = np.asarray(self.renderer.GetActiveCamera().GetDirectionOfProjection(), float)
+            eye = np.asarray(cam.GetPosition(), float)
+            dop = np.asarray(cam.GetDirectionOfProjection(), float)
             depth = lambda xyz: float(np.dot(np.asarray(xyz, float) - eye, dop))  # noqa: E731
-        eng = SnapEngine(self.doc.model, pl, st.snap, self._display, self._plane_point, prev,
-                         max(self.doc.model.options.merge_tolerance, 1e-6), refs, depth=depth)
+            # behind the eye / in front of the near clipping plane: not a target (perspective
+            # would mirror it onto the screen)
+            near = max(float(cam.GetClippingRange()[0]), 0.0) if not cam.GetParallelProjection() else None
+        m = self.doc.model
+        eng = SnapEngine(m, pl, st.snap, self._display, self._plane_point, prev,
+                         max(m.options.merge_tolerance, 1e-6), refs, depth=depth,
+                         objects=view_snap_objects(self), near=near, px_scale=view_dpr(self),
+                         plane_tol=plane_band(m))
         eng.override = getattr(st, "snap_override", None)
         return eng
 
@@ -1421,25 +1501,59 @@ class ModelViewport(QtWidgets.QWidget):
         All enabled snap types compete; the N key cycles through the hits inside
         the tolerance (``_snap_index``).  Without a hit the free cursor point on
         the plane is used (none in 3D views, or with *Draw Using Snap Only*)."""
-        from .snap import SnapHit
+        from .snap import SnapHit, SnapResolution
         st = self.state
         pl = self.plane()
         tool = st.tool
-        tool.set_plane(pl)
-        tool.tolerance = self._world_tolerance() * 2.0
+        # hovering is read-only: a command with picked points keeps its plane (and its
+        # points) when the cursor passes over another window; the plane changes when a
+        # point is clicked there (D06)
+        if not getattr(tool, "points", None):
+            tool.set_plane(pl)
+            tool.tolerance = self._world_tolerance() * 2.0
         eng = self._snap_engine(x, y)
         hits = eng.find(x, y)
         self._snap_hits = hits
+        hit, where = None, ""
         if hits:
-            hit = hits[self._snap_index % len(hits)]
-            return hit.xyz, hit
-        if pl.kind == "3d" or st.snap.snap_only:
+            # the candidate chosen with N stays chosen while it is under the cursor (D04)
+            idx = self._snap_index % len(hits)
+            pick = getattr(self, "_snap_pick", None)
+            if pick is not None:
+                j = next((k for k, h in enumerate(hits) if _hit_key(h) == pick), None)
+                if j is None:
+                    self._snap_pick, idx = None, 0
+                else:
+                    idx = j
+            self._snap_index = idx
+            if idx or pick is not None:
+                self._snap_pick = _hit_key(hits[idx])
+            hit = eng.apply_increments(hits[idx])  # increments on lines / tracking too (D10)
+        else:
+            self._snap_pick, self._snap_index = None, 0  # left the candidates: the N choice ends
+        if not hits and not st.snap.snap_only:
+            if pl.kind == "3d":
+                xyz, where = view_work_plane_point(self, x, y)
+            else:
+                xyz = self._plane_point(x, y)
+                if xyz is not None:
+                    where = {"plan": f"plane Z = {xyz[2]:g}", "xz": f"plane Y = {xyz[1]:g}",
+                             "yz": f"plane X = {xyz[0]:g}"}[pl.kind]
+            if xyz is not None:
+                hit = eng.apply_increments(SnapHit(tuple(xyz), "free"))
+        if hit is None:
+            self._resolution = SnapResolution(pl.kind, (float(x), float(y)), None, "none", None, float("inf"),
+                                              candidates=len(hits))
             return None, None
-        xyz = self._plane_point(x, y)
-        if xyz is None:
-            return None, None
-        hit = eng.apply_increments(SnapHit(tuple(xyz), "free"))
+        err = float(np.linalg.norm(np.subtract(self._display(hit.xyz), (x, y))))
+        self._resolution = SnapResolution(pl.kind, (float(x), float(y)), tuple(hit.xyz), hit.kind, hit.target, err,
+                                          depth=eng.depth(hit.xyz) if eng.depth else None,
+                                          candidates=len(hits), index=self._snap_index if hits else 0,
+                                          plane=where)
         return hit.xyz, hit
+
+    def _work_plane_point(self, x: int, y: int):
+        return view_work_plane_point(self, x, y)
 
     # ------------------------------------------------------------- events
     def _on_left_press(self, obj, event):
@@ -1494,9 +1608,14 @@ class ModelViewport(QtWidgets.QWidget):
             st.status.emit(f"{st.tool.name.replace('_', ' ').title()} works in "
                            f"{', '.join(v.upper() if v != 'plan' else 'plan' for v in st.tool.views)} views")
             return
+        # the window clicked in becomes the command's window: its plane is used from now
+        # on (a straight chain goes on across windows; polygons / arcs start again)
+        st.tool.set_plane(self.plane())
+        st.tool.tolerance = self._world_tolerance() * 2.0
         pt, snap = self._snapped(x, y)
         if pt is None:
-            st.status.emit("Snap to a point or grid intersection in 3D views")
+            st.status.emit("Nothing to snap to here: in 3D pick a joint, line or grid point, or set "
+                           "'3D: point off the snaps' to a work plane (Properties of Object), or type x,y,z")
             return
         try:
             if self.interactor.GetRepeatCount() > 0:
@@ -1504,6 +1623,7 @@ class ModelViewport(QtWidgets.QWidget):
             else:
                 done = st.tool.click(pt, snap)
             st.snap_override = None  # a one-shot snap is used up by the point
+            self._snap_pick, self._snap_index = None, 0
         except Exception as exc:
             st.report(exc)
             st.tool.cancel()
@@ -1804,7 +1924,7 @@ class ModelViewport(QtWidgets.QWidget):
         self.apply_camera()
 
     _TYPED_KEYS = {"period": ".", "KP_Decimal": ".", "comma": ",", "minus": "-", "KP_Subtract": "-",
-                   "less": "<", "at": "@", "plus": "+", "KP_Add": "+", "e": "e", "E": "e"}
+                   "less": "<", "at": "@", "plus": "+", "KP_Add": "+", "e": "e", "E": "e", "numbersign": "#"}
 
     def _accepts_typing(self) -> bool:
         """CAD dynamic input: a point tool with a first point (or a tool reading a
@@ -1814,7 +1934,9 @@ class ModelViewport(QtWidgets.QWidget):
             return False
         if self.config.kind not in getattr(tool, "views", ()):
             return False
-        return bool(tool.points) or type(tool).typed is not Tool.typed
+        # a first point can be typed as coordinates too (x,y,z) (D14)
+        return bool(tool.points) or type(tool).typed is not Tool.typed or \
+            (getattr(tool, "takes_typed_points", False) and not getattr(tool, "picks_frames", False))
 
     def _typed_char(self, key: str) -> Optional[str]:
         if len(key) == 1 and key.isdigit():
@@ -1824,6 +1946,8 @@ class ModelViewport(QtWidgets.QWidget):
         ch = self._TYPED_KEYS.get(key)
         if ch == "e" and not self._typed:
             return None  # letters only inside a number (1e3)
+        if ch == "#" and self._typed:
+            return None  # '#' (absolute point) only at the start
         if ch in ("+",) and not self._typed:
             return None  # +/- zoom when nothing is typed
         return ch
@@ -1909,6 +2033,7 @@ class ModelViewport(QtWidgets.QWidget):
             return
         if key in ("n", "N") and st.tool.name not in ("select", "select_line"):
             if len(self._snap_hits) > 1:
+                self._snap_pick = None  # the next candidate becomes the chosen one
                 self._snap_index = (self._snap_index + 1) % len(self._snap_hits)
                 x, y = self.interactor.GetEventPosition()
                 self._update_preview(x, y, keep_index=True)
@@ -1961,7 +2086,7 @@ class ModelViewport(QtWidgets.QWidget):
         """Screen-space pick: ('point'|'frame'|'area', name) or None."""
         m = self.doc.model
         vis = self.visible()
-        tol = self.PICK_PIXELS
+        tol = self.PICK_PIXELS * view_dpr(self)  # logical pixels -> display (physical) pixels (D16)
         frames = [f for f in m.frames.values() if vis(f)]
         areas = [a for a in m.areas.values() if vis(a)]
         shown_pts = {n for f in frames for n in (f.point_i, f.point_j)} | {n for a in areas for n in a.points}
@@ -2004,7 +2129,7 @@ class ModelViewport(QtWidgets.QWidget):
         frames, then areas containing the cursor."""
         m = self.doc.model
         vis = self.visible()
-        tol = self.PICK_PIXELS
+        tol = self.PICK_PIXELS * view_dpr(self)  # logical pixels -> display (physical) pixels (D16)
         out = []
         frames = [f for f in m.frames.values() if vis(f)]
         areas = [a for a in m.areas.values() if vis(a)]
@@ -2125,8 +2250,7 @@ class ModelViewport(QtWidgets.QWidget):
     def _update_preview(self, x: int, y: int, keep_index: bool = False):
         st = self.state
         self._last_xy = (x, y)
-        if not keep_index:
-            self._snap_index = 0
+        # (the candidate chosen with N is kept by _snapped while it stays under the cursor)
         self._clear_preview()
         if self.config.kind not in st.tool.views:
             self.render()
@@ -2149,6 +2273,7 @@ class ModelViewport(QtWidgets.QWidget):
             return
         pt, snap = self._snapped(x, y)
         if pt is None:
+            self._last_cursor = None  # no direction for a typed distance from here (D09)
             self.render()
             return
         self._last_cursor = tuple(pt)
@@ -2203,6 +2328,16 @@ class ModelViewport(QtWidgets.QWidget):
         elif snap is not None and getattr(snap, "text", ""):
             txt = (txt + "   " if txt else "") + snap.text
         unit, uf = self._length_unit()
+        res = getattr(self, "_resolution", None)
+        if snap is not None and res is not None and res.xyz is not None:
+            # where the point is, in full: two candidates can overlap on the screen (D04 / D14)
+            p = res.xyz
+            st_ = self.doc.model.story_at(p[2], max(self.doc.model.options.merge_tolerance, 1e-6))
+            where = f"X {p[0] * uf:.3f}  Y {p[1] * uf:.3f}  Z {p[2] * uf:.3f} {unit}"
+            where += f"  [{st_.name}]" if st_ is not None else ""
+            if not snapped and res.plane:
+                where += f"  (free point on {res.plane})"
+            tip.append(where)
         if pv.text:
             import re
             # lengths of the tools are in model units: show them in the display unit, with the unit
@@ -2212,7 +2347,10 @@ class ModelViewport(QtWidgets.QWidget):
         if self._typed:
             tip.append(f"> {self._typed}_ {unit}   (Enter)")
         elif self._accepts_typing():
-            tip.append(f"type a length in {unit}: 6 or 6<30 (angle °) or 3,4")
+            if getattr(self.state.tool, "points", None):
+                tip.append(f"type a length in {unit}: 6 or 6<30 (angle °) or 3,4  (#x,y,z = absolute)")
+            else:
+                tip.append(f"or type the point: x,y,z in {unit}")
         self.text.SetInput(txt)
         if tip and (x or y):
             self.tip.SetInput("\n".join(tip))

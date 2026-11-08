@@ -1471,3 +1471,62 @@ def test_results_as_lines_or_extruded_from_the_display_bar(window, app):
         assert all(a.GetVisibility() for k, a in zip(vp._scene_keys, vp._scene_actors) if k.startswith("frames")
                    and not k.endswith("_sel"))
     assert window.act_extrude in window.findChild(QtWidgets.QToolBar, "display").actions()
+
+
+def _qt_point(vp, xyz, dx=0, dy=0):
+    """Qt widget (logical) position of a world point, offset by (dx, dy) logical px."""
+    x, y = vp._display(xyz)
+    r = vp.vtk_widget.devicePixelRatioF() or 1.0
+    return QtCore.QPoint(int(round(x / r)) + dx, int(round(vp.vtk_widget.height() - y / r)) + dy)
+
+
+def _qt_click(app, vp, pt):
+    QtTest.QTest.mouseMove(vp.vtk_widget, pt)
+    app.processEvents()
+    QtTest.QTest.mouseClick(vp.vtk_widget, QtCore.Qt.LeftButton, QtCore.Qt.NoModifier, pt)
+    app.processEvents()
+
+
+@gui
+def test_drawing_audit_real_clicks_cross_level_lines_and_hover_in_other_windows(window, app):
+    """Real Qt mouse events (D01 / D03 / D06): diagonal members across stories in the 3D
+    (perspective) window, clicks a few pixels off the joints, the cursor passing over the
+    plan window between the two clicks; then typed coordinates (D14)."""
+    m = _with_objects(window, app)
+    vp3 = window.views.viewports[1]
+    vp0 = window.views.viewports[0]
+    window.views.set_active(vp3)
+    vp3.fit()
+    app.processEvents()
+    assert not vp3.renderer.GetActiveCamera().GetParallelProjection()  # perspective
+    window.state.set_tool("beam")
+    pts = list(m.points.values())
+    pairs = [((0, 0, 0), (6, 5, 3.5)), ((12, 0, 3.5), (6, 5, 7.0)), ((0, 5, 7.0), (12, 0, 0))]
+    for a_xyz, b_xyz in pairs:
+        a = next(p for p in pts if p.xyz == a_xyz)
+        b = next(p for p in pts if p.xyz == b_xyz)
+        n0 = set(window.doc.model.frames)
+        _qt_click(app, vp3, _qt_point(vp3, a.xyz, 3, -2))
+        # the cursor crosses the plan window before the second click: the line keeps its start
+        QtTest.QTest.mouseMove(vp0.vtk_widget, QtCore.QPoint(200, 200))
+        app.processEvents()
+        assert window.state.tool.points and tuple(window.state.tool.points[0]) == a.xyz
+        _qt_click(app, vp3, _qt_point(vp3, b.xyz, -2, 3))
+        QtTest.QTest.keyClick(vp3.vtk_widget, QtCore.Qt.Key_Escape)
+        app.processEvents()
+        mm = window.doc.model
+        new = [f for n, f in mm.frames.items() if n not in n0]
+        assert len(new) == 1
+        assert {mm.points[new[0].point_i].xyz, mm.points[new[0].point_j].xyz} == {a.xyz, b.xyz}
+    # typed: the first point as coordinates, then an absolute end point
+    n0 = len(window.doc.model.frames)
+    vp3.vtk_widget.setFocus()
+    for text in ("1,1,3.5", "#5,4,7"):
+        for ch in text:
+            QtTest.QTest.keyClicks(vp3.vtk_widget, ch)
+        QtTest.QTest.keyClick(vp3.vtk_widget, QtCore.Qt.Key_Return)
+        app.processEvents()
+    mm = window.doc.model
+    assert len(mm.frames) == n0 + 1
+    f = mm.frames[window.state.tool.created[-1]]
+    assert {mm.points[f.point_i].xyz, mm.points[f.point_j].xyz} == {(1.0, 1.0, 3.5), (5.0, 4.0, 7.0)}

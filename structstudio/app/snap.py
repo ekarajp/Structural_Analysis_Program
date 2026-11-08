@@ -47,7 +47,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from ..model import Model
-from .tools import Plane, grid_ordinates, story_levels
+from .tools import PLANE_BAND, Plane, grid_ordinates, story_levels
 
 XYZ = Tuple[float, float, float]
 
@@ -161,6 +161,7 @@ class SnapHit:
     track: Optional[Tuple[XYZ, XYZ]] = None  # a tracking line to draw (world)
     text: str = ""  # extra description (length / angle)
     track2: Optional[Tuple[XYZ, XYZ]] = None  # a second tracking line (crossing alignments)
+    line: Optional[Tuple[XYZ, XYZ]] = None  # the line the point lies on (nearest / edge / extension ...)
 
     @property
     def label(self) -> str:
@@ -175,6 +176,24 @@ class SnapHit:
     @property
     def xy(self):
         return self.xyz
+
+
+@dataclass(frozen=True)
+class SnapResolution:
+    """One resolved pick (immutable): what the marker shows, the preview draws and the
+    click commits are the same record.  ``screen_error_px`` is measured by projecting
+    ``xyz`` back to the screen (not the distance to a 2D construction)."""
+
+    view: str  # plan | xz | yz | 3d
+    cursor: Tuple[float, float]  # display (render) pixels
+    xyz: Optional[XYZ]
+    kind: str  # joint | ... | free | none
+    target: Optional[str]
+    screen_error_px: float
+    depth: Optional[float] = None
+    candidates: int = 0
+    index: int = 0
+    plane: str = ""  # where a free point lies (plan Z=..., 3D work plane ...)
 
 
 @dataclass
@@ -195,7 +214,9 @@ class SnapEngine:
                  to_plane: Callable[[float, float], Optional[XYZ]],
                  previous: Optional[XYZ] = None, world_tol: float = 1e-6,
                  reference_lines: Sequence[Tuple[XYZ, XYZ]] = (),
-                 depth: Optional[Callable[[Sequence[float]], float]] = None):
+                 depth: Optional[Callable[[Sequence[float]], float]] = None,
+                 objects: Optional[Tuple[Optional[set], Optional[set], Optional[set]]] = None,
+                 near: Optional[float] = None, px_scale: float = 1.0, plane_tol: Optional[float] = None):
         self.model = model
         self.plane = plane
         self.opt = options
@@ -203,17 +224,46 @@ class SnapEngine:
         self.to_plane = to_plane
         self.previous = np.asarray(previous, float) if previous is not None else None
         self.world_tol = max(world_tol, 1e-9)
+        # "in the plane of the window": the same band the window draws (D05)
+        self.plane_tol = plane_tol if plane_tol is not None else PLANE_BAND * self.world_tol
         self.reference_lines = reference_lines
-        self.depth = depth  # distance from the eye (3D views: the point in front wins a tie on the screen)
+        self.depth = depth  # distance from the eye along the view direction (3D views)
+        # (frames, areas, points) the window shows - None: all.  Hidden objects are no targets (D03)
+        self.objects = objects or (None, None, None)
+        # nothing at or behind the eye (or in front of the near clipping plane) is a target (D03)
+        self.near = near
+        # apertures are in screen (device independent) pixels; display coordinates may be
+        # physical pixels (HiDPI): px_scale = physical / logical (D16)
+        self.px_scale = max(float(px_scale or 1.0), 1e-6)
         self._segs: Optional[List[_Seg]] = None
+        self._disp_cache: Dict[Tuple[float, float, float], np.ndarray] = {}
         self.override: Optional[str] = None  # one-shot snap override (Shift / Ctrl + right-click menu)
 
     # ------------------------------------------------------------ helpers
+    @property
+    def tolerance(self) -> float:
+        """The snap aperture in display pixels."""
+        return float(self.opt.tolerance_px) * self.px_scale
+
     def _in_plane(self, xyz) -> bool:
-        return self.plane.contains(xyz, self.world_tol)
+        return self.plane.contains(xyz, self.plane_tol)
 
     def _disp(self, xyz) -> np.ndarray:
-        return np.asarray(self.project(xyz), float)
+        key = (float(xyz[0]), float(xyz[1]), float(xyz[2]))
+        d = self._disp_cache.get(key)
+        if d is None:
+            d = self._disp_cache[key] = np.asarray(self.project(key), float)
+        return d
+
+    def _in_front(self, xyz) -> bool:
+        if self.depth is None or self.near is None:
+            return True
+        return self.depth(xyz) > self.near
+
+    def _shown(self, kind: str, name: Optional[str]) -> bool:
+        fr, ar, pt = self.objects
+        which = {"frame": fr, "edge": ar, "point": pt}.get(kind)
+        return which is None or name is None or name in which
 
     def segments(self) -> List[_Seg]:
         """Line segments of the view: frames, shell edges, grid lines, reference lines."""
@@ -223,10 +273,14 @@ class SnapEngine:
         pts = m.points
         out: List[_Seg] = []
         for f in m.frames.values():
+            if not self._shown("frame", f.name):
+                continue
             a, b = np.asarray(pts[f.point_i].xyz, float), np.asarray(pts[f.point_j].xyz, float)
             if self.plane.kind == "3d" or (self._in_plane(a) and self._in_plane(b)):
                 out.append(_Seg(a, b, "frame", f.name))
         for ar in m.areas.values():
+            if not self._shown("edge", ar.name):
+                continue
             n = len(ar.points)
             for k in range(n):
                 a = np.asarray(pts[ar.points[k]].xyz, float)
@@ -268,12 +322,17 @@ class SnapEngine:
         return out
 
     # --------------------------------------------------------- candidates
-    def _point_candidates(self) -> List[SnapHit]:
+    def _point_candidates(self, cursor=None, tol: Optional[float] = None) -> List[SnapHit]:
+        """Object points (joints, ends, midpoints, grid points, intersections, centres).
+        With ``cursor`` the intersections are searched only among the lines passing
+        within ``tol`` of it (an intersection near the cursor lies on two of them) (D15)."""
         m = self.model
         o = self.opt
         out: List[SnapHit] = []
         if o.joints:
             for p in m.points.values():
+                if not self._shown("point", p.name):
+                    continue
                 if self.plane.kind == "3d" or self._in_plane(p.xyz):
                     out.append(SnapHit(tuple(p.xyz), "joint", p.name))
         if o.ends_midpoints:
@@ -297,14 +356,27 @@ class SnapEngine:
             else:
                 out += [SnapHit((x, y, z), "grid") for x in xs for y in ys for z in levels]
         if o.intersections and self.plane.kind != "3d":
-            out += self._intersections()
+            out += self._intersections(cursor, tol)
         if o.centers:
             out += self._centers_of_areas()
         return out
 
-    def _intersections(self) -> List[SnapHit]:
+    def _intersections(self, cursor=None, tol: Optional[float] = None) -> List[SnapHit]:
         """Crossings of segments in the plane (frames, edges, grid lines)."""
         segs = [s for s in self.segments() if s.kind in ("frame", "edge", "grid", "reference")]
+        if cursor is not None and tol is not None:
+            near = []
+            for s in segs:
+                a, b = self._disp(s.a), self._disp(s.b)
+                lo, hi = np.minimum(a, b) - tol, np.maximum(a, b) + tol
+                if not (lo[0] <= cursor[0] <= hi[0] and lo[1] <= cursor[1] <= hi[1]):
+                    continue
+                d = b - a
+                L2 = float(d @ d)
+                t = 0.0 if L2 <= 1e-12 else min(max(float((cursor - a) @ d) / L2, 0.0), 1.0)
+                if float(np.linalg.norm(a + t * d - cursor)) <= tol:
+                    near.append(s)
+            segs = near
         out = []
         pl = self.plane
         to2 = pl.to2
@@ -349,24 +421,27 @@ class SnapEngine:
         (joints, ends, midpoints, intersections, grid points, nearest of them first),
         then perpendicular / extension, then tracking and lines.  With a one-shot
         override (``override``) only that kind of snap is searched."""
-        tol = self.opt.tolerance_px
+        tol = self.tolerance
         cursor = np.array([x, y], float)
         hits: List[SnapHit] = []
         ov = getattr(self, "override", None)
         if ov is not None:
-            return self._override_hits(ov, cursor, tol)
+            return [h for h in self._override_hits(ov, cursor, tol) if self._in_front(h.xyz)]
         if self.opt.osnap:
-            for h in self._point_candidates():
+            for h in self._point_candidates(cursor, tol):
+                if not self._in_front(h.xyz):
+                    continue
                 d = float(np.linalg.norm(self._disp(h.xyz) - cursor))
                 if d <= tol:
                     h.distance = d
                     hits.append(h)
             hits += self._line_hits(cursor, tol)
         hits += self._tracking_hits(cursor, tol)
-        hits = [h for h in hits if h.distance <= 8.0 * tol]
-        # a snap point far from the cursor (the foot of a perpendicular on the line under the
-        # cursor) ranks after everything that is under the cursor
-        tier = lambda h: self.TIER.get(h.kind, 4) if h.distance <= tol else 5  # noqa: E731
+        # only points inside the aperture: every distance is the snapped point projected back
+        # to the screen.  (A perpendicular foot away from the cursor is offered only by the
+        # explicit Perpendicular snap of the Shift / Ctrl + right-click menu.) (D02)
+        hits = [h for h in hits if h.distance <= tol and self._in_front(h.xyz)]
+        tier = lambda h: self.TIER.get(h.kind, 4)  # noqa: E731
         sub = {"joint": 0, "end": 1, "grid": 2, "intersection": 3, "midpoint": 4, "center": 5}
         # the joints / ends (drawn as squares) are what one clicks; a midpoint or centre
         # that happens to sit near them on the screen (3D: the middle of a beam of another
@@ -375,10 +450,11 @@ class SnapEngine:
         rank_d = lambda h: h.distance + (bias.get(h.kind, 0.0) if tier(h) == 0 else 0.0)  # noqa: E731
         hits.sort(key=lambda h: (tier(h), round(rank_d(h), 1), sub.get(h.kind, 9)))
         if self.depth is not None and hits and tier(hits[0]) == 0:
-            # 3D: points of different levels can sit on top of each other on the screen -
-            # of the object points really under the same pixel the one in front is meant
+            # 3D: points of different levels can project onto the same pixel - only then
+            # (within half a pixel) the one in front is taken; a point nearer the cursor on
+            # the screen always wins, however far behind it is (D04).  N cycles through them.
             best = rank_d(hits[0])
-            near = [h for h in hits if tier(h) == 0 and rank_d(h) <= best + 1.5]
+            near = [h for h in hits if tier(h) == 0 and rank_d(h) <= best + 0.5 * self.px_scale]
             if len(near) > 1:
                 front = min(near, key=lambda h: self.depth(h.xyz))
                 hits.remove(front)
@@ -426,7 +502,7 @@ class SnapEngine:
             self._segs = None
             big = 3.0 * tol  # a chosen snap reaches farther (CAD: the aperture of the override)
             hits = []
-            for h in self._point_candidates():
+            for h in self._point_candidates(cursor, big):
                 d = float(np.linalg.norm(self._disp(h.xyz) - cursor))
                 if d <= big and h.kind in kinds:
                     h.distance = d
@@ -451,18 +527,61 @@ class SnapEngine:
             out.append(SnapHit(tuple(xyz.mean(axis=0).tolist()), "center", ar.name))
         return out
 
-    def _nearest_on_segment_display(self, s: _Seg, cursor, extend: bool = False):
-        """(t, display distance) of the cursor's foot on the projected segment."""
-        a, b = self._disp(s.a), self._disp(s.b)
-        d = b - a
-        L2 = float(d @ d)
+    def _clip_to_front(self, s: _Seg) -> Optional[Tuple[np.ndarray, np.ndarray, float, float]]:
+        """The part of the segment in front of the eye: (a, b, t0, t1) with a, b its
+        ends and t0, t1 their parameters on the original segment; None if all behind."""
+        if self.depth is None or self.near is None:
+            return s.a, s.b, 0.0, 1.0
+        da, db = self.depth(s.a), self.depth(s.b)
+        n = self.near
+        if da <= n and db <= n:
+            return None
+        if da > n and db > n:
+            return s.a, s.b, 0.0, 1.0
+        tc = (n - da) / (db - da) if db != da else 0.0
+        tc = min(max(tc, 0.0), 1.0)
+        if da <= n:
+            t0, t1 = tc + 1e-9, 1.0
+        else:
+            t0, t1 = 0.0, tc - 1e-9
+        d = s.b - s.a
+        return s.a + t0 * d, s.a + t1 * d, t0, t1
+
+    def _nearest_on_segment(self, s: _Seg, cursor, extend: bool = False):
+        """(t, world point, screen distance) of the point of the segment's line whose
+        projection is nearest the cursor.  Perspective does not keep ratios along a
+        line, so the screen parameter is mapped back to the world parameter (a line
+        projects through a 1D projective map t -> s, fixed by the two ends and the
+        midpoint) and the distance is measured by projecting the world point back (D01)."""
+        clip = self._clip_to_front(s)
+        if clip is None:
+            return None
+        ca, cb, t0, t1 = clip
+        A, B = self._disp(ca), self._disp(cb)
+        D = B - A
+        L2 = float(D @ D)
         if L2 <= 1e-12:
             return None
-        t = float((cursor - a) @ d) / L2
-        if not extend:
-            t = max(0.0, min(1.0, t))
-        foot = a + t * d
-        return t, float(np.linalg.norm(foot - cursor))
+        sp = float((cursor - A) @ D) / L2  # screen parameter on the clipped segment
+        M = self._disp(0.5 * (ca + cb))
+        sm = float((M - A) @ D) / L2  # where the world midpoint lands on the screen (0.5 if affine)
+        k = (1.0 / sm - 1.0) if 1e-9 < sm < 1.0 - 1e-9 else 1.0
+        if not extend or t0 > 0.0 or t1 < 1.0:
+            sp = min(max(sp, 0.0), 1.0)  # (a line cut at the eye is not extended)
+        den = 1.0 - sp + k * sp
+        if den <= 1e-12:  # past the vanishing point: no point of the line projects there
+            return None
+        u = k * sp / den  # world parameter on the clipped segment
+        t = t0 + u * (t1 - t0)
+        p = s.a + t * (s.b - s.a)
+        if not self._in_front(p):
+            return None
+        return t, p, float(np.linalg.norm(self._disp(p) - cursor))
+
+    def _nearest_on_segment_display(self, s: _Seg, cursor, extend: bool = False):
+        """(t, screen distance) - see :meth:`_nearest_on_segment`."""
+        res = self._nearest_on_segment(s, cursor, extend)
+        return None if res is None else (res[0], res[2])
 
     def _line_hits(self, cursor, tol) -> List[SnapHit]:
         o = self.opt
@@ -478,34 +597,35 @@ class SnapEngine:
                                                    or o.perpendicular or o.extensions):
                 if not (s.kind == "edge" and o.edges):
                     continue
-            res = self._nearest_on_segment_display(s, cursor, extend=o.extensions and s.kind in ("frame", "edge"))
+            res = self._nearest_on_segment(s, cursor, extend=o.extensions and s.kind in ("frame", "edge"))
             if res is None:
                 continue
-            t, d = res
+            t, p, d = res
             if d > tol:
                 continue
-            p = s.a + t * (s.b - s.a)
+            line = (tuple(s.a.tolist()), tuple(s.b.tolist()))
             if o.perpendicular and self.previous is not None and s.kind in ("frame", "edge", "grid", "reference"):
                 # foot of the perpendicular from the previous point onto the line
                 dv = s.b - s.a
                 tp = float((self.previous - s.a) @ dv) / float(dv @ dv)
                 foot = s.a + tp * dv
                 degenerate = float(np.linalg.norm(self._disp(foot) - self._disp(self.previous))) <= tol
-                if (0.0 <= tp <= 1.0 or s.kind == "grid") and not degenerate:
+                if (0.0 <= tp <= 1.0 or s.kind == "grid") and not degenerate and self._in_front(foot):
                     out.append(SnapHit(tuple(foot.tolist()), "perpendicular", s.name,
                                        float(np.linalg.norm(self._disp(foot) - cursor)),
-                                       track=(tuple(self.previous.tolist()), tuple(foot.tolist()))))
+                                       track=(tuple(self.previous.tolist()), tuple(foot.tolist())), line=line))
             if t < -1e-9 or t > 1 + 1e-9:
                 if o.extensions:
                     out.append(SnapHit(tuple(p.tolist()), "extension", s.name, d,
-                                       track=(tuple((s.a if t > 1 else s.b).tolist()), tuple(p.tolist()))))
+                                       track=(tuple((s.a if t > 1 else s.b).tolist()), tuple(p.tolist())),
+                                       line=line))
                 continue
             if s.kind == "reference":
-                out.append(SnapHit(tuple(p.tolist()), "reference", None, d))
+                out.append(SnapHit(tuple(p.tolist()), "reference", None, d, line=line))
             elif s.kind == "edge" and (o.edges or o.lines):
-                out.append(SnapHit(tuple(p.tolist()), "edge" if o.edges else "nearest", s.name, d))
+                out.append(SnapHit(tuple(p.tolist()), "edge" if o.edges else "nearest", s.name, d, line=line))
             elif o.lines:
-                out.append(SnapHit(tuple(p.tolist()), "nearest", s.name, d))
+                out.append(SnapHit(tuple(p.tolist()), "nearest", s.name, d, line=line))
         return out
 
     def _tracking_hits(self, cursor, tol) -> List[SnapHit]:
@@ -565,7 +685,7 @@ class SnapEngine:
             if not self._in_plane(p.xyz):
                 continue
             d = float(np.linalg.norm(self._disp(p.xyz) - cursor))
-            if tol < d <= self.ALIGN_RADIUS_PX:
+            if tol < d <= self.ALIGN_RADIUS_PX * self.px_scale:
                 anchors.append((d, p.name, pl.to2(p.xyz), p.xyz))
         if self.previous is not None:
             pxyz = tuple(self.previous.tolist())
@@ -614,18 +734,79 @@ class SnapEngine:
                        text=f"{ang_deg:g}°")
 
     # ------------------------------------------------------------ increments
+    LINE_KINDS = ("nearest", "edge", "extension", "reference", "perpendicular")
+    TRACK_KINDS = ("ortho", "polar", "parallel")
+
     def apply_increments(self, hit: SnapHit) -> SnapHit:
-        """Length / angle increments relative to the previous point (CAD style)."""
+        """Length / angle increments relative to the previous point (CAD style) (D10):
+
+        * exact object points (joints, ends, midpoints, grid, intersections, centres)
+          are never moved off their object;
+        * a point on a line (nearest / edge / extension / reference) stays on that line:
+          the length steps to the nearest increment along it (angle comes from the line);
+        * a tracking point (ortho / polar / parallel) keeps its direction: length only;
+        * a free point (and the fine grid) takes both length and angle steps in the plane.
+        The returned hit says what was applied (its text)."""
         o = self.opt
-        if self.previous is None or self.plane.kind == "3d":
+        if self.previous is None or not (o.length_increments or o.angle_increments):
             return hit
-        if not (o.length_increments or o.angle_increments):
-            return hit
-        if hit.kind not in ("free", "nearest", "edge", "fine_grid", "ortho", "polar", "parallel", "extension",
-                            "reference"):
+        prev = self.previous
+        steps = [st for st in (o.length_steps or []) if st > 0] if o.length_increments else []
+        if hit.kind in ("perpendicular",):
+            return hit  # the foot is an exact point
+        if hit.kind in self.LINE_KINDS and hit.line is not None:
+            if not steps:
+                return hit
+            a, b = np.asarray(hit.line[0], float), np.asarray(hit.line[1], float)
+            d = b - a
+            dd = float(d @ d)
+            if dd <= 1e-18:
+                return hit
+            p = np.asarray(hit.xyz, float)
+            L = float(np.linalg.norm(p - prev))
+            t_hit = float((p - a) @ d) / dd
+            best = None
+            for st in steps:
+                for Lk in (math.floor(L / st) * st, math.ceil(L / st) * st):
+                    if Lk <= 0:
+                        continue
+                    # |a + t d - prev| = Lk  ->  dd t^2 + 2 (a - prev).d t + |a - prev|^2 - Lk^2 = 0
+                    w = a - prev
+                    B, C = 2.0 * float(w @ d), float(w @ w) - Lk * Lk
+                    disc = B * B - 4.0 * dd * C
+                    if disc < 0:
+                        continue
+                    for t in ((-B - math.sqrt(disc)) / (2 * dd), (-B + math.sqrt(disc)) / (2 * dd)):
+                        if hit.kind != "extension" and not (-1e-9 <= t <= 1 + 1e-9):
+                            continue
+                        q = a + t * d
+                        cost = abs(t - t_hit)
+                        if best is None or cost < best[0]:
+                            best = (cost, q, Lk)
+            if best is None:
+                return hit
+            q = best[1]
+            return SnapHit(tuple(q.tolist()), "increment", hit.target, hit.distance,
+                           track=(tuple(prev.tolist()), tuple(q.tolist())), line=hit.line,
+                           text=f"L={best[2]:g} on {KIND_LABELS.get(hit.kind, hit.kind).lower()}")
+        if hit.kind in self.TRACK_KINDS:
+            if not steps:
+                return hit
+            p = np.asarray(hit.xyz, float)
+            v = p - prev
+            L = float(np.linalg.norm(v))
+            if L <= 0:
+                return hit
+            Lk = min((round(L / st) * st for st in steps), key=lambda x: abs(x - L))
+            if Lk <= 0:
+                return hit
+            q = prev + v / L * Lk
+            return SnapHit(tuple(q.tolist()), "increment", hit.target, hit.distance,
+                           track=(tuple(prev.tolist()), tuple(q.tolist())), text=f"L={Lk:g}  {hit.text}".strip())
+        if hit.kind not in ("free", "fine_grid") or self.plane.kind == "3d":
             return hit  # exact targets win over increments
         pl = self.plane
-        pu, pv = pl.to2(tuple(self.previous.tolist()))
+        pu, pv = pl.to2(tuple(prev.tolist()))
         u, v = pl.to2(hit.xyz)
         du, dv = u - pu, v - pv
         L = math.hypot(du, dv)
@@ -636,8 +817,8 @@ class SnapEngine:
         if o.angle_increments and o.angle_increment > 0:
             ang = round(ang / o.angle_increment) * o.angle_increment
             changed = True
-        if o.length_increments and o.length_steps:
-            best = min((abs(L - round(L / st) * st), round(L / st) * st) for st in o.length_steps if st > 0)
+        if steps:
+            best = min((abs(L - round(L / st) * st), round(L / st) * st) for st in steps)
             if best[1] > 0:
                 L = best[1]
                 changed = True

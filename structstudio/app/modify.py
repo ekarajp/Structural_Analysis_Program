@@ -473,6 +473,23 @@ def parse_typed(text: str, base: XYZ, toward: Optional[XYZ], plane: Plane) -> XY
     raise ValueError(f"Cannot read {text!r}: type 6, 6<30, 3,4 or 3,4,1")
 
 
+def parse_absolute(text: str, plane: Plane) -> XYZ:
+    """Typed absolute coordinates: ``x,y,z`` (global), or ``u,v`` in a plan /
+    elevation window (the window plane gives the third coordinate)."""
+    t = text.strip().replace(" ", "")
+    parts = t.split(",") if t else []
+    if parts and all(re.fullmatch(_NUM, p) for p in parts):
+        vals = [float(p) for p in parts]
+        if len(vals) == 3:
+            return (vals[0], vals[1], vals[2])
+        if len(vals) == 2:
+            if plane.kind == "3d":
+                raise ValueError("3D: type all three coordinates x,y,z")
+            return tuple(float(c) for c in plane.to3((vals[0], vals[1])))
+    raise ValueError(f"Type the point as x,y,z{'' if plane.kind == '3d' else ' (or u,v in this window)'}"
+                     f" - not {text!r}")
+
+
 def ghost_lines(model: Model, frames, areas, points, panels, T: Transform, limit: int = 4000):
     """Line segments of the objects mapped through ``T`` (the preview of a move / copy)."""
     m = model

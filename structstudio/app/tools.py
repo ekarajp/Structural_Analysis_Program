@@ -89,6 +89,16 @@ def next_step(title: str, step: str, *others: str) -> str:
     return text + ("      \u2022  " + "   \u2022  ".join(alts) if alts else "")
 
 
+# A plan / elevation window shows (and snaps to) the objects within this many merge
+# tolerances of its plane: one band for drawing, picking and snapping (D05)
+PLANE_BAND = 10.0
+
+
+def plane_band(model) -> float:
+    """World tolerance of "in the plane of the window" (display, pick and snap)."""
+    return max(model.options.merge_tolerance, 1e-6) * PLANE_BAND
+
+
 # -------------------------------------------------------------------- planes
 @dataclass
 class Plane:
@@ -283,6 +293,8 @@ class DrawSettings:
     load_value_b: float = 0.0  # trapezoid: at the end
     load_rel: float = 0.5  # point load on a frame: relative distance from the start
     area_distribution: str = "On the area (shells)"  # | One-way to frames | Two-way to frames
+    # 3D windows: where a point lands when nothing is snapped (D14)
+    work_plane_3d: str = "Snap only"  # | XY / XZ / YZ through the last point
     area_span: str = "X"  # one-way span direction
     # CAD modify commands (Move / Copy / Rotate / Mirror / Offset)
     modify_stretch: bool = False  # joints shared with unselected objects move too (ETABS Move)
@@ -294,6 +306,10 @@ class DrawSettings:
     def offsets(self):
         return (self.offset_x, self.offset_y, self.offset_z)
 
+
+WORK_PLANES_3D = ["Snap only", "XY through the last point", "XZ through the last point",
+                  "YZ through the last point"]
+_WORK_PLANE_ITEM = ("work_plane_3d", "3D: point off the snaps", "choice", WORK_PLANES_3D)
 
 LINE_SHAPES = {  # line shape -> help shown in the status bar (AutoCAD ARC options)
     "Straight": "",
@@ -323,12 +339,13 @@ TOOL_PROPERTIES: Dict[str, List[tuple]] = {
              ("drawing_control", "Drawing control", "choice",
               ["None", "Parallel to X", "Parallel to Y", "Parallel to Z", "Fixed length", "Fixed angle"]),
              ("fixed_length", "Fixed length", "float", ""), ("fixed_angle", "Fixed angle (deg)", "float", ""),
-             ("all_stories", "All stories", "bool", "")],
+             _WORK_PLANE_ITEM, ("all_stories", "All stories", "bool", "")],
     "brace": [("brace_section", "Section", "section_frame", ""),
               ("moment_releases", "Moment releases", "choice", ["Continuous", "Pinned"]),
               ("frame_angle", "Local axis 2 angle", "float", "degrees"),
               ("drawing_control", "Drawing control", "choice", ["None", "Fixed length", "Fixed angle"]),
-              ("fixed_length", "Fixed length", "float", ""), ("fixed_angle", "Fixed angle (deg)", "float", "")],
+              ("fixed_length", "Fixed length", "float", ""), ("fixed_angle", "Fixed angle (deg)", "float", ""),
+              _WORK_PLANE_ITEM],
     "column": [("frame_section", "Section", "section_frame", ""), ("column_angle", "Angle (deg)", "float", ""),
                ("offset_x", "Plan offset X", "float", ""), ("offset_y", "Plan offset Y", "float", ""),
                ("cardinal_point", "Cardinal point", "int", ""), ("all_stories", "All stories", "bool", "")],
@@ -378,7 +395,10 @@ def arc_polyline(mode: Optional[str], pts, n: int, radius: float, plane) -> List
             ch = math.hypot(u1 - u0, v1 - v0)
             if ch <= 1e-12:
                 return []
-            r = max(abs(radius) if radius else ch, ch / 2)  # default: radius = chord; at least a half circle
+            r = abs(radius) if radius else ch  # default: radius = chord
+            if r < ch / 2 * (1 - 1e-9):
+                return []  # no circle of that radius passes through both ends (arc_problem says so)
+            r = max(r, ch / 2)
             mx, my = (u0 + u1) / 2, (v0 + v1) / 2
             h = math.sqrt(max(r * r - ch * ch / 4, 0.0))
             nx, ny = -(v1 - v0) / ch, (u1 - u0) / ch
@@ -400,7 +420,10 @@ def arc_polyline(mode: Optional[str], pts, n: int, radius: float, plane) -> List
                 nrm = q / float(np.linalg.norm(q))
                 break
         left = np.cross(nrm, d)
-        r = max(abs(radius) if radius else ch, ch / 2)
+        r = abs(radius) if radius else ch
+        if r < ch / 2 * (1 - 1e-9):
+            return []
+        r = max(r, ch / 2)
         h = math.sqrt(max(r * r - ch * ch / 4, 0.0))
         sgn = 1.0 if radius >= 0 else -1.0
         mid = (a + b) / 2 + sgn * (r - h) * left
@@ -455,6 +478,46 @@ def arc_polyline(mode: Optional[str], pts, n: int, radius: float, plane) -> List
             for k in range(n + 1)]
 
 
+def arc_info(chain) -> Tuple[float, float]:
+    """(radius, sweep in degrees) of an arc polyline (its first, middle and last points)."""
+    P = np.asarray(chain, float)
+    if len(P) < 3:
+        return 0.0, 0.0
+    a, m, b = P[0], P[len(P) // 2], P[-1]
+    ab, am = b - a, m - a
+    nrm = np.cross(ab, am)
+    nn = float(nrm @ nrm)
+    if nn <= 1e-18:
+        return float("inf"), 0.0
+    c = a + (np.cross(nrm, ab) * float(am @ am) + np.cross(am, nrm) * float(ab @ ab)) / (2.0 * nn)
+    R = float(np.linalg.norm(a - c))
+    sweep = 0.0
+    for k in range(len(P) - 1):
+        u, v = P[k] - c, P[k + 1] - c
+        sweep += math.degrees(math.atan2(float(np.linalg.norm(np.cross(u, v))), float(u @ v)))
+    return R, sweep
+
+
+def arc_problem(mode: Optional[str], pts, radius: float, plane) -> Optional[str]:
+    """Why these picks give no arc (shown before / instead of drawing), or None."""
+    P = [np.asarray(p, float) for p in pts]
+    if mode == "Arc: start, end, radius" and len(P) >= 2:
+        ch = float(np.linalg.norm(P[1] - P[0]))
+        if ch <= 1e-12:
+            return "The start and end points are the same"
+        if radius and abs(radius) < ch / 2 * (1 - 1e-9):
+            return (f"Radius {abs(radius):g} is smaller than half the chord ({ch / 2:.4g}): no arc joins these "
+                    f"points - set Arc radius to {ch / 2:.4g} or more (0 = the chord length)")
+        return None
+    if mode == "Arc: start, center, end" and len(P) >= 3:
+        if float(np.linalg.norm(P[0] - P[1])) <= 1e-12:
+            return "The start point is on the centre"
+        return None
+    if len(P) >= 3 and float(np.linalg.norm(np.cross(P[2] - P[0], P[1] - P[0]))) <= 1e-12:
+        return "The three points are on one line: no arc passes through them"
+    return None
+
+
 @dataclass
 class Preview:
     """Geometry the viewport draws while a tool is in progress (3D coordinates)."""
@@ -478,6 +541,10 @@ class Tool:
     title = ""  # command name in the status-bar guidance (default: from ``name``)
     next_prompt = ""  # guidance once the first point is placed (chain tools)
 
+    # a chain of points may continue in another window (its points are 3D) - polygon,
+    # arc and single-plane tools start again when the plane changes
+    keeps_points_across_planes = False
+
     def __init__(self, doc: Document, settings: DrawSettings):
         self.doc = doc
         self.settings = settings
@@ -485,6 +552,7 @@ class Tool:
         self.plane = Plane("plan", 0.0, None)
         self.points: List[XYZ] = []
         self.created: List[str] = []
+        self._raw_last: Optional[XYZ] = None  # the last picked point before offsets (constraints use it)
 
     def activate(self, state) -> None:
         """Called when the command starts (state: the shared ViewState)."""
@@ -508,7 +576,7 @@ class Tool:
         self.set_plane(Plane("plan", z, story))
 
     def set_plane(self, plane: Plane):
-        if not plane.same(self.plane):
+        if not plane.same(self.plane) and not (self.points and self.keeps_points_across_planes):
             self.cancel()
         self.plane = plane
         self.story = plane.story if plane.kind == "plan" else None
@@ -553,22 +621,44 @@ class Tool:
     def double_click(self, pt) -> bool:
         return self.finish()
 
+    takes_typed_points = True  # tools that place points accept typed coordinates
+
     def typed(self, text: str, toward=None):
-        """Typed input (CAD dynamic input) after the first point: returns the point
-        to click (see modify.parse_typed), or None when the tool used it itself."""
-        if not self.points:
-            raise ValueError("Click the first point, then type the distance")
-        from .modify import parse_typed
-        return parse_typed(text, self.points[-1], toward, self.plane)
+        """Typed input (CAD dynamic input): returns the point to click (see
+        modify.parse_typed), or None when the tool used it itself.
+
+        * before the first point: absolute coordinates ``x,y,z`` (plan / elevation:
+          ``u,v`` in the window plane also works);
+        * after it: ``6`` (towards the cursor), ``6<30``, relative ``dx,dy`` /
+          ``dx,dy,dz``, or ``#x,y,z`` for an absolute point."""
+        from .modify import parse_absolute, parse_typed
+        t = text.strip().replace(" ", "")
+        if not self.points or t.startswith("#"):
+            return parse_absolute(t.lstrip("#"), self.plane)
+        return parse_typed(text, self._raw_last if self._raw_last is not None else self.points[-1],
+                           toward, self.plane)
 
     def finish(self) -> bool:
         return False
 
     def cancel(self):
         self.points = []
+        self._raw_last = None
+
+    def _uses(self, key: str) -> bool:
+        """The tool's Properties of Object form shows this setting.  A setting it does
+        not show (left over from another tool: offsets, drawing control ...) must not
+        change what it draws."""
+        return any(item[0] == key for item in TOOL_PROPERTIES.get(self.name, ()))
+
+    def resolve(self, pt) -> XYZ:
+        """The point a pick at ``pt`` (snapped / typed, before constraints) really
+        places: drawing control first (relative to the last picked point, before its
+        offset), then the offsets of the form - once.  Preview and click both use it."""
+        return self._p3(pt)
 
     def preview(self, cursor) -> Preview:
-        return Preview(marker=None if cursor is None else self._p3(cursor))
+        return Preview(marker=None if cursor is None else self.resolve(cursor))
 
     # ---- helpers
     def _point(self, model: Model, p, z: Optional[float] = None) -> Point:
@@ -612,11 +702,12 @@ class Tool:
         return (FREE6, FREE6)
 
     def _apply_drawing_control(self, p: XYZ) -> XYZ:
-        """ETABS drawing constraints / SAP2000 drawing control on the next point."""
-        if not self.points:
+        """ETABS drawing constraints / SAP2000 drawing control on the next point
+        (relative to the last picked point before its offsets)."""
+        if not self.points or not self._uses("drawing_control"):
             return p
         ctl = self.settings.drawing_control
-        a = self.points[-1]
+        a = self._raw_last if self._raw_last is not None else self.points[-1]
         if ctl == "None":
             return p
         if ctl == "Parallel to X":
@@ -644,22 +735,32 @@ class Tool:
         """Plan offsets of the Properties of Object form; the normal offset moves the
         point out of the drawing plane."""
         s = self.settings
-        if not (s.offset_x or s.offset_y or s.offset_z):
+        ox = s.offset_x if self._uses("offset_x") else 0.0
+        oy = s.offset_y if self._uses("offset_y") else 0.0
+        oz = s.offset_z if self._uses("offset_z") else 0.0
+        if not (ox or oy or oz):
             return p
         x, y, z = p
         k = self.plane.kind
         if k == "plan":
-            return (x + s.offset_x, y + s.offset_y, z + s.offset_z)
+            return (x + ox, y + oy, z + oz)
         if k == "xz":
-            return (x + s.offset_x, y + s.offset_z, z + s.offset_y)
+            return (x + ox, y + oz, z + oy)
         if k == "yz":
-            return (x + s.offset_z, y + s.offset_x, z + s.offset_y)
-        return (x + s.offset_x, y + s.offset_y, z + s.offset_z)
+            return (x + oz, y + ox, z + oy)
+        return (x + ox, y + oy, z + oz)
+
+    def _offset_text(self) -> str:
+        s = self.settings
+        parts = [f"{lab} {getattr(s, k):g}" for k, lab in (("offset_x", "dX"), ("offset_y", "dY"),
+                                                            ("offset_z", "normal"))
+                 if self._uses(k) and getattr(s, k)]
+        return f"   [offset {', '.join(parts)}]" if parts else ""
 
     def _line_preview(self, cursor) -> Preview:
-        pv = Preview(marker=None if cursor is None else self._p3(cursor))
+        pv = Preview(marker=None if cursor is None else self.resolve(cursor))
         if self.points and cursor is not None:
-            c = self._apply_drawing_control(self._p3(cursor))
+            c = self.resolve(cursor)
             pv.marker = c
             pv.lines.append((self.points[-1], c))
             pv.text = f"L = {_dist(self.points[-1], c):.3f}"
@@ -668,7 +769,11 @@ class Tool:
                 if abs(u1 - u0) + abs(v1 - v0) > 1e-12:
                     pv.text += f"   \u2220 {math.degrees(math.atan2(v1 - v0, u1 - u0)) % 360:.1f}\u00b0"
             if self.settings.drawing_control != "None":
-                pv.text += f"   [{self.settings.drawing_control}]"
+                if self.settings.drawing_control == "Fixed angle" and self.plane.kind == "3d":
+                    pv.text += "   [Fixed angle: plan / elevation windows only - not applied]"
+                else:
+                    pv.text += f"   [{self.settings.drawing_control}]"
+            pv.text += self._offset_text()
         return pv
 
 
@@ -700,9 +805,17 @@ class PointTool(Tool):
     name = "point"
     prompt = "Click to add joints"
 
+    def resolve(self, pt) -> XYZ:
+        return self._offset_point(self._p3(pt))
+
     def click(self, pt, snap: Optional[SnapResult] = None) -> bool:
-        p = self._offset_point(self._p3(pt))
-        stories = self.story_names_to_draw() if self.plane.kind == "plan" and not self.settings.offset_z else [None]
+        p = self.resolve(pt)
+        # a story plan repeats the joint on the chosen stories; a free plan (custom Z,
+        # no story there), an elevation or 3D: the joint at the point itself
+        on_story = self.plane.kind == "plan" and self.story and not self.settings.offset_z
+        stories = self.story_names_to_draw() if on_story else [None]
+        if not stories:
+            raise ModelError("NOTHING_TO_DRAW", "No story to draw the joint on")
 
         def mutate(model: Model):
             for st in stories:
@@ -749,8 +862,17 @@ class BeamTool(Tool):
         n = max(2, int(self.settings.arc_segments or 8))
         return arc_polyline(mode, pts, n, float(self.settings.arc_radius or 0.0), self.plane)
 
+    @property
+    def keeps_points_across_planes(self) -> bool:  # a straight chain may go on in another window
+        return self._arc_mode() is None
+
+    def resolve(self, pt) -> XYZ:
+        return self._offset_point(self._apply_drawing_control(self._p3(pt)))
+
     def click(self, pt, snap: Optional[SnapResult] = None) -> bool:
-        p = self._offset_point(self._apply_drawing_control(self._p3(pt)))
+        raw = self._apply_drawing_control(self._p3(pt))
+        p = self._offset_point(raw)
+        self._raw_last = raw
         mode = self._arc_mode()
         if mode is not None:
             self.points.append(p)
@@ -762,10 +884,13 @@ class BeamTool(Tool):
                                if mode == "Arc: start, center, end" else "Click the end point")
                 return False
             chain = self.arc_points(self.points)
+            picked = list(self.points)
             self.points = []
+            self._raw_last = None
             self.prompt = "Click the start point"
             if len(chain) < 2:
-                raise ModelError("BAD_ARC", "These points do not define an arc")
+                raise ModelError("BAD_ARC", arc_problem(mode, picked, float(self.settings.arc_radius or 0.0),
+                                                        self.plane) or "These points do not define an arc")
             sec = self._frame_section()
             rel_i, rel_j = self._beam_releases()
             extra = dict(angle=self.settings.frame_angle, cardinal_point=int(self.settings.cardinal_point or 10))
@@ -826,7 +951,7 @@ class BeamTool(Tool):
         mode = self._arc_mode()
         if mode is None or not self.points or cursor is None:
             return self._line_preview(cursor)
-        c = self._p3(cursor)
+        c = self.resolve(cursor)
         pv = Preview(marker=c)
         pts = list(self.points) + [c]
         need = 2 if mode == "Arc: start, end, radius" else 3
@@ -834,7 +959,11 @@ class BeamTool(Tool):
             chain = self.arc_points(pts[:need])
             pv.lines = [(chain[k], chain[k + 1]) for k in range(len(chain) - 1)]
             if len(chain) >= 2:
-                pv.text = f"arc  L = {sum(_dist(chain[k], chain[k + 1]) for k in range(len(chain) - 1)):.3f}"
+                R, sweep = arc_info(chain)
+                pv.text = (f"arc  L = {sum(_dist(chain[k], chain[k + 1]) for k in range(len(chain) - 1)):.3f}"
+                           f"   R = {R:.3f}  sweep {sweep:.1f}\u00b0  ({len(chain) - 1} members)")
+            else:
+                pv.text = arc_problem(mode, pts[:need], float(self.settings.arc_radius or 0.0), self.plane) or ""
         else:
             pv.guides.append((self.points[-1], c))
         if mode == "Arc: start, center, end" and len(self.points) >= 2:
@@ -861,7 +990,7 @@ class BraceTool(BeamTool):
         return self._brace_section()
 
     def _releases_for(self, a, b):
-        return (PIN_ENDS, PIN_ENDS) if self.settings.pinned_beams else (FREE6, FREE6)
+        return self._beam_releases()  # the form's Moment releases (Continuous / Pinned ...)
 
 
 # -------------------------------------------------------------- draw column
@@ -877,6 +1006,7 @@ class ColumnTool(Tool):
         p = (p[0] + self.settings.offset_x, p[1] + self.settings.offset_y, p[2])
         sec = self._frame_section()
         angle = self.settings.column_angle
+        cardinal = int(self.settings.cardinal_point or 10)
         if self.plane.kind == "plan" and self.story is None:
             # free plan (any Z): the column runs from the level below the plane up to it
             top = p[2]
@@ -887,7 +1017,7 @@ class ColumnTool(Tool):
 
             def mutate_free(model: Model):
                 f = model.add_frame(model.add_point(p[0], p[1], bot), model.add_point(p[0], p[1], top), sec,
-                                    type="Column", angle=angle)
+                                    type="Column", angle=angle, cardinal_point=cardinal)
                 self.created.append(f.name)
             self.doc.edit(mutate_free)
             return True
@@ -903,7 +1033,7 @@ class ColumnTool(Tool):
                 if any(f.type == "Column" and f.story == st and _same_xy(model, f, p) for f in model.frames.values()):
                     continue
                 f = model.add_frame(model.add_point(p[0], p[1], bot), model.add_point(p[0], p[1], top), sec,
-                                    type="Column", story=st, angle=angle)
+                                    type="Column", story=st, angle=angle, cardinal_point=cardinal)
                 self.created.append(f.name)
 
         self.doc.edit(mutate)
@@ -925,8 +1055,39 @@ class WallTool(Tool):
     name = "wall"
     prompt = "Click the start of the wall"
 
+    def resolve(self, pt) -> XYZ:
+        return self._apply_drawing_control(self._p3(pt))  # (a no-op: the wall form has no drawing control)
+
+    def _spans(self, a, b) -> List[str]:
+        """Stories the wall between picks a and b fills (each from the story below up
+        to it).  Plan: the plan's story (and All stories).  Elevation / 3D: both picks
+        at one level - the story below it; at two levels - every story between them."""
+        if self.plane.kind == "plan":
+            return self.story_names_to_draw(self.story) if self.story else []
+        lo, hi = min(a[2], b[2]), max(a[2], b[2])
+        if hi - lo <= self.tol:
+            return [self._require_story(hi)]
+        m = self.model
+        levels = [z for _, z in m.levels()]
+        for z in (lo, hi):
+            if not any(abs(z - lv) <= self.tol for lv in levels):
+                raise ModelError("NOT_AT_STORY", f"Wall: Z = {z:g} is not a story level - pick both ends at "
+                                                 f"story levels (the wall spans whole stories)")
+        out = []
+        for st in m.stories_bottom_up():
+            below = m.story_below(st.name)
+            if below is None:
+                continue
+            if st.elevation > lo + self.tol and st.elevation <= hi + self.tol and below.elevation >= lo - self.tol:
+                out.append(st.name)
+        if not out:
+            raise ModelError("NOT_AT_STORY", "Wall: no story between the two picked levels")
+        return out
+
     def click(self, pt, snap: Optional[SnapResult] = None) -> bool:
-        self.points.append(self._p3(pt))
+        raw = self.resolve(pt)
+        self.points.append(raw)
+        self._raw_last = raw
         if len(self.points) < 2:
             self.prompt = "Click the end of the wall"
             return False
@@ -935,8 +1096,7 @@ class WallTool(Tool):
         if math.hypot(a[0] - b[0], a[1] - b[1]) <= self.tol:
             return False
         sec = self._shell_section(wall=True)
-        story = self.story if self.plane.kind == "plan" else self._require_story(max(a[2], b[2]))
-        stories = self.story_names_to_draw(story) if self.plane.kind == "plan" else [story]
+        stories = self._spans(a, b)
 
         def mutate(model: Model):
             for st in stories:
@@ -948,7 +1108,31 @@ class WallTool(Tool):
         return True
 
     def preview(self, cursor) -> Preview:
-        return self._line_preview(cursor)
+        """The outline of the wall(s) the next click makes, not only the top line."""
+        pv = self._line_preview(cursor)
+        if not self.points or cursor is None:
+            return pv
+        a, b = self.points[-1], self.resolve(cursor)
+        if math.hypot(a[0] - b[0], a[1] - b[1]) <= self.tol:
+            return pv
+        try:
+            stories = self._spans(a, b)
+        except ModelError as exc:
+            pv.text = (pv.text + "   " if pv.text else "") + exc.message
+            return pv
+        m = self.model
+        rail = pv.lines[-1:] if pv.lines else []
+        outline = []
+        for st in stories:
+            below = m.story_below(st)
+            if below is None:
+                continue
+            top, bot = m.stories[st].elevation, below.elevation
+            q = [(a[0], a[1], bot), (b[0], b[1], bot), (b[0], b[1], top), (a[0], a[1], top)]
+            outline += [(q[k], q[(k + 1) % 4]) for k in range(4)]
+        pv.lines = outline + rail  # the outline of every wall, then the line to the cursor
+        pv.text += f"   wall: {', '.join(stories)}" if stories else ""
+        return pv
 
 
 def _add_wall(model: Model, a, b, story: str, section: str) -> Optional[str]:
@@ -966,16 +1150,67 @@ def _add_wall(model: Model, a, b, story: str, section: str) -> Optional[str]:
 
 # ---------------------------------------------------------------- draw slab
 class SlabTool(Tool):
-    """Polygon slab: click the corners, double-click / Enter to close."""
+    """Polygon floor / wall / ramp / opening: click the corners, double-click / Enter
+    to close.
+
+    * plan: a floor at the story (All stories repeats it), corners in the plan;
+    * elevation: the polygon lies in the elevation plane (a wall by default);
+    * 3D: the corners are snapped points; they must lie in one plane (checked before
+      anything is made), the object type follows the plane unless the form says
+      otherwise (horizontal: floor, vertical: wall, sloped: ramp).
+
+    Holes are separate Opening objects drawn in the same plane (the analysis mesh
+    cuts them out)."""
 
     title = "Draw Floor / Wall"
     next_prompt = "click the next corner"
     name = "slab"
-    prompt = "Click the slab corners; Enter / right-click / double-click closes the outline"
-    views = ("plan",)
-    area_type = "Floor"
+    prompt = "Click the corners; Enter / right-click / double-click closes the outline"
+    views = ("plan", "xz", "yz", "3d")
+    area_type: Optional[str] = None  # fixed by a subclass (Opening); else from the form (Auto ...)
     closes_polygon = True  # Enter / right-click: the last corner joins the first (no need to click it)
 
+    # ---- the object the outline makes
+    def _requested_type(self) -> str:
+        if type(self).area_type:
+            return type(self).area_type
+        if self._uses("area_type"):
+            return getattr(self.settings, "area_type", "Auto") or "Auto"
+        return "Auto"  # the form does not offer a type: floor in plan, wall in an elevation
+
+    def _area_kind(self, corners3) -> str:
+        """Floor / Wall / Ramp / Opening for these corners; refuses a contradiction
+        (a horizontal wall, a vertical floor) instead of making something else."""
+        want = self._requested_type()
+        n = _polygon_normal(corners3)
+        nz = abs(float(n[2])) if n is not None else 1.0
+        horizontal, vertical = nz > 0.999, nz < 0.02
+        if want == "Opening":
+            return "Opening"
+        if want == "Auto":
+            return "Floor" if horizontal else "Wall" if vertical else "Ramp"
+        if want == "Wall" and horizontal:
+            raise ModelError("BAD_AREA_TYPE", "A wall is vertical: draw it in an elevation or 3D window "
+                                              "(or choose Floor / Auto)")
+        if want == "Floor" and not horizontal:
+            raise ModelError("BAD_AREA_TYPE", "A floor is horizontal: these corners are not "
+                                              "(choose Wall / Ramp / Auto)")
+        return want
+
+    def _section_for_kind(self, kind: str) -> Optional[str]:
+        if kind == "Opening":
+            return None
+        return self._shell_section(wall=(kind == "Wall"))
+
+    def _normal_shift(self) -> Tuple[float, float, float]:
+        """The form's "Plane offset normal" as a shift of the whole outline."""
+        dz = float(getattr(self.settings, "offset_z", 0.0) or 0.0) if self._uses("offset_z") else 0.0
+        k = self.plane.kind
+        if not dz or k == "3d":
+            return (0.0, 0.0, 0.0)
+        return {"plan": (0.0, 0.0, dz), "xz": (0.0, dz, 0.0), "yz": (dz, 0.0, 0.0)}[k]
+
+    # ---- picking
     def click(self, pt, snap: Optional[SnapResult] = None) -> bool:
         p = self._p3(pt)
         if self.points and len(self.points) >= 3 and _dist(p, self.points[0]) <= self.tol:
@@ -994,33 +1229,61 @@ class SlabTool(Tool):
         if len(self.points) < 3:
             self.points = []
             return False
-        corners = [(p[0], p[1]) for p in self.points]
+        pts = list(self.points)
         self.points = []
-        return self._create(corners)
+        if self.plane.kind == "plan":
+            return self._create([(p[0], p[1]) for p in pts])
+        return self._create_planar(pts)
 
+    # ---- making it
     def _create(self, corners: Sequence[XY]) -> bool:
-        sec = self._shell_section() if self.area_type == "Floor" else None
+        """Plan outline: at the story (repeated on All stories) or at the free plan's Z."""
+        z_ref = self.plane.value
+        kind = self._area_kind([(c[0], c[1], z_ref) for c in corners])
+        sec = self._section_for_kind(kind)
         stories = self.story_names_to_draw()
-        diaphragm = self.settings.diaphragm if self.area_type == "Floor" else None
-        kind = self.area_type
+        diaphragm = self.settings.diaphragm if kind == "Floor" else None
+        dz = self._normal_shift()[2]
         z_free = self.plane.value if (self.plane.kind == "plan" and self.story is None) else None
+        if not stories and z_free is None:
+            raise ModelError("NOTHING_TO_DRAW", "No story to draw the floor on")
 
         def mutate(model: Model):
             for st in (stories or [None]):
                 if st is None:
-                    if z_free is None:
-                        continue
-                    pts = [model.add_point(c[0], c[1], z_free) for c in corners]
+                    pts = [model.add_point(c[0], c[1], z_free + dz) for c in corners]
                     a = model.add_area(pts, sec, type=kind, diaphragm=diaphragm)
                     self.created.append(a.name)
                     continue
-                z = model.stories[st].elevation
+                z = model.stories[st].elevation + dz
                 pts = [model.add_point(c[0], c[1], z) for c in corners]
                 names = {p.name for p in pts}
                 if any(set(ar.points) == names for ar in model.areas.values()):
                     continue
-                a = model.add_area(pts, sec, type=kind, story=st, diaphragm=diaphragm)
+                a = model.add_area(pts, sec, type=kind, story=st if not dz else None, diaphragm=diaphragm)
                 self.created.append(a.name)
+
+        self.doc.edit(mutate)
+        return True
+
+    def _create_planar(self, pts) -> bool:
+        """Elevation / 3D outline: one object through the corners, which must lie in
+        one plane (within the window's plane band)."""
+        P = np.asarray(pts, float) + np.asarray(self._normal_shift(), float)
+        problem = _planarity_problem(P, plane_band(self.model))
+        if problem:
+            raise ModelError("NOT_PLANAR", problem)
+        kind = self._area_kind(P)
+        sec = self._section_for_kind(kind)
+        diaphragm = self.settings.diaphragm if kind == "Floor" else None
+
+        def mutate(model: Model):
+            q = [model.add_point(*c) for c in P.tolist()]
+            names = {x.name for x in q}
+            if any(set(ar.points) == names for ar in model.areas.values()):
+                return
+            a = model.add_area(q, sec, type=kind, diaphragm=diaphragm)
+            self.created.append(a.name)
 
         self.doc.edit(mutate)
         return True
@@ -1031,7 +1294,42 @@ class SlabTool(Tool):
         if cursor is not None and self.points:
             poly.append(self._p3(cursor))
         pv.polygon = poly
+        if len(poly) >= 3 and self.plane.kind != "plan":
+            problem = _planarity_problem(np.asarray(poly, float), plane_band(self.model))
+            try:
+                kind = self._area_kind(poly)
+            except ModelError as exc:
+                kind, problem = None, problem or exc.message
+            pv.text = problem or f"{kind}: {len(poly)} corners"
         return pv
+
+
+def _polygon_normal(points) -> Optional[np.ndarray]:
+    """Unit normal of a polygon (Newell's method), None if degenerate."""
+    P = np.asarray(points, float)
+    if len(P) < 3:
+        return None
+    n = np.zeros(3)
+    for k in range(len(P)):
+        a, b = P[k], P[(k + 1) % len(P)]
+        n += np.array([(a[1] - b[1]) * (a[2] + b[2]), (a[2] - b[2]) * (a[0] + b[0]), (a[0] - b[0]) * (a[1] + b[1])])
+    L = float(np.linalg.norm(n))
+    return n / L if L > 1e-12 else None
+
+
+def _planarity_problem(P: np.ndarray, tol: float) -> Optional[str]:
+    """Why these corners cannot make one flat area, or None."""
+    if len(P) < 3:
+        return "An area needs at least three corners"
+    n = _polygon_normal(P)
+    if n is None:
+        return "The corners are on one line: no area"
+    off = np.abs((P - P.mean(axis=0)) @ n)
+    if float(off.max()) > tol:
+        k = int(np.argmax(off))
+        return (f"The corners are not in one plane: corner {k + 1} is {float(off[k]):.3g} out of it "
+                f"(snap the corners in one plane)")
+    return None
 
 
 class OpeningTool(SlabTool):
@@ -1085,14 +1383,7 @@ class OpeningTool(SlabTool):
     def _create3(self, corners) -> bool:
         if self.plane.kind == "plan":
             return self._create([(c[0], c[1]) for c in corners])
-
-        def mutate(model: Model):  # elevation: one opening in the wall plane
-            pts = [model.add_point(*c) for c in corners]
-            a = model.add_area(pts, None, type="Opening")
-            self.created.append(a.name)
-
-        self.doc.edit(mutate)
-        return True
+        return self._create_planar(corners)  # elevation: one opening in the wall plane
 
     def preview(self, cursor) -> Preview:
         if not self.rectangle:
@@ -1109,12 +1400,20 @@ class OpeningTool(SlabTool):
 
 
 class RectSlabTool(SlabTool):
-    """Rectangular slab from two opposite corners."""
+    """Rectangle from two opposite corners: a floor in plan, a wall panel (or the
+    form's type) in an elevation."""
 
-    title = "Draw Rectangular Floor"
+    title = "Draw Rectangular Floor / Wall"
     next_prompt = "click the opposite corner"
     name = "rect_slab"
-    prompt = "Click the first corner of the slab"
+    prompt = "Click the first corner"
+    views = ("plan", "xz", "yz")
+
+    def _corners(self, a, c):
+        (u0, v0), (u1, v1) = self.plane.to2(a), self.plane.to2(c)
+        if abs(u1 - u0) <= self.tol or abs(v1 - v0) <= self.tol:
+            return None
+        return [self.plane.to3(q) for q in ((u0, v0), (u1, v0), (u1, v1), (u0, v1))]
 
     def click(self, pt, snap: Optional[SnapResult] = None) -> bool:
         p = self._p3(pt)
@@ -1124,10 +1423,13 @@ class RectSlabTool(SlabTool):
             return False
         a = self.points[0]
         self.points = []
-        self.prompt = "Click the first corner of the slab"
-        if abs(a[0] - p[0]) <= self.tol or abs(a[1] - p[1]) <= self.tol:
+        self.prompt = "Click the first corner"
+        q = self._corners(a, p)
+        if q is None:
             return False
-        return self._create([(a[0], a[1]), (p[0], a[1]), (p[0], p[1]), (a[0], p[1])])
+        if self.plane.kind == "plan":
+            return self._create([(c[0], c[1]) for c in q])
+        return self._create_planar(q)
 
     def finish(self) -> bool:
         return False
@@ -1136,9 +1438,11 @@ class RectSlabTool(SlabTool):
         pv = Preview(marker=None if cursor is None else self._p3(cursor))
         if self.points and cursor is not None:
             a, c = self.points[0], self._p3(cursor)
-            z = a[2]
-            pv.polygon = [(a[0], a[1], z), (c[0], a[1], z), (c[0], c[1], z), (a[0], c[1], z)]
-            pv.text = f"{abs(c[0] - a[0]):.3f} x {abs(c[1] - a[1]):.3f}"
+            q = self._corners(a, c)
+            if q is not None:
+                pv.polygon = q
+                (u0, v0), (u1, v1) = self.plane.to2(a), self.plane.to2(c)
+                pv.text = f"{abs(u1 - u0):.3f} x {abs(v1 - v0):.3f}"
         return pv
 
 
@@ -1379,14 +1683,15 @@ class QuickBraceTool(Tool):
         if not members:
             return False
         sec = self._brace_section()
-        rel = PIN_ENDS if self.settings.pinned_beams else FREE6
+        rel_i, rel_j = self._beam_releases()  # the form's Moment releases
 
         def mutate(model: Model):
             for a, b in members:
                 pi, pj = model.add_point(*a), model.add_point(*b)
                 if _has_frame(model, pi, pj):
                     continue
-                self.created.append(model.add_frame(pi, pj, sec, type="Brace", releases_i=rel, releases_j=rel).name)
+                self.created.append(model.add_frame(pi, pj, sec, type="Brace", releases_i=rel_i,
+                                                    releases_j=rel_j).name)
 
         self.doc.edit(mutate)
         return True
@@ -1399,19 +1704,34 @@ class QuickBraceTool(Tool):
 
 
 class QuickSlabTool(SlabTool):
-    """Click inside a grid cell to add a rectangular slab bounded by the grid lines."""
+    """Click inside a cell: a floor bounded by the grid lines (Bounded by = Grid) or
+    by the closed loop of beams around the click (Bounded by = Beams); in an
+    elevation, a panel filling the grid / story bay."""
 
     title = "Quick Draw Floor"
     name = "quick_slab"
-    prompt = "Click inside a grid cell to draw a slab"
+    prompt = "Click inside a cell (grid or beam loop) to draw a floor"
+    views = ("plan", "xz", "yz")
 
     def cell_at(self, pt) -> Optional[List[XY]]:
+        if self.plane.kind != "plan":
+            bay = _elev_bay_at(self.model, self.plane, self.plane.to2(pt))
+            if bay is None:
+                return None
+            u0, u1, z0, z1 = bay
+            return [(u0, z0), (u1, z0), (u1, z1), (u0, z1)]
+        if getattr(self.settings, "quick_floor_edge", "Grid") == "Beams":
+            return _beam_loop_at(self.model, self.plane.to2(pt), self.plane.value, self.tol)
         return _plan_cell_at(self.model, self.plane.to2(pt))
 
     def click(self, pt, snap: Optional[SnapResult] = None) -> bool:
         cell = self.cell_at(pt)
         if cell is None:
+            if getattr(self.settings, "quick_floor_edge", "Grid") == "Beams" and self.plane.kind == "plan":
+                raise ModelError("NO_BEAM_LOOP", "No closed loop of beams around this point at this level")
             return False
+        if self.plane.kind != "plan":
+            return self._create_planar([self.plane.to3(c) for c in cell])
         return self._create(cell)
 
     def finish(self) -> bool:
@@ -1422,9 +1742,62 @@ class QuickSlabTool(SlabTool):
         if cursor is not None:
             cell = self.cell_at(cursor)
             if cell:
-                z = self.elevation()
-                pv.polygon = [(c[0], c[1], z) for c in cell]
+                if self.plane.kind != "plan":
+                    pv.polygon = [self.plane.to3(c) for c in cell]
+                else:
+                    z = self.elevation()
+                    pv.polygon = [(c[0], c[1], z) for c in cell]
+            elif getattr(self.settings, "quick_floor_edge", "Grid") == "Beams" and self.plane.kind == "plan":
+                pv.text = "no closed loop of beams around the cursor"
         return pv
+
+
+def _beam_loop_at(model: Model, xy: XY, z: float, tol: float) -> Optional[List[XY]]:
+    """The smallest closed loop of horizontal frames at level z enclosing xy (the
+    faces of the plan graph of the beams; beams meet at joints)."""
+    pts = model.points
+    edges = set()
+    for f in model.frames.values():
+        a, b = pts[f.point_i], pts[f.point_j]
+        if abs(a.z - z) <= tol and abs(b.z - z) <= tol and f.point_i != f.point_j:
+            edges.add((f.point_i, f.point_j))
+            edges.add((f.point_j, f.point_i))
+    if not edges:
+        return None
+    out = {}
+    for u, v in edges:
+        out.setdefault(u, []).append(v)
+    P = {n: (pts[n].x, pts[n].y) for n in out}
+
+    def ang(u, v):
+        return math.atan2(P[v][1] - P[u][1], P[v][0] - P[u][0])
+
+    for u in out:  # neighbours counter-clockwise
+        out[u].sort(key=lambda v: ang(u, v))
+    used, best = set(), None
+    for e in edges:
+        if e in used:
+            continue
+        face, (u, v) = [], e
+        for _ in range(len(edges) + 1):
+            used.add((u, v))
+            face.append(u)
+            nb = out[v]
+            k = nb.index(u)
+            w = nb[(k - 1) % len(nb)]  # the next edge turning most to the left of (u -> v)
+            u, v = v, w
+            if (u, v) == e:
+                break
+        else:
+            continue
+        poly = [P[n] for n in face]
+        area = 0.5 * sum(poly[k][0] * poly[(k + 1) % len(poly)][1] - poly[(k + 1) % len(poly)][0] * poly[k][1]
+                         for k in range(len(poly)))
+        if area <= tol * tol or len(poly) < 3 or not point_in_polygon(xy, poly):
+            continue
+        if best is None or area < best[0]:
+            best = (area, poly)
+    return None if best is None else [tuple(map(float, c)) for c in best[1]]
 
 
 class SecondaryBeamTool(Tool):

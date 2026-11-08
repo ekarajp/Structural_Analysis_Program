@@ -181,9 +181,10 @@ def test_arc_polylines():
     assert pts[1] == pytest.approx((2 ** -0.5, 2 ** -0.5, 0))
     pts = arc_polyline("Arc: start, end, radius", [(0, 0, 0), (2, 0, 0)], 2, 1.0, pl)
     assert pts[1] == pytest.approx((1, 1, 0))
-    # a radius smaller than half the chord: the half circle (not an error)
-    pts = arc_polyline("Arc: start, end, radius", [(0, 0, 0), (2, 0, 0)], 2, 0.5, pl)
-    assert pts[1] == pytest.approx((1, 1, 0))
+    # a radius smaller than half the chord: no arc, and the reason (not a silent half circle) (D17)
+    from structstudio.app.tools import arc_problem
+    assert arc_polyline("Arc: start, end, radius", [(0, 0, 0), (2, 0, 0)], 2, 0.5, pl) == []
+    assert "smaller than half the chord" in arc_problem("Arc: start, end, radius", [(0, 0, 0), (2, 0, 0)], 0.5, pl)
     # 3D view (viewer on -Y, looking at +Y): every mode works in the plane of its points,
     # counter-clockwise / bulging left as seen on the screen
     d3 = Plane("3d", 0.0, None, normal=(0.0, -1.0, 0.0))

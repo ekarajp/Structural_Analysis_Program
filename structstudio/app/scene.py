@@ -184,7 +184,9 @@ def visible_sets(model: Model, story: Optional[str] = None, plane: Optional[Tupl
     if plane is not None:
         axis, value = plane
         k = {"x": 0, "y": 1, "z": 2}[axis]
-        tol = tol if tol is not None else max(model.options.merge_tolerance, 1e-6) * 10
+        if tol is None:
+            from .tools import plane_band
+            tol = plane_band(model)  # the same band the snaps use (D05)
         on = {n for n, p in pts.items() if abs(p.xyz[k] - value) <= tol}
         frames = {f.name for f in model.frames.values() if f.point_i in on and f.point_j in on}
         areas = {a.name for a in model.areas.values() if all(p in on for p in a.points)}
