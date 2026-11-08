@@ -301,19 +301,24 @@ def test_d07_preview_is_what_is_committed_with_offsets(ctl):
 
 
 def test_d07_offsets_of_another_tool_do_not_move_a_beam():
+    """Offsets belong to the tool whose form set them (ViewState keeps them per tool)."""
     doc = Document(base())
-    s = DrawSettings(frame_section="B30x60", offset_x=1, offset_y=.5)  # set in the Draw Joints form
-    t = BeamTool(doc, s)  # the beam form shows no plan offsets
+    st = ViewState(doc)
+    st.set_tool("point")
+    st.settings.offset_x, st.settings.offset_y = 1, .5
+    st.set_tool("beam")
+    st.settings.frame_section = "B30x60"
+    t = st.tool
     t.set_story("Story1")
     t.click((0, 0, 3))
     pv = t.preview((5, 2, 3))
     t.click((5, 2, 3))
     f = doc.model.frames[t.created[-1]]
     assert doc.model.points[f.point_j].xyz == pytest.approx((5, 2, 3)) == pv.lines[-1][1]
-    p = PointTool(doc, s)  # the joint form shows them: they apply there
-    p.set_story("Story1")
-    p.click((0, 0, 3))
-    assert doc.model.points[p.created[-1]].xyz == pytest.approx((1, .5, 3))
+    st.set_tool("point")  # the joint form keeps its values: they apply there
+    st.tool.set_story("Story1")
+    st.tool.click((0, 0, 3))
+    assert doc.model.points[st.tool.created[-1]].xyz == pytest.approx((1, .5, 3))
 
 
 # ----------------------------------------------------------------------- D08
@@ -562,3 +567,77 @@ def test_d17_an_impossible_arc_radius_is_reported_not_changed():
     assert "R = 3.000" in pv.text
     t.click((4, 0, 3))
     assert len(doc.model.frames) == 8
+
+
+# ------------------------------------------- node-offset audit (case-003) / per-tool settings
+def test_node_offsets_stay_with_draw_joints_and_never_move_a_beam():
+    """case-003: offsets X/Y (and Z) set in Draw Joints carried into the beam: both ends
+    moved by (1, 0.5, 0) off the clicked joints.  Each tool keeps its own offsets."""
+    m = new_building(x_spacings=(6, 6), y_spacings=(5,), story_heights=(3, 3))
+    m.frames.clear()
+    m.areas.clear()
+    m.points.clear()
+    st = ViewState(Document(m))
+    st.set_tool("point")
+    st.settings.offset_x, st.settings.offset_y, st.settings.offset_z = 1.0, 0.5, 1.0
+    st.tool.set_story("Story1")
+    st.tool.click((3, 2.5, 3))
+    assert m.points[st.tool.created[-1]].xyz == (4.0, 3.0, 4.0)  # the user's own offsets: applied
+    st.set_tool("beam")
+    assert (st.settings.offset_x, st.settings.offset_y, st.settings.offset_z) == (0, 0, 0)
+    st.settings.frame_section = "B30x60"
+    st.tool.set_story("Story1")
+    st.tool.click((3, 2.5, 3))
+    pv = st.tool.preview((10, 7.5, 3))
+    st.tool.click((10, 7.5, 3))
+    f = m.frames[st.tool.created[-1]]
+    a, b = m.points[f.point_i].xyz, m.points[f.point_j].xyz
+    assert (a, b) == ((3.0, 2.5, 3.0), (10.0, 7.5, 3.0)) and pv.lines[-1] == (a, b)
+    st.set_tool("point")  # its own values come back
+    assert (st.settings.offset_x, st.settings.offset_y, st.settings.offset_z) == (1.0, 0.5, 1.0)
+
+
+@pytest.mark.parametrize("tool", ["beam", "brace", "column", "wall", "slab", "rect_slab", "quick_slab", "point"])
+def test_line_and_area_forms_show_offset_x_y_z(tool):
+    keys = [item[0] for item in __import__("structstudio.app.tools", fromlist=["x"]).TOOL_PROPERTIES[tool]]
+    assert {"offset_x", "offset_y", "offset_z"} <= set(keys)
+
+
+def test_offsets_set_in_a_tool_move_what_it_draws_preview_equal_commit():
+    m = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3, 3))
+    doc = Document(m)
+    off = dict(offset_x=0.5, offset_y=-0.25, offset_z=0.4)
+    b = BeamTool(doc, DrawSettings(frame_section="B30x60", **off))
+    b.set_plane(Plane("xz", 0.0))
+    b.click((0, 0, 3))
+    pv = b.preview((6, 0, 3))
+    b.click((6, 0, 3))
+    f = m.frames[b.created[-1]]
+    ends = (m.points[f.point_i].xyz, m.points[f.point_j].xyz)
+    assert np.allclose(ends, ((0.5, -0.25, 3.4), (6.5, -0.25, 3.4))) and np.allclose(pv.lines[-1], ends)
+    s = SlabTool(doc, DrawSettings(shell_section="S15", **off))
+    s.set_story("Story1")
+    for p in ((0, 0, 3), (6, 0, 3), (6, 5, 3)):
+        s.click(p)
+    pv = s.preview((0, 5, 3))
+    s.click((0, 5, 3))
+    s.finish()
+    ar = m.areas[s.created[-1]]
+    pts = sorted(m.points[p].xyz for p in ar.points)
+    assert sorted(map(tuple, np.round(pv.polygon, 9))) == sorted(map(tuple, np.round(pts, 9)))
+    assert {round(p[2], 9) for p in pts} == {3.4}
+    w = WallTool(doc, DrawSettings(wall_section="W20", **off))
+    w.set_story("Story1")
+    w.click((0, 5, 3))
+    pv = w.preview((6, 5, 3))
+    w.click((6, 5, 3))
+    corners = {m.points[p].xyz for p in m.areas[w.created[-1]].points}
+    drawn = {tuple(round(c, 9) for c in q) for seg in pv.lines for q in seg}
+    assert {tuple(round(c, 9) for c in q) for q in corners} <= drawn
+    assert min(c[2] for c in corners) == pytest.approx(0.4)
+    c = ColumnTool(doc, DrawSettings(frame_section="C40x40", **off))
+    c.set_story("Story1")
+    c.click((6, 5, 3))
+    col = m.frames[c.created[-1]]
+    got = sorted([m.points[col.point_i].xyz, m.points[col.point_j].xyz], key=lambda q: q[2])
+    assert np.allclose(got, [(6.5, 4.75, 0.4), (6.5, 4.75, 3.4)])

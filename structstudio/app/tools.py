@@ -311,6 +311,13 @@ WORK_PLANES_3D = ["Snap only", "XY through the last point", "XZ through the last
                   "YZ through the last point"]
 _WORK_PLANE_ITEM = ("work_plane_3d", "3D: point off the snaps", "choice", WORK_PLANES_3D)
 
+_OFFSET_HINT = "global, added to every picked point of this tool (0 = at the picked point)"
+_OFFSETS = [("offset_x", "Offset X", "float", _OFFSET_HINT), ("offset_y", "Offset Y", "float", _OFFSET_HINT),
+            ("offset_z", "Offset Z", "float", _OFFSET_HINT)]
+# settings kept per tool: a value set in one tool's form never moves what another tool draws
+TOOL_LOCAL_SETTINGS = ("offset_x", "offset_y", "offset_z", "drawing_control", "fixed_length", "fixed_angle",
+                       "area_type", "work_plane_3d")
+
 LINE_SHAPES = {  # line shape -> help shown in the status bar (AutoCAD ARC options)
     "Straight": "",
     "Arc: 3 points": "start point, a point on the arc, end point",
@@ -322,8 +329,7 @@ LINE_SHAPES = {  # line shape -> help shown in the status bar (AutoCAD ARC optio
 # properties shown for each tool (key, label, kind, choices / hint); kind: section_frame |
 # section_shell | choice | float | int | bool | diaphragm
 TOOL_PROPERTIES: Dict[str, List[tuple]] = {
-    "point": [("offset_x", "Plan offset X", "float", "offset of the drawn joint from the clicked point"),
-              ("offset_y", "Plan offset Y", "float", ""), ("offset_z", "Offset Z (normal)", "float", ""),
+    "point": [*_OFFSETS,
               ("special_joint", "Special joint", "bool", "keep the joint even when nothing connects to it"),
               ("all_stories", "All stories", "bool", "")],
     "beam": [("line_type", "Line object type", "choice", ["Auto", "Beam", "Column", "Brace", "Null"]),
@@ -335,22 +341,22 @@ TOOL_PROPERTIES: Dict[str, List[tuple]] = {
               ["Continuous", "Pinned", "Pinned at start", "Pinned at end"]),
              ("frame_angle", "Local axis 2 angle", "float", "degrees"),
              ("cardinal_point", "Cardinal point", "int", "1-11, 10 = centroid"),
-             ("offset_z", "Plane offset normal", "float", "SAP2000: offset of the member normal to the drawing plane"),
+             *_OFFSETS,
              ("drawing_control", "Drawing control", "choice",
               ["None", "Parallel to X", "Parallel to Y", "Parallel to Z", "Fixed length", "Fixed angle"]),
              ("fixed_length", "Fixed length", "float", ""), ("fixed_angle", "Fixed angle (deg)", "float", ""),
              _WORK_PLANE_ITEM, ("all_stories", "All stories", "bool", "")],
     "brace": [("brace_section", "Section", "section_frame", ""),
               ("moment_releases", "Moment releases", "choice", ["Continuous", "Pinned"]),
-              ("frame_angle", "Local axis 2 angle", "float", "degrees"),
+              ("frame_angle", "Local axis 2 angle", "float", "degrees"), *_OFFSETS,
               ("drawing_control", "Drawing control", "choice", ["None", "Fixed length", "Fixed angle"]),
               ("fixed_length", "Fixed length", "float", ""), ("fixed_angle", "Fixed angle (deg)", "float", ""),
               _WORK_PLANE_ITEM],
     "column": [("frame_section", "Section", "section_frame", ""), ("column_angle", "Angle (deg)", "float", ""),
-               ("offset_x", "Plan offset X", "float", ""), ("offset_y", "Plan offset Y", "float", ""),
+               *_OFFSETS,
                ("cardinal_point", "Cardinal point", "int", ""), ("all_stories", "All stories", "bool", "")],
     "quick_column": [("frame_section", "Section", "section_frame", ""), ("column_angle", "Angle (deg)", "float", ""),
-                     ("offset_x", "Plan offset X", "float", ""), ("offset_y", "Plan offset Y", "float", ""),
+                     ("offset_x", "Offset X", "float", _OFFSET_HINT), ("offset_y", "Offset Y", "float", _OFFSET_HINT),
                      ("all_stories", "All stories", "bool", "")],
     "quick_beam": [("frame_section", "Section", "section_frame", ""),
                    ("moment_releases", "Moment releases", "choice", ["Continuous", "Pinned"]),
@@ -363,14 +369,15 @@ TOOL_PROPERTIES: Dict[str, List[tuple]] = {
     "quick_brace": [("brace_section", "Section", "section_frame", ""),
                     ("brace_pattern", "Bracing", "choice", ["X", "/", "\\", "V", "Inverted V"]),
                     ("moment_releases", "Moment releases", "choice", ["Continuous", "Pinned"])],
-    "wall": [("wall_section", "Section", "section_shell", ""), ("all_stories", "All stories", "bool", "")],
+    "wall": [("wall_section", "Section", "section_shell", ""), *_OFFSETS, ("all_stories", "All stories", "bool", "")],
     "quick_wall": [("wall_section", "Section", "section_shell", ""), ("all_stories", "All stories", "bool", "")],
     "slab": [("area_type", "Area object type", "choice", ["Auto", "Floor", "Wall", "Ramp", "Opening"]),
              ("shell_section", "Section", "section_shell", ""), ("diaphragm", "Diaphragm", "diaphragm", ""),
-             ("offset_z", "Plane offset normal", "float", ""), ("all_stories", "All stories", "bool", "")],
+             *_OFFSETS, ("all_stories", "All stories", "bool", "")],
     "rect_slab": [("shell_section", "Section", "section_shell", ""), ("diaphragm", "Diaphragm", "diaphragm", ""),
-                  ("all_stories", "All stories", "bool", "")],
+                  *_OFFSETS, ("all_stories", "All stories", "bool", "")],
     "quick_slab": [("shell_section", "Section", "section_shell", ""), ("diaphragm", "Diaphragm", "diaphragm", ""),
+                   *_OFFSETS,
                    ("quick_floor_edge", "Bounded by", "choice", ["Grid", "Beams"]),
                    ("all_stories", "All stories", "bool", "")],
     "frame_section": [("frame_section", "Section", "section_list", "")],
@@ -741,19 +748,12 @@ class Tool:
         if not (ox or oy or oz):
             return p
         x, y, z = p
-        k = self.plane.kind
-        if k == "plan":
-            return (x + ox, y + oy, z + oz)
-        if k == "xz":
-            return (x + ox, y + oz, z + oy)
-        if k == "yz":
-            return (x + oz, y + ox, z + oy)
-        return (x + ox, y + oy, z + oz)
+        return (x + ox, y + oy, z + oz)  # global X / Y / Z, in every window
 
     def _offset_text(self) -> str:
         s = self.settings
         parts = [f"{lab} {getattr(s, k):g}" for k, lab in (("offset_x", "dX"), ("offset_y", "dY"),
-                                                            ("offset_z", "normal"))
+                                                            ("offset_z", "dZ"))
                  if self._uses(k) and getattr(s, k)]
         return f"   [offset {', '.join(parts)}]" if parts else ""
 
@@ -1002,8 +1002,10 @@ class ColumnTool(Tool):
     prompt = "Click the column location"
 
     def click(self, pt, snap: Optional[SnapResult] = None) -> bool:
-        p = self._p3(pt)
-        p = (p[0] + self.settings.offset_x, p[1] + self.settings.offset_y, p[2])
+        raw = self._p3(pt)
+        q = self._offset_point(raw)
+        dz = q[2] - raw[2]  # Offset Z moves the whole column (both ends)
+        p = (q[0], q[1], raw[2])
         sec = self._frame_section()
         angle = self.settings.column_angle
         cardinal = int(self.settings.cardinal_point or 10)
@@ -1016,7 +1018,7 @@ class ColumnTool(Tool):
                 raise ModelError("NO_LEVEL_BELOW", "No level below this plane for the column to start from")
 
             def mutate_free(model: Model):
-                f = model.add_frame(model.add_point(p[0], p[1], bot), model.add_point(p[0], p[1], top), sec,
+                f = model.add_frame(model.add_point(p[0], p[1], bot + dz), model.add_point(p[0], p[1], top + dz), sec,
                                     type="Column", angle=angle, cardinal_point=cardinal)
                 self.created.append(f.name)
             self.doc.edit(mutate_free)
@@ -1032,8 +1034,9 @@ class ColumnTool(Tool):
                 top, bot = model.stories[st].elevation, below.elevation
                 if any(f.type == "Column" and f.story == st and _same_xy(model, f, p) for f in model.frames.values()):
                     continue
-                f = model.add_frame(model.add_point(p[0], p[1], bot), model.add_point(p[0], p[1], top), sec,
-                                    type="Column", story=st, angle=angle, cardinal_point=cardinal)
+                f = model.add_frame(model.add_point(p[0], p[1], bot + dz), model.add_point(p[0], p[1], top + dz), sec,
+                                    type="Column", story=st if not dz else None, angle=angle,
+                                    cardinal_point=cardinal)
                 self.created.append(f.name)
 
         self.doc.edit(mutate)
@@ -1097,10 +1100,12 @@ class WallTool(Tool):
             return False
         sec = self._shell_section(wall=True)
         stories = self._spans(a, b)
+        ox, oy, oz = self._offset_point((0.0, 0.0, 0.0))
+        a2, b2 = (a[0] + ox, a[1] + oy, a[2]), (b[0] + ox, b[1] + oy, b[2])
 
         def mutate(model: Model):
             for st in stories:
-                w = _add_wall(model, a, b, st, sec)
+                w = _add_wall(model, a2, b2, st, sec, dz=oz)
                 if w:
                     self.created.append(w)
 
@@ -1127,25 +1132,27 @@ class WallTool(Tool):
             below = m.story_below(st)
             if below is None:
                 continue
-            top, bot = m.stories[st].elevation, below.elevation
-            q = [(a[0], a[1], bot), (b[0], b[1], bot), (b[0], b[1], top), (a[0], a[1], top)]
+            ox, oy, oz = self._offset_point((0.0, 0.0, 0.0))
+            top, bot = m.stories[st].elevation + oz, below.elevation + oz
+            q = [(a[0] + ox, a[1] + oy, bot), (b[0] + ox, b[1] + oy, bot), (b[0] + ox, b[1] + oy, top),
+                 (a[0] + ox, a[1] + oy, top)]
             outline += [(q[k], q[(k + 1) % 4]) for k in range(4)]
         pv.lines = outline + rail  # the outline of every wall, then the line to the cursor
         pv.text += f"   wall: {', '.join(stories)}" if stories else ""
         return pv
 
 
-def _add_wall(model: Model, a, b, story: str, section: str) -> Optional[str]:
+def _add_wall(model: Model, a, b, story: str, section: str, dz: float = 0.0) -> Optional[str]:
     below = model.story_below(story)
     if below is None:
         return None
-    top, bot = model.stories[story].elevation, below.elevation
+    top, bot = model.stories[story].elevation + dz, below.elevation + dz
     pts = [model.add_point(a[0], a[1], bot), model.add_point(b[0], b[1], bot),
            model.add_point(b[0], b[1], top), model.add_point(a[0], a[1], top)]
     names = {p.name for p in pts}
     if any(set(ar.points) == names for ar in model.areas.values()):
         return None
-    return model.add_area(pts, section, type="Wall", story=story).name
+    return model.add_area(pts, section, type="Wall", story=story if not dz else None).name
 
 
 # ---------------------------------------------------------------- draw slab
@@ -1203,12 +1210,12 @@ class SlabTool(Tool):
         return self._shell_section(wall=(kind == "Wall"))
 
     def _normal_shift(self) -> Tuple[float, float, float]:
-        """The form's "Plane offset normal" as a shift of the whole outline."""
-        dz = float(getattr(self.settings, "offset_z", 0.0) or 0.0) if self._uses("offset_z") else 0.0
-        k = self.plane.kind
-        if not dz or k == "3d":
-            return (0.0, 0.0, 0.0)
-        return {"plan": (0.0, 0.0, dz), "xz": (0.0, dz, 0.0), "yz": (dz, 0.0, 0.0)}[k]
+        """The form's Offset X / Y / Z: a shift of the whole outline."""
+        return self._offset_point((0.0, 0.0, 0.0))
+
+    def _shifted(self, poly):
+        d = self._normal_shift()
+        return [(p[0] + d[0], p[1] + d[1], p[2] + d[2]) for p in poly]
 
     # ---- picking
     def click(self, pt, snap: Optional[SnapResult] = None) -> bool:
@@ -1243,7 +1250,8 @@ class SlabTool(Tool):
         sec = self._section_for_kind(kind)
         stories = self.story_names_to_draw()
         diaphragm = self.settings.diaphragm if kind == "Floor" else None
-        dz = self._normal_shift()[2]
+        ox, oy, dz = self._normal_shift()
+        corners = [(c[0] + ox, c[1] + oy) for c in corners]
         z_free = self.plane.value if (self.plane.kind == "plan" and self.story is None) else None
         if not stories and z_free is None:
             raise ModelError("NOTHING_TO_DRAW", "No story to draw the floor on")
@@ -1293,7 +1301,7 @@ class SlabTool(Tool):
         poly = list(self.points)
         if cursor is not None and self.points:
             poly.append(self._p3(cursor))
-        pv.polygon = poly
+        pv.polygon = self._shifted(poly)
         if len(poly) >= 3 and self.plane.kind != "plan":
             problem = _planarity_problem(np.asarray(poly, float), plane_band(self.model))
             try:
@@ -1440,7 +1448,7 @@ class RectSlabTool(SlabTool):
             a, c = self.points[0], self._p3(cursor)
             q = self._corners(a, c)
             if q is not None:
-                pv.polygon = q
+                pv.polygon = self._shifted(q)
                 (u0, v0), (u1, v1) = self.plane.to2(a), self.plane.to2(c)
                 pv.text = f"{abs(u1 - u0):.3f} x {abs(v1 - v0):.3f}"
         return pv
@@ -1743,10 +1751,10 @@ class QuickSlabTool(SlabTool):
             cell = self.cell_at(cursor)
             if cell:
                 if self.plane.kind != "plan":
-                    pv.polygon = [self.plane.to3(c) for c in cell]
+                    pv.polygon = self._shifted([self.plane.to3(c) for c in cell])
                 else:
                     z = self.elevation()
-                    pv.polygon = [(c[0], c[1], z) for c in cell]
+                    pv.polygon = self._shifted([(c[0], c[1], z) for c in cell])
             elif getattr(self.settings, "quick_floor_edge", "Grid") == "Beams" and self.plane.kind == "plan":
                 pv.text = "no closed loop of beams around the cursor"
         return pv

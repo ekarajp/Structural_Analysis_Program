@@ -120,6 +120,7 @@ class ViewState(QtCore.QObject):
             self.set_nav_mode(None)
         cls = TOOLS.get(name, SelectTool)
         old = self.tool
+        self._swap_tool_settings(old.name, getattr(cls, "name", name))
         self.tool = cls(self.doc, self.settings)
         self.tool.set_plane(old.plane)
         picks = getattr(self.tool, "picks", ())
@@ -128,6 +129,20 @@ class ViewState(QtCore.QObject):
         self.tool.activate(self)
         self.tool_changed.emit(self.tool.name)
         self.update_hint()
+
+    def _swap_tool_settings(self, old: str, new: str):
+        """Offsets, drawing control and the like belong to one tool: the values set in the
+        Draw Joints form stay with Draw Joints, a beam starts from its own (0 / None) and
+        finds its own values again when the beam tool comes back."""
+        from .tools import TOOL_LOCAL_SETTINGS, DrawSettings
+        store = self.__dict__.setdefault("_tool_settings", {})
+        if old == new:
+            return
+        store[old] = {k: getattr(self.settings, k) for k in TOOL_LOCAL_SETTINGS}
+        defaults = DrawSettings()
+        mine = store.get(new, {})
+        for k in TOOL_LOCAL_SETTINGS:
+            setattr(self.settings, k, mine.get(k, getattr(defaults, k)))
 
     def update_hint(self, *_):
         try:

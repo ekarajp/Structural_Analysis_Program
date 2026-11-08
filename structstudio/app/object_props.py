@@ -461,6 +461,14 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
         f = du.factor(item) if (item and du is not None) else 1.0  # shown in the display unit
         sp.setValue(float(val or 0.0) * f)
         sp.valueChanged.connect(lambda v, k=key, ff=f: setattr(s, k, float(v) / ff))
+        if key in ("offset_x", "offset_y", "offset_z"):  # a non-zero offset moves what is drawn: show it
+            def mark(v, w=sp):
+                w.setStyleSheet("" if abs(v) < 1e-12 else
+                                "QDoubleSpinBox { color: #e07000; font-weight: bold; }")
+                w.setToolTip("" if abs(v) < 1e-12 else
+                             "Non-zero offset: every picked point of this tool is moved by it")
+            sp.valueChanged.connect(mark)
+            mark(sp.value())
         return sp
 
     def _setting_item(self, key: str):
