@@ -324,10 +324,11 @@ def test_thin_shell_dkq_rotation_sign_with_a_frame():
     assert tip == pytest.approx(exact, rel=0.05)
 
 
-def test_pinned_end_moment_is_zero_at_the_joint_even_with_an_end_offset():
-    """A pinned beam end inside a column (rigid end zone): the output stations used to start
-    at the column face, so the moment diagram stopped short of the pin.  The joint itself is
-    now a station with the moment released (zero), shear and axial unchanged."""
+def test_pinned_beam_with_end_offsets_is_a_simple_span_between_the_faces():
+    """A pinned end with an end offset: the hinge is at the face (end of the rigid zone),
+    so a pin-pin beam spans the clear length as a simple span - zero moment at both
+    faces, only sagging moment (w Lc^2 / 8), shear w Lc / 2; the load on the rigid
+    zones goes straight into the joints."""
     m = steel_beam_model()
     a = m.add_point(0, 0, 0, restraints=FIXED)
     c = m.add_point(6, 0, 0, restraints=FIXED)
@@ -337,11 +338,32 @@ def test_pinned_end_moment_is_zero_at_the_joint_even_with_an_end_offset():
     m.add_frame(c, tc, "B", name="CC")
     pin = (False, False, False, False, True, True)
     m.add_frame(ta, tc, "B", name="BM", releases_i=pin, releases_j=pin, end_offset_i=0.2, end_offset_j=0.2)
-    m.add_frame_distributed_load("BM", "P", -10, -10)
+    m.add_frame_distributed_load("BM", "P", 10, 10)  # gravity (down)
     m.add_linear_static_case("P")
     res = analyze(m)
     st = res.frame_forces("BM", "P")
-    assert st.station[0] == pytest.approx(0.0) and st.station[-1] == pytest.approx(6.0)
-    assert st.forces[0, 4] == pytest.approx(0.0, abs=1e-9) and st.forces[0, 5] == pytest.approx(0.0, abs=1e-9)
-    assert st.forces[-1, 5] == pytest.approx(0.0, abs=1e-9)
-    assert st.forces[0, 1] == pytest.approx(28.0, rel=1e-6)  # w x clear span (5.6 m) / 2
+    M = st.forces[:, 5]
+    assert st.station[0] == pytest.approx(0.2) and st.station[-1] == pytest.approx(5.8)  # the faces
+    assert M[0] == pytest.approx(0.0, abs=1e-9) and M[-1] == pytest.approx(0.0, abs=1e-9)
+    assert M.min() >= -1e-9  # no hogging anywhere
+    assert M.max() == pytest.approx(10 * 5.6 ** 2 / 8, rel=1e-3)
+    assert abs(st.forces[0, 1]) == pytest.approx(28.0, rel=1e-6)  # w x clear span / 2
+
+
+def test_pinned_beams_in_a_slab_are_hinged_at_the_column_face():
+    """With a slab, the slab inside each column's cross-section moves with the column; the
+    hinge of a pinned beam must sit at the column face (first beam piece outside that zone),
+    or the beam would act fixed-ended.  Moment zero at both faces, sagging between."""
+    from structstudio.app.templates import new_building
+    m = new_building(x_spacings=(6, 6), y_spacings=(5,), story_heights=(3.5,), grid_only=False)
+    pin = (False, False, False, False, True, True)
+    for f in m.frames.values():
+        if f.type == "Beam":
+            f.releases_i, f.releases_j = pin, pin
+            m.add_frame_distributed_load(f.name, "Dead", 10, 10)
+    m.add_linear_static_case("Dead")
+    res = analyze(m)
+    st = res.frame_forces("B1", "Dead")
+    M = st.forces[:, 5]
+    assert M[0] == pytest.approx(0.0, abs=1e-6) and M[-1] == pytest.approx(0.0, abs=1e-6)
+    assert M.max() > 40.0 and M.min() > -0.1 * M.max()

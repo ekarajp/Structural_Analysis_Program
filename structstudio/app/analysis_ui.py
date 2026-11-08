@@ -64,8 +64,11 @@ class AnalysisProgressDialog(QtWidgets.QDialog):
         self.cancel_btn = QtWidgets.QPushButton("Cancel")
         self.cancel_btn.setToolTip("Stop the analysis (at the next step); the model stays as it is")
         self.cancel_btn.clicked.connect(self._cancel)
-        self.close_btn = QtWidgets.QPushButton("Close")
+        # one button in one place: "Cancel" while it runs, "Finish" when it has ended
+        self.close_btn = QtWidgets.QPushButton("Finish")
+        self.close_btn.setToolTip("Close this window and go back to the model")
         self.close_btn.setEnabled(False)  # until the analysis has finished
+        self.close_btn.setVisible(False)
         self.close_btn.clicked.connect(self.accept)
         btns.addWidget(self.issues_btn)
         btns.addStretch(1)
@@ -149,6 +152,7 @@ class AnalysisProgressDialog(QtWidgets.QDialog):
         self._t_end = time.time()  # the clock stops: the time shown is the run time
         self._state = "done" if ok else "failed"
         self.cancel_btn.setVisible(False)
+        self.close_btn.setVisible(True)
         self.close_btn.setEnabled(True)
         self.close_btn.setDefault(True)
         self.close_btn.setFocus()
@@ -165,7 +169,7 @@ class AnalysisProgressDialog(QtWidgets.QDialog):
         self.step.setStyleSheet(f"font-weight: 600; color: {GREEN_DARK if ok else '#c62828'};")
         self.summary.setText(f"{n_problems} problem(s) to look at" if n_problems else ("no problems" if ok else ""))
         self.issues_btn.setVisible(n_problems > 0)
-        self.close_btn.setText("Close")
+        self.close_btn.setText("Finish")
         self._style()
         self._tick()
         self._timer.stop()

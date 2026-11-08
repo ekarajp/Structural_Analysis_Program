@@ -208,6 +208,28 @@ class FrameFormulation:
         return np.array(idx, dtype=int), np.array(springs)
 
     def condense(self, K: np.ndarray, f: Optional[np.ndarray] = None):
+        """Static condensation of the released DOFs, applied where the flexible span
+        begins: with rigid end zones a pin is at the end of the rigid zone (the face
+        of the support for a full rigid zone), not at the joint inside the column -
+        a pinned beam then spans the clear length as a simple span and the moment is
+        zero at the end of the rigid zone.  Done in the DOFs of the flexible-span
+        faces (u_face = T_rigid u_end) and transformed back to the element ends."""
+        k = self.kin
+        if not (self.el.rigid_i or self.el.rigid_j) or self._releases()[0].size == 0:
+            return self._condense_ends(K, f)
+        T = k.T_rigid
+        Ti = np.linalg.inv(T)
+        # loads on the rigid zones belong to the joint side of the hinge: they go to
+        # the node directly; only the flexible-span loads pass the condensation
+        f_rig = np.zeros(12)
+        part = getattr(self, "_rigid_part", None)
+        if f is not None and part is not None and part[0].shape == f.shape and np.array_equal(part[0], f):
+            f_rig = part[1]
+        f_flex = None if f is None else f - f_rig
+        Kc, fc, rec = self._condense_ends(Ti.T @ K @ Ti, None if f_flex is None else Ti.T @ f_flex)
+        return T.T @ Kc @ T, T.T @ fc + f_rig, rec
+
+    def _condense_ends(self, K: np.ndarray, f: Optional[np.ndarray] = None):
         """Static condensation of released element DOFs.
 
         Released DOFs become internal; the node DOF is connected to the
@@ -296,6 +318,7 @@ class FrameFormulation:
         L, Lf = k.L, k.Lf
         f = np.zeros(12)
         a_i = el.rigid_i  # flexible span starts at x = a_i
+        self._rigid_acc = np.zeros(12)  # the part of f from loads on the rigid zones
         for ld in loads:
             if ld.kind == "point":
                 f += self._point_load_vector(ld.x_a, ld.value_a, ld.load_type)
@@ -303,6 +326,8 @@ class FrameFormulation:
                 f += self._thermal_load_vector(ld)
             else:
                 f += self._distributed_load_vector(ld.x_a, ld.x_b, ld.value_a, ld.value_b, ld.load_type)
+        self._rigid_part = (f.copy(), self._rigid_acc)
+        self._rigid_acc = None
         return f
 
     def _thermal_load_vector(self, ld: ElementLoad) -> np.ndarray:
@@ -356,6 +381,9 @@ class FrameFormulation:
             r = np.array([x - self.kin.L, 0.0, 0.0])
             f[6:9] += F
             f[9:12] += Mo + np.cross(r, F)
+        acc = getattr(self, "_rigid_acc", None)
+        if acc is not None:
+            acc += f
         return f
 
     def _assemble_from_shapes(self, N2, M2, N3, M3, Na, q, m, weight) -> np.ndarray:

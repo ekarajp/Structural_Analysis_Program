@@ -235,6 +235,7 @@ class Mesher:
         # 4d. slab inside each column's cross-section: a rigid zone
         if m.options.slab_column_rigid_zone:
             self._column_rigid_zones()
+            self._releases_at_column_faces()
 
         # 5. constraints
         self._build_constraints()
@@ -1623,6 +1624,54 @@ class Mesher:
                 continue
             out += [(float(p[0]), float(p[1])) for p in uv if pg.inside(p, Q, edge_tol=self.tol)]
         return out
+
+    def _releases_at_column_faces(self):
+        """End releases of a beam that meets a column inside a slab: the slab within
+        the column's cross-section moves with the column (rigid zone), so the pieces
+        of the beam inside it cannot rotate apart from the column - a pin on the
+        piece at the joint would do nothing and the beam would act fixed-ended.  The
+        release goes to the first piece outside the rigid zone, i.e. the hinge is at
+        the column face and a pinned beam spans face to face as a simple span."""
+        am = self.am
+        if not am.bodies:
+            return
+        body_of = {}
+        for k, b in enumerate(am.bodies):
+            body_of[b.master] = k
+            for n in b.nodes:
+                body_of[n] = k
+        moved = 0
+        for name, eids in am.object_to_frames.items():
+            if len(eids) < 2:
+                continue
+            els = sorted((am.frames[e] for e in eids), key=lambda e: e.rel_start)
+            for end in ("i", "j"):
+                seq = els if end == "i" else els[::-1]
+                first = seq[0]
+                rel = getattr(first, "releases_" + end)
+                if not np.any(rel):
+                    continue
+                joint = first.node_i if end == "i" else first.node_j
+                b = body_of.get(joint)
+                if b is None:
+                    continue
+                # walk away from the joint while the far node is still in the column's zone
+                k = 0
+                while k < len(seq) - 1:
+                    far = seq[k].node_j if end == "i" else seq[k].node_i
+                    if body_of.get(far) != b:
+                        break
+                    k += 1
+                if k == 0:
+                    continue
+                target = seq[k]
+                setattr(target, "releases_" + end, np.array(rel, bool).copy())
+                setattr(target, "fixity_" + end, np.array(getattr(first, "fixity_" + end), float).copy())
+                setattr(first, "releases_" + end, np.zeros(6, bool))
+                setattr(first, "fixity_" + end, np.zeros(6))
+                moved += 1
+        if moved:
+            am.info.append(f"{moved} beam end release(s) placed at the column face (end of the slab-column rigid zone)")
 
     def _column_rigid_zones(self):
         """Tie the slab nodes inside each column's cross-section to the column

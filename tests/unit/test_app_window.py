@@ -1237,7 +1237,7 @@ def test_run_analysis_shows_progress_and_lists_problems_with_their_place(window,
     assert dlg.isVisible()
     _wait_analysis(window, app)
     assert dlg.bar.value() == 1000 and dlg.percent.text().startswith("Finished")
-    assert dlg.close_btn.isEnabled() and not dlg.cancel_btn.isVisible()
+    assert dlg.close_btn.isEnabled() and dlg.close_btn.text() == "Finish" and not dlg.cancel_btn.isVisible()
     # ETABS: the analysed model is locked; a change asks to unlock and deletes the results
     assert window.doc.locked and window.act_lock.isChecked()
     window.doc.ask_unlock = lambda: False
@@ -1267,7 +1267,7 @@ def test_run_analysis_shows_progress_and_lists_problems_with_their_place(window,
     d.table.itemDoubleClicked.emit(d.table.topLevelItem(0), 0)  # the error row: locate the beam
     app.processEvents()
     assert window.state.frames == {lone.name}
-    assert window._progress_dlg.close_btn.text() == "Close"
+    assert window._progress_dlg.close_btn.text() == "Finish"
 
 
 @gui

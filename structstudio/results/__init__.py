@@ -275,45 +275,8 @@ class Results:
             F = np.concatenate(forces) * ff
             Fmin = np.concatenate(forces_min) * ff if forces_min else None
             res = FrameStationForces(frame, case, st, F, Fmin)
-        res = self._pin_end_stations(frame, res)
         self._station_cache[key] = res
         return res
-
-    def _pin_end_stations(self, frame: str, res: "FrameStationForces") -> "FrameStationForces":
-        """A released (pinned) end carries no moment at the joint.  The output stations
-        start at the face of a rigid end zone, so the diagram stopped short of the pin
-        with the moment of the face (V x offset).  Add the joint itself as a station,
-        with the moment released there (M2 / M3 = 0) and the same shear and axial."""
-        if res.station is None or len(res.station) == 0:
-            return res
-        obj = self.model.frames[frame]
-        pin_i = bool(obj.releases_i[4] or obj.releases_i[5])
-        pin_j = bool(obj.releases_j[4] or obj.releases_j[5])
-        if not (pin_i or pin_j):
-            return res
-        pi_, pj_ = np.asarray(self.model.points[obj.point_i].xyz, float), np.asarray(self.model.points[obj.point_j].xyz, float)
-        L = float(np.linalg.norm(pj_ - pi_))  # model length units, like the stations
-        st = np.asarray(res.station, float)
-        F = np.asarray(res.forces, float)
-        Fm = None if res.forces_min is None else np.asarray(res.forces_min, float)
-
-        def released(row):
-            row = np.array(row, float)
-            row[4] = 0.0
-            row[5] = 0.0
-            return row
-
-        if pin_i and st[0] > 1e-9:
-            st = np.r_[0.0, st]
-            F = np.vstack([released(F[0]), F])
-            if Fm is not None:
-                Fm = np.vstack([released(Fm[0]), Fm])
-        if pin_j and st[-1] < L - 1e-9:
-            st = np.r_[st, L]
-            F = np.vstack([F, released(F[-1])])
-            if Fm is not None:
-                Fm = np.vstack([Fm, released(Fm[-1])])
-        return FrameStationForces(frame, res.case, st, F, Fm)
 
     def frame_forces_at(self, frame: str, case: str, stations: Sequence[float]) -> FrameStationForces:
         """Internal forces at arbitrary distances from end I of the object
