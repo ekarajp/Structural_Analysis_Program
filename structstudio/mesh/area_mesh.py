@@ -852,15 +852,20 @@ def _smooth(P, cells, feats, tol, passes):
 
 
 # ------------------------------------------------------------ automatic size
-# Default rule "etabs": the ETABS default automatic mesh - an approximate maximum
-# element size of 48 in = 4 ft = 1.2192 m for floors and walls (FLOORMESHMAXSIZE /
-# WALLMESHMAXSIZE of an ETABS file left at its defaults), with mesh lines through
-# the columns, beams, walls and joints of the floor (the features of tensor_mesh).
+# Default rule "etabs" (ETABS-like): an approximate maximum element size of 1.2 m
+# for floors and walls - a round metric value next to the ETABS default of
+# 48 in = 1.2192 m (FLOORMESHMAXSIZE / WALLMESHMAXSIZE of an ETABS file left at its
+# defaults) - with mesh lines through the columns, beams, walls and joints of the
+# floor (the features of tensor_mesh): each span between them is split into equal
+# elements no larger than that, so usual spans get 1.0 - 1.2 m elements (6 m: 5 x
+# 1.2 m; 5 m: 5 x 1.0 m; 7 m: 6 x 1.17 m; 8 m: 7 x 1.14 m).  Imported ETABS files
+# keep the size written in them.
 # Rule "fine": the earlier, finer Structural Studio mesh (at least 8 elements
-# across a shell and 6 between columns, never coarser than 1 m) - about 6 to 8
-# times as many elements.  Analyze > Check Mesh refines either one.
+# across a shell and 6 between columns, never coarser than 1 m) - several times
+# as many elements.  Analyze > Check Mesh refines either one.
 AUTO_RULE = "etabs"
-ETABS_MAX_SIZE = 1.2192  # m (48 in)
+DEFAULT_MAX_SIZE = 1.2  # m
+ETABS_MAX_SIZE = DEFAULT_MAX_SIZE  # (name kept for callers)
 AUTO_MAX_SIZE = 1.0  # m, rule "fine": never coarser than this
 AUTO_MIN_SIZE = 0.1  # m: never finer than this (unless the shell itself is smaller)
 AUTO_ACROSS = 8  # elements across the narrowest width of a shell
@@ -872,8 +877,9 @@ def auto_size(Q: np.ndarray, feats: Optional[Features] = None, tol: float = 1e-6
               max_size: Optional[float] = None, factor: float = 1.0, rule: Optional[str] = None) -> float:
     """Element size (SI) for one shell.
 
-    Rule "etabs" (default, :data:`AUTO_RULE`): the ETABS approximate maximum mesh
-    size, 1.2192 m, times ``factor`` (a mesh check halves it: 0.6096, 0.3048 m...).
+    Rule "etabs" (default, :data:`AUTO_RULE`): the approximate maximum mesh size
+    :data:`DEFAULT_MAX_SIZE` (1.2 m) times ``factor`` (a mesh check halves it:
+    0.6, 0.3 m...).
 
     Rule "fine", from the shell's geometry:
 
@@ -890,7 +896,7 @@ def auto_size(Q: np.ndarray, feats: Optional[Features] = None, tol: float = 1e-6
     neighbouring shells (floors and walls) nest into one another."""
     rule = rule or AUTO_RULE
     if rule == "etabs":
-        top = ETABS_MAX_SIZE if max_size is None else max_size
+        top = DEFAULT_MAX_SIZE if max_size is None else max_size
         h = top * factor
         k = max(0, math.ceil(math.log2(top / h) - 1e-9))
         return top / 2 ** k

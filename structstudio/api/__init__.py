@@ -102,7 +102,7 @@ def mesh_signature(model) -> str:
     }
     from ..mesh import area_mesh as _am
     if _am.AUTO_RULE != "fine":  # the automatic size rule (a check made with another rule is out of date)
-        data["auto"] = [_am.AUTO_RULE, _am.ETABS_MAX_SIZE]
+        data["auto"] = [_am.AUTO_RULE, _am.DEFAULT_MAX_SIZE]
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:16]
 
 

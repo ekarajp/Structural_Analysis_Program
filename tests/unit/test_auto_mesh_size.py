@@ -7,17 +7,30 @@ from structstudio.mesh import area_mesh as am_
 from structstudio.model.properties import ShellSection
 
 
-def test_default_auto_size_is_the_etabs_default():
-    """ETABS default automatic mesh: approximate maximum size 48 in = 1.2192 m (floors
-    and walls); a mesh check halves it."""
-    assert am_.AUTO_RULE == "etabs" and am_.ETABS_MAX_SIZE == 1.2192
+def test_default_auto_size_is_the_etabs_like_round_value():
+    """Default automatic mesh: approximate maximum size 1.2 m (a round value next to
+    the ETABS default 48 in = 1.2192 m), floors and walls; a mesh check halves it."""
+    assert am_.AUTO_RULE == "etabs" and am_.DEFAULT_MAX_SIZE == 1.2
     sq = np.array([[0, 0], [8, 0], [8, 8], [0, 8]], float)
     strip = np.array([[0, 0], [20, 0], [20, 2], [0, 2]], float)
     cols = am_.Features(points=[(0.0, 0.0), (3.0, 0.0), (0.0, 3.0), (3.0, 3.0)])
     for Q, f in ((sq, None), (strip, None), (sq, cols)):
-        assert am_.auto_size(Q, f) == 1.2192
-    assert am_.auto_size(sq, factor=0.5) == 0.6096
-    assert am_.auto_size(sq, factor=0.25) == 0.3048
+        assert am_.auto_size(Q, f) == 1.2
+    assert am_.auto_size(sq, factor=0.5) == 0.6
+    assert am_.auto_size(sq, factor=0.25) == 0.3
+
+
+def test_spans_split_into_equal_elements_up_to_the_size():
+    """6 m span -> 5 x 1.2 m, 5 m -> 5 x 1.0 m (mesh lines through the columns)."""
+    from structstudio.app.templates import new_building
+    m = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
+    m.options.slab_column_rigid_zone = False  # the plain ETABS-like mesh
+    am = build_analysis_model(m)
+    X = am.coords()
+    floor = [s for s in am.shells if m.areas[s.object].type == "Floor"]
+    xs = sorted({round(float(X[n][0]), 6) for s in floor for n in s.nodes})
+    ys = sorted({round(float(X[n][1]), 6) for s in floor for n in s.nodes})
+    assert np.allclose(np.diff(xs), 1.2) and np.allclose(np.diff(ys), 1.0)
 
 
 def test_fine_auto_size_follows_width_and_spans():
