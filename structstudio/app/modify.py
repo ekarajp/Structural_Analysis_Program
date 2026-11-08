@@ -535,8 +535,9 @@ class ModifyTool(Tool):
         if self.selecting:
             n = state.count if state is not None else 0
             if n:
-                return next_step(self.title, f"press Enter (or right-click) to use the {n} selected object(s)")
-            return next_step(self.title, f"select the {self.needs} (click or drag a window)")
+                return next_step(self.title, f"press Enter (or right-click) to use the {n} selected object(s)",
+                                 "click = add / remove", "Esc = cancel")
+            return next_step(self.title, f"select the {self.needs} (click or drag a window)", "Esc = cancel")
         return self.step_hint()
 
     def step_hint(self) -> str:
@@ -566,7 +567,8 @@ class MoveTool(ModifyTool):
     next_prompt = "click the destination (or type a distance: 6, 6<30, 3,4)"
 
     def step_hint(self) -> str:
-        return next_step(self.title, self.next_prompt if self.points else self.prompt)
+        return next_step(self.title, self.next_prompt if self.points else self.prompt,
+                         *(("type a distance + Enter",) if self.points else ()), "Esc = cancel")
 
     def click(self, pt, snap=None) -> bool:
         if self.selecting:
@@ -697,7 +699,8 @@ class MirrorTool(ModifyTool):
     views = ("plan", "xz", "yz")
 
     def step_hint(self) -> str:
-        return next_step(self.title, "click the second point of the axis" if self.points else self.prompt)
+        return next_step(self.title, "click the second point of the axis" if self.points else self.prompt,
+                         "keep the original: Properties of Object", "Esc = cancel")
 
     def click(self, pt, snap=None) -> bool:
         if self.selecting:
@@ -818,7 +821,7 @@ class TrimTool(_FramePickTool):
     prompt = "click the part of a beam / column to cut away (at crossing frames, shell edges, grid lines)"
 
     def hint(self, state=None) -> str:
-        return next_step(self.title, self.prompt)
+        return next_step(self.title, self.prompt, "Esc = done")
 
     def frame_click(self, frame, pt) -> bool:
         if frame is None:
@@ -848,7 +851,7 @@ class ExtendTool(_FramePickTool):
     prompt = "click a beam near the end to lengthen (to the next frame, shell edge or grid line)"
 
     def hint(self, state=None) -> str:
-        return next_step(self.title, self.prompt)
+        return next_step(self.title, self.prompt, "Esc = done")
 
     def frame_click(self, frame, pt) -> bool:
         if frame is None:
@@ -879,7 +882,8 @@ class OffsetTool(_FramePickTool):
     prompt = "click a beam on the side of the copy (type a number + Enter = distance)"
 
     def hint(self, state=None) -> str:
-        return next_step(f"{self.title} ({self.settings.offset_distance:g})", self.prompt)
+        return next_step(f"{self.title} ({self.settings.offset_distance:g})", self.prompt,
+                         "type a new distance + Enter", "Esc = done")
 
     def typed(self, text: str, toward=None):
         v = float(text)

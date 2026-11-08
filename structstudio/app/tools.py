@@ -80,11 +80,13 @@ def point_in_polygon(p: XY, poly: Sequence[XY]) -> bool:
     return inside
 
 
-def next_step(title: str, step: str, key: str = "") -> str:
-    """The guide at the bottom left: the command and only the step to do next."""
+def next_step(title: str, step: str, *others: str) -> str:
+    """The guide at the bottom left: the command, the step to do next, and the other
+    choices at this point (Esc = cancel ...).  ``others`` default to Esc = cancel."""
     step = step.strip().rstrip(".")
     text = f"{title}  \u25B8  Next: {step[:1].lower() + step[1:]}"
-    return text + (f"   ({key})" if key else "")
+    alts = [o for o in (others or ("Esc = cancel",)) if o]
+    return text + ("      \u2022  " + "   \u2022  ".join(alts) if alts else "")
 
 
 # -------------------------------------------------------------------- planes
@@ -491,8 +493,10 @@ class Tool:
         """What to do next - shown at the bottom left of the window."""
         title = self.title or self.name.replace("_", " ").title()
         if self.points:
-            return next_step(title, self.next_prompt or "click the next point", "Enter = finish")
-        return next_step(title, self.prompt)
+            return next_step(title, self.next_prompt or "click the next point",
+                             "Enter / double-click = finish", "Esc = end this line", "type a length + Enter")
+        return next_step(title, self.prompt, "Esc = cancel (back to Select)",
+                         "Shift + right-click = snap menu")
 
     # ---- context
     @property
@@ -677,8 +681,10 @@ class SelectTool(Tool):
         n = state.count if state is not None else 0
         if n:
             return next_step("Select", f"choose a command (Assign / Edit / Load) for the {n} selected object(s)",
-                             "Esc = clear")
-        return next_step("Select", "click an object or drag a window to select")
+                             "Ctrl + click = add / remove", "right-click = object info", "Delete = delete",
+                             "Esc = clear the selection")
+        return next_step("Select", "click an object or drag a window to select",
+                         "drag right-to-left = crossing", "or choose a command first")
 
 
 class SelectLineTool(Tool):
@@ -724,7 +730,9 @@ class BeamTool(Tool):
         mode = self._arc_mode()
         if mode is None:
             return super().hint(state)
-        return next_step(f"{self.title} ({mode})", self.prompt[:1].lower() + self.prompt[1:])
+        return next_step(f"{self.title} ({mode})", self.prompt[:1].lower() + self.prompt[1:],
+                         "Esc = cancel this arc" if self.points else "Esc = cancel (back to Select)",
+                         "Line shape: Properties of Object")
 
     def cancel(self):
         super().cancel()
@@ -1985,10 +1993,11 @@ class LoadPickTool(Tool):
         n = len(self.picked(state)) if state is not None else 0
         title = self.title
         if n == 0:
-            return next_step(title, f"pick the {self.plural()} (click or drag a window)")
+            return next_step(title, f"pick the {self.plural()} (click or drag a window)",
+                             "set the values in Properties of Object", "Esc = cancel (back to Select)")
         verb = self.settings.load_mode.lower()
         return next_step(title, f"press Enter (or right-click) to {verb} the load on the {n} picked "
-                                f"{self.plural(n)}", "Esc = clear")
+                                f"{self.plural(n)}", "click = add / remove a pick", "Esc = clear the picks")
 
 
 class JointLoadTool(LoadPickTool):
@@ -2133,9 +2142,11 @@ class FrameSectionTool(LoadPickTool):
         self._default_section()
         sec = self.settings.frame_section or "(none)"
         if n == 0:
-            return next_step(f"{self.title} ({sec})", "pick the frames (click or drag a window)")
+            return next_step(f"{self.title} ({sec})", "pick the frames (click or drag a window)",
+                             "change the section in Properties of Object", "Esc = cancel (back to Select)")
         return next_step(f"{self.title} ({sec})", f"press Enter (or right-click) to assign it to the {n} "
-                                                  f"picked {self.plural(n)}", "Esc = clear")
+                                                  f"picked {self.plural(n)}", "click = add / remove a pick",
+                                                  "Esc = clear the picks")
 
 
 class AreaLoadTool(LoadPickTool):
