@@ -511,14 +511,15 @@ def test_selection_highlight_box_and_properties_panel(window, app):
     assert vp._rubber.visible and vp._rubber.fill.GetProperty().GetOpacity() == pytest.approx(
         theme.active().opacity("select_box_fill"))
     assert vp._rubber.hide() and not vp._rubber.visible
-    # the properties panel empties when the selection is cleared
-    assert window.props._obj is None  # two kinds selected -> nothing shown
+    # Properties of Object (left) follows the selection; there is no right-hand raw panel
+    assert not hasattr(window, "props") and not hasattr(window, "dock_properties")
+    window.state.set_tool("select")
     window.state.set_selection([beam])
     app.processEvents()
-    assert window.props._obj is not None and window.props.apply_btn.isEnabled()
+    assert window.object_props.table.rowCount() > 0
     window.state.clear_selection()
     app.processEvents()
-    assert window.props._obj is None and not window.props.apply_btn.isEnabled()
+    assert not window.object_props.title.text().startswith("Selection")
 
 
 @gui
@@ -605,7 +606,7 @@ def test_draw_load_panel_and_display_modes(window, app, monkeypatch):
     x, y = vp._display((3.0, 2.5, z))
     assert vp.pick(int(x), int(y)) in [("area", a) for a in model.areas] + [("panel", panel.name)]
     window.state.toggle("panel", panel.name, False)
-    assert window.state.panels == {panel.name} and window.props._obj is panel
+    assert window.state.panels == {panel.name}
     # load display modes: panel loads on the panel, or as applied to the beams
     pat = panel.loads[0].pattern
     window.state.set_display(load_pattern=pat)
@@ -812,23 +813,20 @@ def test_load_menu_and_click_tools(window, app):
 
 @gui
 def test_panels_hidden_and_toggles(window, app):
-    # the drawing gets the room: Results / Log (bottom) and Properties (right) start hidden
-    for dock in (window.dock_results, window.dock_log, window.dock_properties):
+    # the drawing gets the room: Results / Log (bottom) start hidden; no right-hand panel
+    for dock in (window.dock_results, window.dock_log):
         assert not dock.isVisible()
     assert window.dock_model.isVisible() and window.dock_properties_of_object.isVisible()
-    assert set(window.panel_actions) == {"model", "properties_of_object", "properties", "results", "log"}
+    assert set(window.panel_actions) == {"model", "properties_of_object", "results", "log"}
+    assert not hasattr(window, "act_props_panel")
+    tool_icons = {a.property("icon_name") for tb in window.findChildren(QtWidgets.QToolBar) for a in tb.actions()}
+    assert "properties_panel" not in tool_icons
     window.act_tables.trigger()
     app.processEvents()
     assert window.dock_results.isVisible() and window.act_tables.isChecked()
     window.act_tables.trigger()
     app.processEvents()
     assert not window.dock_results.isVisible()
-    window.act_props_panel.trigger()
-    app.processEvents()
-    assert window.dock_properties.isVisible()
-    window.dock_properties.close()  # the panel's own close button
-    app.processEvents()
-    assert not window.act_props_panel.isChecked()
     window.show_tables()  # Display > Show Tables (Ctrl+T)
     app.processEvents()
     assert window.dock_results.isVisible()
@@ -837,7 +835,8 @@ def test_panels_hidden_and_toggles(window, app):
     panels = next(a.menu() for a in win_menu.actions() if a.text().startswith("Panels"))
     panels.aboutToShow.emit()
     assert set(panels.actions()) == set(window.panel_actions.values())
-    assert {"Tables", "Properties panel", "Log"} <= {a.text() for a in panels.actions()}
+    names = {a.text() for a in panels.actions()}
+    assert {"Tables", "Log", "Properties of Object"} <= names and "Properties panel" not in names and "Properties" not in names
 
 
 @gui

@@ -16,7 +16,7 @@ from .colors_dialog import GraphicsColorsDialog
 from .document import Document
 from .icons import icon
 from .menu_commands import MenuCommandsMixin
-from .panels import LogPanel, ModelExplorer, PropertyPanel, ResultsPanel
+from .panels import LogPanel, ModelExplorer, ResultsPanel
 from .state import ViewState
 from .viewport import ModelViewport
 from .workspace import LAYOUT_LABELS, ViewportArea, WindowsDialog
@@ -201,7 +201,6 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
     def _build_docks(self):
         self.explorer = ModelExplorer(self.doc)
         self.tree = self.explorer.tree
-        self.props = PropertyPanel(self.doc)
         self.results = ResultsPanel(self.doc)
         self.logger = LogPanel()
         from .object_props import ObjectPropertiesPanel
@@ -209,7 +208,6 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         for title, widget, area in (
             ("Model", self.explorer, QtCore.Qt.LeftDockWidgetArea),
             ("Properties of Object", self.object_props, QtCore.Qt.LeftDockWidgetArea),
-            ("Properties", self.props, QtCore.Qt.RightDockWidgetArea),
             ("Results", self.results, QtCore.Qt.BottomDockWidgetArea),
             ("Log", self.logger, QtCore.Qt.BottomDockWidgetArea),
         ):
@@ -222,15 +220,16 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         # ETABS: the Properties of Object form sits below the Model Explorer
         self.splitDockWidget(self.dock_model, self.dock_properties_of_object, QtCore.Qt.Vertical)
         self.dock_results.raise_()
-        # the drawing gets the room: Results / Log (bottom) and Properties (right) start
-        # hidden; the toolbar buttons and Options > Panels bring them back
-        for dock in (self.dock_results, self.dock_log, self.dock_properties):
+        # the drawing gets the room: Results / Log (bottom) start hidden; the toolbar
+        # button and Options > Panels bring them back.  There is no right-hand raw
+        # property panel: the common items are in Properties of Object (left), the
+        # full list in right-click > Information.
+        for dock in (self.dock_results, self.dock_log):
             dock.hide()
         self.panel_actions = {}
         for key, dock, tip in (
                 ("model", self.dock_model, "Model explorer (left)"),
                 ("properties_of_object", self.dock_properties_of_object, "Properties of Object (left)"),
-                ("properties", self.dock_properties, "Properties of the selection (right)"),
                 ("results", self.dock_results, "Results tables (bottom)"),
                 ("log", self.dock_log, "Messages / log (bottom)")):
             a = dock.toggleViewAction()
@@ -687,10 +686,6 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         self.act_tables.setToolTip("Show / hide the Results tables (Ctrl+T) - use it after an analysis")
         res.addAction(self.act_tables)
         self.results_toolbar = res
-        self.act_props_panel = self.panel_actions["properties"]
-        self.act_props_panel.setText("Properties panel")
-        self.act_props_panel.setIcon(icon("properties_panel"))
-        self.act_props_panel.setProperty("icon_name", "properties_panel")
         # ---- left: select / draw / edit / snap palette (vertical, like ETABS)
         left = QtWidgets.QToolBar("Draw and Select")
         left.setObjectName("draw")
@@ -1040,7 +1035,6 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         menu.exec(vp.vtk_widget.mapToGlobal(QtCore.QPoint(int(x), int(h - y))))
 
     def _tree_selected(self, attr: str, name: str):
-        self.props.show_object(attr, name)
         if attr == "frames":
             self.state.set_selection([name])
             self.results.set_frame(name)
@@ -1134,21 +1128,8 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
 
     def _selection_changed(self):
         st = self.state
-        n = st.count
         if len(st.frames) == 1 and not st.areas and not st.points:
-            name = next(iter(st.frames))
-            self.props.show_object("frames", name)
-            self.results.set_frame(name)
-        elif len(st.areas) == 1 and not st.frames:
-            self.props.show_object("areas", next(iter(st.areas)))
-        elif len(st.points) == 1 and not st.frames and not st.areas:
-            self.props.show_object("points", next(iter(st.points)))
-        elif len(getattr(st, "panels", ())) == 1 and not st.frames and not st.areas and not st.points:
-            self.props.show_object("panel_loads", next(iter(st.panels)))
-        else:
-            # nothing (or several objects) selected: the panel must not keep showing a
-            # stale object
-            self.props.clear(f"{n} objects selected" if n else "Select an object")
+            self.results.set_frame(next(iter(st.frames)))
 
     def _status(self, text: str):
         """A passing message; the guidance of the command comes back after it."""
