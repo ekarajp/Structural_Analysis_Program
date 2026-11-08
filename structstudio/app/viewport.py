@@ -1293,6 +1293,7 @@ class ModelViewport(QtWidgets.QWidget):
     # ------------------------------------------------------- locate an object
     FLASH_COUNT = 6  # on/off toggles
     FLASH_MS = 260
+    FLASH_DOT_PX = 14  # end dots of the flash, constant on screen
     FLASH_RGB = (1.0, 0.1, 0.65)  # magenta: unlike the selection blue and every object colour
 
     def shows_points(self, X) -> bool:
@@ -1372,19 +1373,26 @@ class ModelViewport(QtWidgets.QWidget):
             a.GetProperty().SetLighting(False)
             a.GetProperty().RenderLinesAsTubesOn()
             actors.append(a)
-        r = scene.model_extent(self.doc.model) * 0.012
-        for x in X:
-            src = vtk.vtkSphereSource()
-            src.SetCenter(*x)
-            src.SetRadius(r)
-            src.SetThetaResolution(16)
-            src.SetPhiResolution(12)
-            mapper = vtk.vtkPolyDataMapper()
-            mapper.SetInputConnection(src.GetOutputPort())
-            a = vtk.vtkActor()
-            a.SetMapper(mapper)
-            a.GetProperty().SetColor(*rgb)
-            actors.append(a)
+        # end / corner dots of a fixed size on the screen: a radius tied to the model
+        # size became a ball metres across on a tall building, filling the window
+        # once the camera zoomed onto a short member
+        pts = vtk.vtkPoints()
+        verts = vtk.vtkCellArray()
+        for k, x in enumerate(X):
+            pts.InsertNextPoint(*x)
+            verts.InsertNextCell(1)
+            verts.InsertCellPoint(k)
+        poly = vtk.vtkPolyData()
+        poly.SetPoints(pts)
+        poly.SetVerts(verts)
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputData(poly)
+        a = vtk.vtkActor()
+        a.SetMapper(mapper)
+        a.GetProperty().SetColor(*rgb)
+        a.GetProperty().SetPointSize(self.FLASH_DOT_PX)
+        a.GetProperty().RenderPointsAsSpheresOn()
+        actors.append(a)
         for a in actors:
             self.renderer.AddActor(a)
         self._flash_actors = actors

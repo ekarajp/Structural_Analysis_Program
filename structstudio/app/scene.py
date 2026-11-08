@@ -821,6 +821,9 @@ def _local_axes_actors(model: Model, frames) -> List[vtk.vtkActor]:
     from ..mesh.geometry import frame_axes
 
     L = model_extent(model) * 0.03
+    typ = typical_member_length(model)
+    if typ > 0:
+        L = min(L, typ * 0.15)  # local axes: not metres long on a tall building
     sets = ([], [], [])
     for f in frames:
         a, b = np.array(model.points[f.point_i].xyz, float), np.array(model.points[f.point_j].xyz, float)
@@ -890,8 +893,27 @@ def _tube_actor(model: Model, names: Sequence[str], color) -> vtk.vtkActor:
 
 
 def _tube_radius(model: Model) -> float:
+    """Base size of the 3-D symbols (supports, springs, plain tubes): a fraction of
+    the model size, but never more than a fraction of a typical member, so a tall
+    building does not get supports metres across.  Small models are unchanged."""
     ext = model_extent(model)
-    return max(ext * 0.004, 1e-3)
+    r = ext * 0.004
+    typ = typical_member_length(model)
+    if typ > 0:
+        r = min(r, typ * 0.02)
+    return max(r, 1e-3)
+
+
+def typical_member_length(model: Model) -> float:
+    """Median length of the frame objects (0 if none)."""
+    if not model.frames:
+        return 0.0
+    P = model.points
+    a = np.array([P[f.point_i].xyz for f in model.frames.values()], float)
+    b = np.array([P[f.point_j].xyz for f in model.frames.values()], float)
+    L = np.linalg.norm(b - a, axis=1)
+    L = L[L > 1e-9]
+    return float(np.median(L)) if len(L) else 0.0
 
 
 def model_extent(model: Model) -> float:
@@ -1265,13 +1287,10 @@ def build_deformed_mesh_actors(model: Model, results, case: str, mode: Optional[
             for v in fval:
                 fs.InsertNextValue(v)
             poly.GetPointData().SetScalars(fs)
-            tube = vtk.vtkTubeFilter()  # members drawn as solid bars, bending with the joints
-            tube.SetInputData(poly)
-            tube.SetRadius(_tube_radius(model) * 0.9)
-            tube.SetNumberOfSides(10)
-            tube.CappingOn()
-            tube.Update()
-            poly = tube.GetOutput()
+            # members as coloured screen-space lines (fixed pixel width, as in the
+            # undeformed view) - not tubes: a tube radius tied to the model size made
+            # every member a thick pipe on a tall building and hundreds of thousands
+            # of triangles.  Real section shapes are the extruded view's job.
         mapper = vtk.vtkPolyDataMapper()
         mapper.SetInputData(poly)
         mapper.SetLookupTable(lut)
@@ -1283,8 +1302,8 @@ def build_deformed_mesh_actors(model: Model, results, case: str, mode: Optional[
         if kind == "shells":
             prop.SetOpacity(0.92)
         else:
-            prop.SetAmbient(0.35)
-            prop.SetDiffuse(0.75)
+            prop.SetLineWidth(gsize("deformed_width"))
+            prop.LightingOff()
         actors.append(actor)
     if ring_pts:
         actors.append(_release_rings(ring_pts))
