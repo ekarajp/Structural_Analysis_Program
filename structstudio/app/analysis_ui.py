@@ -102,8 +102,13 @@ class AnalysisProgressDialog(QtWidgets.QDialog):
             f"QProgressBar {{ border: 1px solid #9aa4ae; border-radius: 4px; background: {base}; }}"
             f"QProgressBar::chunk {{ border-radius: 3px; background: {grad}; }}")
 
+    def _now(self) -> float:
+        """Seconds since the start; frozen at the moment the run ended."""
+        end = getattr(self, "_t_end", None)
+        return (end if end is not None else time.time()) - self._t0
+
     def _tick(self):
-        self.elapsed.setText(f"{time.time() - self._t0:.1f} s")
+        self.elapsed.setText(f"{self._now():.1f} s")
         if self._state == "running":
             self._phase = (self._phase + 0.035) % 1.0
             self._style()
@@ -115,10 +120,10 @@ class AnalysisProgressDialog(QtWidgets.QDialog):
         if message and message != self._last_msg:
             self._last_msg = message
             self.step.setText(message)
-            self.log.appendPlainText(f"[{time.time() - self._t0:7.2f} s] {message}")
+            self.log.appendPlainText(f"[{self._now():7.2f} s] {message}")
 
     def add_log(self, text: str):
-        self.log.appendPlainText(f"[{time.time() - self._t0:7.2f} s] {text}")
+        self.log.appendPlainText(f"[{self._now():7.2f} s] {text}")
 
     def _cancel(self):
         if self._state == "running":
@@ -141,6 +146,7 @@ class AnalysisProgressDialog(QtWidgets.QDialog):
         super().reject()
 
     def finish(self, ok: bool, text: str, n_problems: int = 0, cancelled: bool = False):
+        self._t_end = time.time()  # the clock stops: the time shown is the run time
         self._state = "done" if ok else "failed"
         self.cancel_btn.setVisible(False)
         self.close_btn.setEnabled(True)
@@ -162,6 +168,8 @@ class AnalysisProgressDialog(QtWidgets.QDialog):
         self.close_btn.setText("Close")
         self._style()
         self._tick()
+        self._timer.stop()
+        self.elapsed.setStyleSheet("font-weight: 600;")
 
 
 _SEV = {"error": ("Error", "#c62828"), "warning": ("Warning", "#b26a00"), "info": ("Note", "#5f6b7a")}
