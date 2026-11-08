@@ -2382,7 +2382,8 @@ class ModelViewport(QtWidgets.QWidget):
         poly = vtk.vtkPolyData()
         poly.SetPoints(scene._points(np.array(coords, float)))
         poly.SetLines(lines)
-        color = scene.COLORS["snap"] if snapped else scene.COLORS["preview"]
+        # no snap: a pink cross (green circles are the pin symbols)
+        color = scene.COLORS["snap"] if snapped else scene.COLORS.get("free_point", (0.93, 0.15, 0.60))
         return scene._actor_from_polydata(poly, color, 2.5, lighting=False)
 
     # ------------------------------------------------------------ capture

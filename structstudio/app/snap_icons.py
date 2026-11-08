@@ -47,7 +47,10 @@ SHAPES: Dict[str, List[Stroke]] = {
 SHAPES["polar"] = [[(-1, -1), (1, -1)], [(-1, -1), (0.8, 0.6)],
                    [(-1 + 1.2 * math.cos(a), -1 + 1.2 * math.sin(a)) for a in [k * math.radians(41.6) / 6
                                                                                for k in range(7)]]]
-for _k in ("free", "increment", "fine_grid"):
+# a point with no snap (where the next joint goes): a diagonal cross - not a circle,
+# circles are the pin (release) symbols
+SHAPES["free"] = [[(-0.7, -0.7), (0.7, 0.7)], [(-0.7, 0.7), (0.7, -0.7)]]
+for _k in ("increment", "fine_grid"):
     SHAPES.setdefault(_k, [_circle(0.6)])
 
 # Snap Options form item -> marker
