@@ -192,9 +192,7 @@ class Engine:
         self._last_distributed = dist
         shell_res = {}
         if not getattr(self, "displacements_only", False):  # a mesh check needs the displacements only
-            for se in self.asm.shells:
-                d = self.asm._element_dofs(se.el.nodes)
-                shell_res[se.el.id] = se.resultants(u_full[d])
+            shell_res = self.asm.shell_resultants(u_full)
         return reactions, end_forces, elem_loads, shell_res
 
     def _combined_load_vector(self, loads: Dict[str, float], accel: Optional[Dict[str, float]] = None) -> np.ndarray:
@@ -303,6 +301,12 @@ class Engine:
             res.diagnostics["iterations"] = iters
             res.diagnostics["capped_members"] = len(strains)
             return res
+        if self._unloaded(case, F):
+            # nothing loads this case (no element / joint load, ground motion or
+            # acceleration): the solution is exactly zero.  The factorisation and its
+            # stability check still run, as for any case.
+            self._factor_for(case.stiffness_from)
+            return self._zero_static(case)
         u = self._solve_static(F, case.stiffness_from, case.loads)
         K = self._pdelta_K.get(case.stiffness_from) if case.stiffness_from else None
         K_full = None
@@ -312,6 +316,48 @@ class Engine:
         res = CaseResult(case.name, "LinearStatic", u.reshape(-1, 6), reactions, end_forces, elem_loads, shell_res)
         res.distributed_reaction = self._last_distributed
         res.diagnostics["pivot_ratio"] = getattr(self._factor, "pivot_ratio", None)
+        return res
+
+    def _unloaded(self, case: LinearStaticCase, F: np.ndarray) -> bool:
+        """True when the case has no load of any kind (its exact solution is zero)."""
+        if np.any(F) or case.acceleration_loads or getattr(case, "nonlinear", False):
+            return False
+        am = self.am
+        pats = [p for p, sf in case.loads.items() if sf]
+        for p in pats:
+            if am.self_weight.get(p, 0.0):
+                return False
+            if any(np.any(v) for v in am.nodal_loads.get(p, {}).values()):
+                return False
+        if any(nd.ground_disp.get(p) is not None and np.any(nd.ground_disp[p]) for nd in am.nodes for p in pats):
+            return False
+        for fe in self.asm.frames:
+            if any(ld.pattern in pats for ld in fe.el.loads):
+                return False
+        for se in self.asm.shells:
+            if any(ld.pattern in pats for ld in se.el.loads):
+                return False
+        return True
+
+    def _zero_static(self, case: LinearStaticCase) -> CaseResult:
+        """The result of an unloaded linear static case: every quantity zero, in
+        the same layout as a solved case."""
+        am = self.am
+        n = am.n_nodes
+        reactions = {node.id: np.zeros(6) for node in am.nodes if np.any(node.restraints) or np.any(node.springs)}
+        end_forces = np.zeros((len(am.frames), 12))
+        elem_loads = {fe.el.id: [] for fe in self.asm.frames}
+        shell_res = {}
+        if not getattr(self, "displacements_only", False):
+            from .elements.shell_batch import zero_resultants
+            shell_res = zero_resultants(self.asm.shells)
+        found = any(getattr(fe.el, "foundation", None) is not None and np.any(fe.el.foundation)
+                    for fe in self.asm.frames)
+        self._last_distributed = np.zeros(6) if found else None
+        res = CaseResult(case.name, "LinearStatic", np.zeros((n, 6)), reactions, end_forces, elem_loads, shell_res)
+        res.distributed_reaction = self._last_distributed
+        res.diagnostics["pivot_ratio"] = getattr(self._factor, "pivot_ratio", None)
+        res.diagnostics["unloaded"] = True
         return res
 
     # -------------------------------------------------------------- P-Delta
@@ -378,7 +424,12 @@ class Engine:
         Mf = self._free_matrix(M_red)
         if case.method.lower() == "ritz":
             self.am.warnings.append("Ritz vectors not implemented; eigenvectors used instead")
-        w2, phi_free = self.kernel.eigen(Kf, Mf, case.max_modes, shift=case.shift)
+        # the static factor is of this same matrix: the modal condensation reuses it
+        fac = None if case.stiffness_from else self._modal_factor(Kf)
+        try:
+            w2, phi_free = self.kernel.eigen(Kf, Mf, case.max_modes, shift=case.shift, factor=fac)
+        except TypeError:  # a kernel without the factor argument
+            w2, phi_free = self.kernel.eigen(Kf, Mf, case.max_modes, shift=case.shift)
         if case.cutoff > 0:
             keep = np.sqrt(np.maximum(w2, 0)) / (2 * np.pi) <= case.cutoff
             keep[:max(case.min_modes, 1)] = True
@@ -412,6 +463,23 @@ class Engine:
                          np.zeros((len(self.am.frames), 12)), modal=modal)
         res.modal_displacements = np.transpose(phi_full.reshape(self.am.n_nodes, 6, n_modes), (2, 0, 1))
         return res
+
+    def _modal_factor(self, Kf):
+        """The static factor of K, when it exists or can be made cleanly (a stiffness
+        that is singular on its own - isolators, a mechanism carried by mass - is
+        left to the eigen solver's own condensation, as before)."""
+        if self._factor is not None:
+            return self._factor
+        if Kf.shape[0] <= 3000:
+            return None  # the dense path does not use it
+        try:
+            fac = self.kernel.factor(Kf)
+        except (ModelError, ArithmeticError, RuntimeError, ValueError):
+            return None
+        if getattr(fac, "unstable", None):
+            return None
+        self._factor = fac  # the static cases reuse it
+        return fac
 
     def _center_of_mass(self, M_full: np.ndarray) -> np.ndarray:
         coords = self.am.coords()

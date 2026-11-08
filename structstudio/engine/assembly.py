@@ -18,7 +18,23 @@ from scipy import sparse
 from ..mesh.analysis_model import AnalysisModel
 from ..model.base import ModelError
 from .elements.frame import FrameFormulation
+from .elements import shell_batch
 from .elements.shell import ShellFormulation
+
+
+def sum_csr(parts, n: int) -> sparse.csr_matrix:
+    """Sum of CSR matrices, pairwise (bounded memory, O(nnz log k))."""
+    parts = [p for p in parts if p is not None]
+    if not parts:
+        return sparse.csr_matrix((n, n))
+    while len(parts) > 1:
+        nxt = []
+        for i in range(0, len(parts), 2):
+            nxt.append(parts[i] + parts[i + 1] if i + 1 < len(parts) else parts[i])
+        parts = nxt
+    K = parts[0].tocsr()
+    K.sum_duplicates()
+    return K
 
 
 def node_transform(node) -> np.ndarray:
@@ -56,6 +72,7 @@ class Assembler:
         coords = am.coords()
         self.frames = [FrameFormulation(e, coords[e.node_i], coords[e.node_j]) for e in am.frames]
         self.shells = [ShellFormulation(e, coords[list(e.nodes)]) for e in am.shells]
+        shell_batch.prepare(self.shells)  # areas / tributary areas, vectorised (no element matrices kept)
         self._K_full: Optional[sparse.csr_matrix] = None
         self._M_full: Optional[np.ndarray] = None
         self._place_masters_at_center_of_mass()
@@ -279,13 +296,6 @@ class Assembler:
             rows.append(r.ravel())
             cols.append(c.ravel())
             vals.append(K.ravel())
-        for se in self.shells:
-            K = se.stiffness_global()
-            d = self._element_dofs(se.el.nodes)
-            r, c = np.meshgrid(d, d, indexing="ij")
-            rows.append(r.ravel())
-            cols.append(c.ravel())
-            vals.append(K.ravel())
         # nodal springs (in the joint local axes when the joint has them)
         sp_rows, sp_cols, sp_vals = [], [], []
         for node in am.nodes:
@@ -301,13 +311,31 @@ class Assembler:
             rows.append(np.array(sp_rows))
             cols.append(np.array(sp_cols))
             vals.append(np.array(sp_vals))
+        parts = []
         if rows:
-            K = sparse.coo_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))),
-                                  shape=(n_full, n_full)).tocsr()
-        else:
-            K = sparse.csr_matrix((n_full, n_full))
+            parts.append(sparse.coo_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))),
+                                           shape=(n_full, n_full)).tocsr())
+        parts += list(self.shell_stiffness_parts())
+        K = sum_csr(parts, n_full)
         self._K_full = K
         return K
+
+    def shell_stiffness_parts(self, shells=None):
+        """Global stiffness of the shells as CSR matrices, one per chunk of
+        elements (vectorised; the element matrices are not kept)."""
+        n_full = self.dofs.n_full
+        shells = self.shells if shells is None else shells
+        idx = np.int32 if n_full < 2 ** 31 - 1 else np.int64
+        for d, Kg in shell_batch.global_stiffness(shells):
+            m = len(d)
+            r = np.repeat(d, 24, axis=1).astype(idx, copy=False).ravel()
+            c = np.tile(d, (1, 24)).astype(idx, copy=False).ravel()
+            yield sparse.coo_matrix((Kg.ravel(), (r, c)), shape=(n_full, n_full)).tocsr()
+            del r, c, Kg
+
+    def shell_resultants(self, u_full: np.ndarray, shells=None) -> dict:
+        """Element id -> stress resultants of every shell (vectorised)."""
+        return shell_batch.resultants(self.shells if shells is None else shells, u_full)
 
     def stiffness_reduced(self) -> sparse.csr_matrix:
         T = self.dofs.T
@@ -454,10 +482,12 @@ class Assembler:
         c = np.zeros(3) if center is None else center
         e = np.zeros(3)
         e[axis] = 1.0
-        for nid in range(am.n_nodes):
-            disp = np.cross(e, coords[nid] - c)
-            r[6 * nid:6 * nid + 3] = disp
-            r[6 * nid + 3 + axis] = 1.0
+        # all nodes at once: np.cross row by row gives the same numbers
+        disp = np.cross(e[None, :], coords - c)
+        r[0::6] = disp[:, 0]
+        r[1::6] = disp[:, 1]
+        r[2::6] = disp[:, 2]
+        r[3 + axis::6] = 1.0
         return r
 
     def influence_vector_reduced(self, direction: str, center: Optional[np.ndarray] = None) -> np.ndarray:

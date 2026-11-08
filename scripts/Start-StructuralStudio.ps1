@@ -50,7 +50,20 @@ if (-not (Test-Ready)) {
     }
 }
 
-# 3. start the app without a console window
+# 3. once: the fast equation solver (Intel MKL PARDISO through pypardiso, about 200 MB).
+#    The analysis works without it (SciPy SuperLU, slower on large models); a failed
+#    install is not retried every start - delete the marker file to try again.
+$marker = Join-Path $Repo 'cache\pypardiso-install-tried.txt'
+$null = & $Py -c "import pypardiso" 2>&1
+if ($LASTEXITCODE -ne 0 -and -not (Test-Path $marker)) {
+    New-Item -ItemType Directory -Force -Path (Split-Path $marker) | Out-Null
+    Write-Host 'Installing the fast equation solver (Intel MKL PARDISO) - first time only, about 200 MB ...' -ForegroundColor Cyan
+    $pipCache = Join-Path $Repo 'cache\pip'
+    & $Py -m pip install --cache-dir $pipCache pypardiso 2>&1 | Out-Host
+    Set-Content -Path $marker -Value ("tried " + (Get-Date -Format s) + ", exit code " + $LASTEXITCODE)
+}
+
+# 4. start the app without a console window
 $Pyw = Join-Path (Split-Path $Py) 'pythonw.exe'
 if (-not (Test-Path $Pyw)) { $Pyw = $Py }
 $appArgs = @('-m', 'structstudio.app')

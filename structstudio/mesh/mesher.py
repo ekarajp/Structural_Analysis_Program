@@ -30,7 +30,7 @@ from . import tendons as TD
 from .panel_loads import panel_loads_to_members
 from .analysis_model import (AnalysisModel, Body, Constraint, ElementLoad, FrameElement, Node, ShellElement,
                              ShellLoad, Tie)
-from .geometry import (frame_axes, joint_axes, point_on_segment, polygon_centroid, polygon_normal, polygon_polar_inertia,
+from .geometry import (cross3, frame_axes, joint_axes, point_on_segment, polygon_centroid, polygon_normal, polygon_polar_inertia,
                        quad_tributary_areas, segment_intersection, shell_axes, transformed_axes, unit)
 
 G_SI = 9.80665
@@ -51,7 +51,7 @@ def _bilinear_weights(P: np.ndarray, x: np.ndarray, nrm: np.ndarray, tol: float)
     outside): Newton inversion of the bilinear map in the quad's plane."""
     e1 = P[1] - P[0]
     e1 /= np.linalg.norm(e1) or 1.0
-    e2 = np.cross(nrm, e1)
+    e2 = cross3(nrm, e1)
     Q = np.column_stack([(P - P[0]) @ e1, (P - P[0]) @ e2])
     q = np.array([(x - P[0]) @ e1, (x - P[0]) @ e2])
     s = t = 0.0
@@ -358,29 +358,41 @@ class Mesher:
     def _cut_frames_at_points(self):
         pts = [(self.am.point_to_node[p.name], self._xyz(p)) for p in self.model.points.values()
                if p.name not in getattr(self, "_separate_points", ())]
+        if not pts:
+            return
+        X = np.array([xyz for _, xyz in pts], float)
+        tol = self.tol
         for f in self.model.frames.values():
             if not (f.auto_mesh and f.mesh_at_intersections):
                 continue
             a, b = self._frame_geom[f.name]
-            for _, xyz in pts:
-                t = point_on_segment(xyz, a, b, self.tol)
+            # broad phase: the joints in the frame's box (+tol); the exact test is unchanged
+            lo, hi = np.minimum(a, b) - tol, np.maximum(a, b) + tol
+            near = np.nonzero(np.all((X >= lo) & (X <= hi), axis=1))[0]
+            for k in near:
+                t = point_on_segment(X[k], a, b, tol)
                 if t is not None:
                     self._frame_cuts[f.name].append(t)
 
     def _cut_frames_at_intersections(self):
         names = [f.name for f in self.model.frames.values() if f.auto_mesh and f.mesh_at_intersections]
         null = {f.name for f in self.model.frames.values() if f.type == "Null"}
+        if not names:
+            return
+        A = np.array([self._frame_geom[nm][0] for nm in names], float)
+        B = np.array([self._frame_geom[nm][1] for nm in names], float)
+        LO, HI = np.minimum(A, B), np.maximum(A, B)
+        tol = self.tol
         for i in range(len(names)):
             a, b = self._frame_geom[names[i]]
-            for j in range(i + 1, len(names)):
+            # the same bounding box reject as before, for all later frames at once
+            later = np.arange(i + 1, len(names))
+            ok = np.all((HI[i + 1:] >= LO[i] - tol) & (HI[i] >= LO[i + 1:] - tol), axis=1)
+            for j in later[ok]:
+                j = int(j)
                 if names[i] in null and names[j] in null:
                     continue  # two null lines crossing make no joint (it would connect nothing)
                 c, d = self._frame_geom[names[j]]
-                # quick bounding box reject
-                if (max(a[0], b[0]) < min(c[0], d[0]) - self.tol or max(c[0], d[0]) < min(a[0], b[0]) - self.tol or
-                        max(a[1], b[1]) < min(c[1], d[1]) - self.tol or max(c[1], d[1]) < min(a[1], b[1]) - self.tol or
-                        max(a[2], b[2]) < min(c[2], d[2]) - self.tol or max(c[2], d[2]) < min(a[2], b[2]) - self.tol):
-                    continue
                 hit = segment_intersection(a, b, c, d, self.tol)
                 if hit is None:
                     continue
@@ -390,18 +402,38 @@ class Mesher:
                 self._frame_cuts[names[i]].append(t)
                 self._frame_cuts[names[j]].append(s)
 
+    def _floor_frame_index(self):
+        """Boxes (+tol) of the frames that floors cut, in model order: a vectorised
+        broad phase for :meth:`_cut_frames_at_node` (built once per mesh build)."""
+        key = (len(self.model.frames), len(self._frame_geom))
+        idx = getattr(self, "_ffi", None)
+        if idx is not None and idx[0] == key:
+            return idx[1]
+        names = [f.name for f in self.model.frames.values() if f.auto_mesh and f.mesh_at_floor]
+        if names:
+            A = np.array([self._frame_geom[nm][0] for nm in names], float)
+            B = np.array([self._frame_geom[nm][1] for nm in names], float)
+            lo, hi = np.minimum(A, B) - self.tol, np.maximum(A, B) + self.tol
+        else:
+            lo = hi = np.zeros((0, 3))
+        data = (names, lo, hi)
+        self._ffi = (key, data)
+        return data
+
     def _cut_frames_at_node(self, xyz: np.ndarray):
         """Register a mesh node that may lie on frame objects (floor meshing)."""
-        for f in self.model.frames.values():
-            if not (f.auto_mesh and f.mesh_at_floor):
-                continue
-            a, b = self._frame_geom[f.name]
-            if abs(a[2] - xyz[2]) > self.tol and abs(b[2] - xyz[2]) > self.tol and \
-                    not (min(a[2], b[2]) - self.tol <= xyz[2] <= max(a[2], b[2]) + self.tol):
-                continue
-            t = point_on_segment(xyz, a, b, self.tol)
+        names, lo, hi = self._floor_frame_index()
+        if not names:
+            return
+        x = np.asarray(xyz, float)
+        # broad phase: a point within tol of a segment lies in its box grown by tol
+        near = np.nonzero(np.all((lo <= x) & (x <= hi), axis=1))[0]
+        for k in near:
+            nm = names[k]
+            a, b = self._frame_geom[nm]
+            t = point_on_segment(x, a, b, self.tol)
             if t is not None:
-                self._frame_cuts[f.name].append(t)
+                self._frame_cuts[nm].append(t)
 
     # -------------------------------------------------------- frame elements
     NONPRISMATIC_SUBDIVISIONS = 16  # elements per nonprismatic segment
@@ -1226,32 +1258,41 @@ class Mesher:
         cand = np.array(sorted(cand), int)
         if not len(cand):
             return
-        # spatial hash of the candidate nodes
-        lens = [np.linalg.norm(X[sh.nodes[1]] - X[sh.nodes[0]]) for sh in am.shells[: min(200, len(am.shells))]]
-        cell = max(float(np.median(lens)) if lens else 1.0, self.tol * 10)
-        grid: Dict[Tuple[int, int, int], List[int]] = {}
-        for n in cand:
-            k = tuple((X[n] // cell).astype(int))
-            grid.setdefault(k, []).append(int(n))
+        # broad phase (C speed): candidate nodes within the sphere around each
+        # shell's box (+tol) - a superset of the nodes the exact tests below accept
+        from scipy.spatial import cKDTree
+        tol = self.tol
+        S = np.array([sh.nodes for sh in am.shells], int)
+        PA = X[S]  # (n_shells, 4, 3)
+        lo, hi = PA.min(axis=1) - tol, PA.max(axis=1) + tol
+        ctr = 0.5 * (lo + hi)
+        rad = 0.5 * np.linalg.norm(hi - lo, axis=1) + 2.0 * tol
+        lists = cKDTree(X[cand]).query_ball_point(ctr, rad)
+        # the object of a node that belongs to one mesh only (-1: none or several)
+        objs = {}
+        sh_obj = np.array([objs.setdefault(sh.object, len(objs)) for sh in am.shells], int)
+        single = -np.ones(len(X), int)
+        for n, own in node_areas.items():
+            if len(own) == 1:
+                single[n] = objs[next(iter(own))]
         tied: Set[int] = set()
-        for sh in am.shells:
-            P = X[list(sh.nodes)]
-            lo = np.floor((P.min(axis=0) - self.tol) / cell).astype(int)
-            hi = np.floor((P.max(axis=0) + self.tol) / cell).astype(int)
-            near = []
-            for i in range(lo[0], hi[0] + 1):
-                for j in range(lo[1], hi[1] + 1):
-                    for k in range(lo[2], hi[2] + 1):
-                        near += grid.get((i, j, k), [])
+        for si, sh in enumerate(am.shells):
+            near = lists[si]
             if not near:
                 continue
-            nrm = np.cross(P[2] - P[0], P[3] - P[1])
+            near = cand[np.asarray(near, int)]
+            near = near[single[near] != sh_obj[si]]  # nodes of this same mesh only: never tied to it
+            if not len(near):
+                continue
+            P = PA[si]
+            nrm = cross3(P[2] - P[0], P[3] - P[1])
             ln = np.linalg.norm(nrm)
             if ln <= 0:
                 continue
             nrm /= ln
             my = order.get(sh.object, -1)
-            for n in near:
+            for n in np.sort(near):
+                n = int(n)
                 if n in tied or n in sh.nodes:
                     continue
                 own = node_areas.get(n, ())
@@ -1537,7 +1578,16 @@ class Mesher:
         o, nrm = fr[0], fr[3]
         f = max(self.opts.size_factor, 1e-9)
         taken = []
-        for _, c, corners, dmin in self._column_footprints():
+        fps = self._column_footprints()
+        if not fps:
+            return zones, soft
+        C = self.__dict__.get("_footprint_centres")
+        if C is None or len(C) != len(fps):
+            C = self._footprint_centres = np.array([fp[1] for fp in fps], float)
+        # the columns in this shell's plane (the same test as below, all at once)
+        on = np.nonzero(np.abs((C - o) @ nrm) <= self.tol)[0]
+        for k in on:
+            _, c, corners, dmin = fps[k]
             if abs((c - o) @ nrm) > self.tol:
                 continue
             uc = pg.to_2d(c[None], fr)[0]

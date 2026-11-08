@@ -72,13 +72,7 @@ class NonlinearDomain:
             rows.append(r.ravel())
             cols.append(c.ravel())
             vals.append(K.ravel())
-        for se in asm.shells:
-            K = se.stiffness_global()
-            dd = asm._element_dofs(se.el.nodes)
-            r, c = np.meshgrid(dd, dd, indexing="ij")
-            rows.append(r.ravel())
-            cols.append(c.ravel())
-            vals.append(K.ravel())
+        shell_parts = list(asm.shell_stiffness_parts())
         for node in self.am.nodes:
             if not np.any(node.springs):
                 continue
@@ -89,10 +83,10 @@ class NonlinearDomain:
             cols.append(6 * node.id + c)
             vals.append(Kn[r, c])
         if rows:
-            K = sparse.coo_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))),
-                                  shape=(n_full, n_full)).tocsr()
-        else:
-            K = sparse.csr_matrix((n_full, n_full))
+            shell_parts.append(sparse.coo_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))),
+                                                 shape=(n_full, n_full)).tocsr())
+        from ..assembly import sum_csr
+        K = sum_csr(shell_parts, n_full)
         self.K_lin_full = K
         self.K_lin = (self.AfreeT @ K @ self.Afree).tocsr()
         # P-Delta strings of the elastic frames: N = Nrow . u + N0(loads); Kg = sum N_e G_e
@@ -391,11 +385,7 @@ class NonlinearDomain:
         return out
 
     def shell_resultants(self, u_full: np.ndarray) -> dict:
-        out = {}
-        for se in self.asm.shells:
-            d = self.asm._element_dofs(se.el.nodes)
-            out[se.el.id] = se.resultants(u_full[d])
-        return out
+        return self.asm.shell_resultants(u_full)
 
     # ---- vertical hinge drops ----------------------------------------------
     def hinge_materials(self):

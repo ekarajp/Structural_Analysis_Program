@@ -431,8 +431,14 @@ class ResultsPanel(QtWidgets.QWidget):
         top.addWidget(self.export_btn)
         layout.addLayout(top)
         self._rows: List[dict] = []
-        self.table = QtWidgets.QTableWidget()
+        # a view on the rows (cell text made when a cell is drawn): a shell-forces
+        # table of a large model has hundreds of thousands of rows
+        self.table = QtWidgets.QTableView()
+        self.model_rows = _RowsModel(self)
+        self.table.setModel(self.model_rows)
+        self.table.verticalHeader().setDefaultSectionSize(20)
         layout.addWidget(self.table, 1)
+        self._dirty = False
         self.case_box.currentTextChanged.connect(lambda _: self.refresh())
         self.table_box.currentTextChanged.connect(lambda _: self.refresh())
         self.doc.on_change(self._on_change)
@@ -454,11 +460,20 @@ class ResultsPanel(QtWidgets.QWidget):
         if self.table_box.currentText().startswith("Frame forces"):
             self.refresh()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._dirty:
+            self.refresh()
+
     def refresh(self):
+        if not self.isVisible():
+            self._dirty = True  # filled when the panel is shown
+            return
+        self._dirty = False
         res = self.doc.results
         case = self.case_box.currentText()
-        self.table.clear()
-        self.table.setRowCount(0)
+        self.model_rows.set_rows([])
+        self._rows = []
         if res is None or not case:
             return
         kind = self.table_box.currentText()
@@ -488,19 +503,13 @@ class ResultsPanel(QtWidgets.QWidget):
         self._rows = rows
         if not rows:
             return
-        cols = list(rows[0].keys())
-        self.table.setColumnCount(len(cols))
-        self.table.setHorizontalHeaderLabels(cols)
-        self.table.setRowCount(len(rows))
-        for r, row in enumerate(rows):
-            for c, key in enumerate(cols):
-                v = row.get(key, "")
-                text = f"{v:.6g}" if isinstance(v, float) else str(v)
-                self.table.setItem(r, c, QtWidgets.QTableWidgetItem(text))
+        self.model_rows.set_rows(rows)
         self.table.resizeColumnsToContents()
 
 
     def export_table(self):
+        if self._dirty:
+            self.refresh()
         if not self._rows:
             return
         name = self.table_box.currentText().split(" (")[0].replace(" ", "_").lower()
@@ -512,6 +521,40 @@ class ResultsPanel(QtWidgets.QWidget):
             export_rows(self._rows, path)
         except Exception as exc:
             QtWidgets.QMessageBox.warning(self, "Export", str(exc))
+
+
+class _RowsModel(QtCore.QAbstractTableModel):
+    """Read-only table of result rows (list of dicts, columns of the first row)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.rows: List[dict] = []
+        self.cols: List[str] = []
+
+    def set_rows(self, rows: List[dict]):
+        self.beginResetModel()
+        self.rows = rows
+        self.cols = list(rows[0].keys()) if rows else []
+        self.endResetModel()
+
+    def rowCount(self, parent=QtCore.QModelIndex()):
+        return 0 if parent.isValid() else len(self.rows)
+
+    def columnCount(self, parent=QtCore.QModelIndex()):
+        return 0 if parent.isValid() else len(self.cols)
+
+    def data(self, index, role=QtCore.Qt.DisplayRole):
+        if role != QtCore.Qt.DisplayRole or not index.isValid():
+            return None
+        v = self.rows[index.row()].get(self.cols[index.column()], "")
+        return f"{v:.6g}" if isinstance(v, float) else str(v)
+
+    def headerData(self, section, orientation, role=QtCore.Qt.DisplayRole):
+        if role != QtCore.Qt.DisplayRole:
+            return None
+        if orientation == QtCore.Qt.Horizontal:
+            return self.cols[section] if section < len(self.cols) else None
+        return str(section + 1)
 
 
 # result table columns and their display item (Options > Display Units); shell

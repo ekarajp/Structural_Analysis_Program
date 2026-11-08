@@ -15,7 +15,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 xcheck = ["openseespy>=3.5"]
-fast = ["pypardiso"]
+fast = ["pypardiso>=0.4"]  # Intel MKL PARDISO: multi-threaded sparse Cholesky (optional)
 access = ["pyodbc>=5"]
 app = ["PySide6>=6.6", "vtk>=9.3", "openpyxl>=3.1"]
 

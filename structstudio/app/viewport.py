@@ -842,7 +842,20 @@ class ModelViewport(QtWidgets.QWidget):
         window takes it; the other windows keep showing what they show."""
         if getattr(self, "_active", False) and hasattr(self.state, "window_display"):
             self.result_display = self.state.window_display()
-        self.rebuild()
+        elif self.result_display is not None:
+            return  # this window keeps its own display: nothing it shows has changed
+        # a Display command changes results / loads only - the model actors stay; a
+        # window that is not on screen catches up when it is shown again
+        if not self.isVisible():
+            self._overlays_dirty = True
+            return
+        self.update_overlays()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if getattr(self, "_overlays_dirty", False):
+            self._overlays_dirty = False
+            self.update_overlays()
 
     GHOST_OPACITY = 0.18
 
@@ -1847,10 +1860,44 @@ class ModelViewport(QtWidgets.QWidget):
             kind = "pan"  # plan and elevation windows stay 2D
         self._nav, self._nav_last, self._nav_start, self._nav_moved = kind, (x, y), (x, y), False
 
+    # placing many labels is the slowest part of a frame: while the view is dragged
+    # (rotate / pan) windows with more than this many labels hide them, and show
+    # them again the moment the button is released
+    DRAG_LABEL_LIMIT = 400
+
+    def _drag_labels(self, hide: bool):
+        if hide:
+            if getattr(self, "_drag_hidden", None):
+                return
+            acts, n = [], 0
+            col = self.renderer.GetActors2D()
+            col.InitTraversal()
+            for _ in range(col.GetNumberOfItems()):
+                a = col.GetNextActor2D()
+                mp = a.GetMapper() if a is not None else None
+                if isinstance(mp, vtk.vtkLabelPlacementMapper) and a.GetVisibility():
+                    src = mp.GetInputAlgorithm()
+                    data = src.GetInputDataObject(0, 0) if src is not None else None
+                    n += data.GetNumberOfPoints() if data is not None and hasattr(data, "GetNumberOfPoints") else 0
+                    acts.append(a)
+            if n > self.DRAG_LABEL_LIMIT:
+                for a in acts:
+                    a.SetVisibility(False)
+                self._drag_hidden = acts
+        else:
+            acts = getattr(self, "_drag_hidden", None)
+            self._drag_hidden = None
+            if acts:
+                for a in acts:
+                    a.SetVisibility(True)
+                self.render()
+
     def _drag_nav(self, x: int, y: int):
         lx, ly = self._nav_last
         if abs(x - self._nav_start[0]) > 2 or abs(y - self._nav_start[1]) > 2:
             self._nav_moved = True
+            if self._nav in ("orbit", "pan"):
+                self._drag_labels(True)
         if self._nav == "orbit":
             navigation.orbit(self.renderer, (x - lx) * navigation.ROTATE_DEG_PER_PIXEL,
                              -(y - ly) * navigation.ROTATE_DEG_PER_PIXEL)
@@ -1873,6 +1920,7 @@ class ModelViewport(QtWidgets.QWidget):
             if getattr(self.state, "nav_mode", None) == "zoom_window":
                 self.state.set_nav_mode(None)  # one-shot, like ETABS Zoom Window
         self._nav = None
+        self._drag_labels(False)
         self._nav_last = self._nav_start = None
 
     def _on_nav_changed(self, mode: str):

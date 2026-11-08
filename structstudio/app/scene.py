@@ -1623,44 +1623,46 @@ def build_contour_actors(model: Model, results, case: str, component: str = "M11
     # the slab inside the columns (rigid zones) is left out: what is shown, and the
     # range of the colour scale, are the values up to the column faces
     rigid = results.rigid_zone_shells() if hasattr(results, "rigid_zone_shells") else set()
+    am = results.am
+    # element ids in the order of ``vals`` (the shells that have results)
+    if hasattr(results, "_shell_stack"):
+        have = set(results._shell_stack(case)[0].tolist())
+    else:
+        have = set(results.shell_element_envelope(case))
+    elems = [s for s in am.shells if s.id in have]
     if rigid and len(vals):
-        env0 = results.shell_element_envelope(case)
-        ids = [s.id for s in results.am.shells if s.id in env0]
-        keep0 = [i for i, sid in enumerate(ids) if sid not in rigid]
+        keep0 = [i for i, se in enumerate(elems) if se.id not in rigid]
         vals, nodes = vals[keep0], nodes[keep0]
+        elems = [elems[i] for i in keep0]
     # one colour scale in every window: the range over the whole model
     gmin, gmax = (float(vals.min()), float(vals.max())) if len(vals) else (0.0, 0.0)
     objs = None
     if (areas is not None or extruded) and len(vals):
-        env = results.shell_element_envelope(case)  # once: a combination is computed on every call
-        elems = [s for s in results.am.shells if s.id in env and s.id not in rigid]
         keep = [i for i, se in enumerate(elems) if areas is None or se.object in areas]
         vals, nodes = vals[keep], nodes[keep]
         objs = [elems[i].object for i in keep]
     if len(vals) == 0:
         return [], (0.0, 0.0)
-    am = results.am
     # unshared points per element so each element keeps its own nodal values
-    coords = []
-    scalars = vtk.vtkFloatArray()
-    scalars.SetName(component)
-    polys = vtk.vtkCellArray()
-    disp = None
     Lf = results.U.factor("length")  # analysis nodes are SI
     if deformed:
         disp, scale = _deformed_positions(model, results, case)
-    for i in range(len(vals)):
-        start = len(coords)
-        for k in range(4):
-            n = int(nodes[i, k])
-            xyz = np.asarray(am.nodes[n].xyz) / Lf if disp is None else disp[n]
-            coords.append(xyz)
-            scalars.InsertNextValue(float(vals[i, k]))
-        polys.InsertNextCell(4)
-        for k in range(4):
-            polys.InsertCellPoint(start + k)
+        X = np.array([disp[i] for i in range(len(am.nodes))], float)
+    else:
+        X = am.coords() / Lf
+    nodes = np.asarray(nodes, int)
+    coords = X[nodes.ravel()]
+    scalars = numpy_support.numpy_to_vtk(np.ascontiguousarray(np.asarray(vals, float).ravel(), dtype=np.float32),
+                                         deep=True)
+    scalars.SetName(component)
+    n_el = len(vals)
+    conn = np.arange(4 * n_el, dtype=np.int64)
+    offs = np.arange(0, 4 * n_el + 1, 4, dtype=np.int64)
+    polys = vtk.vtkCellArray()
+    polys.SetData(numpy_support.numpy_to_vtkIdTypeArray(offs, deep=True),
+                  numpy_support.numpy_to_vtkIdTypeArray(conn, deep=True))
     poly = vtk.vtkPolyData()
-    poly.SetPoints(_points(np.array(coords, float)))
+    poly.SetPoints(_points(coords))
     poly.SetPolys(polys)
     poly.GetPointData().SetScalars(scalars)
     if extruded and objs is not None:

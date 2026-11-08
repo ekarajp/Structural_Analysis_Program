@@ -76,6 +76,11 @@ def analyze(model: Model, cases: Optional[Iterable[str]] = None, kernel: Optiona
     for name, r in case_results.items():
         extra += [dg.Issue("warning", f"{name}: {w}") for w in getattr(r, "warnings", [])]
     extra += [dg.Issue("info", t) for t in getattr(am, "info", [])]
+    from ..engine import kernel as _k
+    solver = f"Equation solver: {_k.describe(engine.kernel)}"
+    if _k.KERNEL_NOTE and getattr(engine.kernel, "name", "") == "scipy":
+        solver += f" - {_k.KERNEL_NOTE}"
+    extra.append(dg.Issue("info", solver))
     res.issues = _located(model, issues + extra)
     report(100, "Analysis complete")
     return res
@@ -95,6 +100,9 @@ def mesh_signature(model) -> str:
         "supports": sorted([p.name, list(p.restraints)] for p in pts.values() if any(p.restraints)),
         "mesh": [model.options.floor_mesh_max_size, model.options.wall_mesh_max_size],
     }
+    from ..mesh import area_mesh as _am
+    if _am.AUTO_RULE != "fine":  # the automatic size rule (a check made with another rule is out of date)
+        data["auto"] = [_am.AUTO_RULE, _am.ETABS_MAX_SIZE]
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:16]
 
 

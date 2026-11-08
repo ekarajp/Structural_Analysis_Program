@@ -314,6 +314,18 @@ class FrameFormulation:
         """Equivalent nodal load vector (local, 12) at the *element end* DOFs
         (before release condensation).  Positive = load applied to the
         element in the positive local directions."""
+        # the same loads come again in the recovery of a case (and for the mass from
+        # loads): reuse the integrated vector - keyed by the load values, not identity
+        key = tuple((ld.kind, ld.load_type, float(ld.x_a), float(ld.x_b),
+                     np.asarray(ld.value_a, float).tobytes(), np.asarray(ld.value_b, float).tobytes())
+                    for ld in loads)
+        memo = self.__dict__.setdefault("_fel_memo", {})
+        hit = memo.get(key)
+        if hit is not None:
+            f, part, acc = hit
+            self._rigid_part = (part.copy(), None if acc is None else acc.copy())
+            self._rigid_acc = None
+            return f.copy()
         el, k = self.el, self.kin
         L, Lf = k.L, k.Lf
         f = np.zeros(12)
@@ -328,6 +340,10 @@ class FrameFormulation:
                 f += self._distributed_load_vector(ld.x_a, ld.x_b, ld.value_a, ld.value_b, ld.load_type)
         self._rigid_part = (f.copy(), self._rigid_acc)
         self._rigid_acc = None
+        if len(memo) >= 8:  # a few load sets per element (patterns, cases)
+            memo.pop(next(iter(memo)))
+        acc = self._rigid_part[1]
+        memo[key] = (f.copy(), self._rigid_part[0].copy(), None if acc is None else acc.copy())
         return f
 
     def _thermal_load_vector(self, ld: ElementLoad) -> np.ndarray:

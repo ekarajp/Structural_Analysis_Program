@@ -30,6 +30,7 @@ import numpy as np
 from scipy import linalg
 
 from ...mesh.analysis_model import ShellElement, ShellLoad
+from ...mesh.geometry import cross3
 
 _G2 = (-1.0 / np.sqrt(3.0), 1.0 / np.sqrt(3.0))
 THIN_SHEAR_FACTOR = 1.0e2  # penalty multiplier for "ShellThin" transverse shear stiffness (MITC variant)
@@ -100,7 +101,6 @@ class ShellFormulation:
         self.el = el
         self.xyz = np.asarray(coords, float)
         self.axes = self._axes()
-        self.R = linalg.block_diag(*([self.axes] * 8))  # 24x24 global -> local
         local = (self.axes @ (self.xyz - self.xyz[0]).T).T
         scale = float(np.max(np.linalg.norm(self.xyz - self.xyz[0], axis=1)))
         if np.max(np.abs(local[:, 2])) > max(scale, 1.0) * 1e-6:
@@ -109,13 +109,33 @@ class ShellFormulation:
         self.dkq = el.model_type == "ShellThin" and THIN_FORMULATION == "DKQ"
         self.dkmq = el.model_type == "ShellThick" and THICK_FORMULATION == "DKMQ"
         self._K = None
+        self._prepared = False  # area / tributary filled (by shell_batch or stiffness_local)
         self.area = 0.0
         self.tributary = np.zeros(4)
+
+    @property
+    def R(self) -> np.ndarray:
+        """24x24 global -> local transformation (built on demand: kept for every
+        element it costs 4.6 kB a shell)."""
+        return linalg.block_diag(*([self.axes] * 8))
+
+    def _to_local(self, v: np.ndarray) -> np.ndarray:
+        """R @ v without the 24x24 matrix."""
+        return (np.asarray(v, float).reshape(8, 3) @ self.axes.T).ravel()
+
+    def _to_global(self, v: np.ndarray) -> np.ndarray:
+        """R^T @ v without the 24x24 matrix."""
+        return (np.asarray(v, float).reshape(8, 3) @ self.axes).ravel()
+
+    def _geometry(self):
+        """Area and tributary areas (what mass and loads need)."""
+        if not self._prepared and self._K is None:
+            self.stiffness_local()
 
     # ------------------------------------------------------------- geometry
     def _axes(self) -> np.ndarray:
         p = self.xyz
-        normal = np.cross(p[2] - p[0], p[3] - p[1])
+        normal = cross3(p[2] - p[0], p[3] - p[1])
         n = np.linalg.norm(normal)
         if n < 1e-14:
             raise ValueError(f"shell element {self.el.id} is degenerate")
@@ -129,7 +149,7 @@ class ShellFormulation:
             v1 = p[1] - p[0]
             v1 = v1 - (v1 @ normal) * normal
             v1 /= np.linalg.norm(v1)
-        v2 = np.cross(normal, v1)
+        v2 = cross3(normal, v1)
         return np.vstack([v1, v2, normal])
 
     def _jacobian(self, xi, eta):
@@ -383,6 +403,7 @@ class ShellFormulation:
         self._K = 0.5 * (K + K.T)
         self.area = area
         self.tributary = trib
+        self._prepared = True
         return self._K
 
     def stiffness_global(self) -> np.ndarray:
@@ -391,12 +412,12 @@ class ShellFormulation:
 
     def lumped_mass(self) -> np.ndarray:
         """Translational mass at the four nodes (kg)."""
-        self.stiffness_local()
+        self._geometry()
         return self.el.mass_per_area * self.tributary
 
     # ---------------------------------------------------------------- loads
     def load_vector_global(self, pattern: str, self_weight: float = 0.0) -> np.ndarray:
-        self.stiffness_local()
+        self._geometry()
         f_local = np.zeros(24)
         f_global = np.zeros(24)
         for ld in self.el.loads:
@@ -410,7 +431,7 @@ class ShellFormulation:
         if self_weight and self.el.weight_per_area:
             b = np.array([0.0, 0.0, -self.el.weight_per_area * self_weight])
             f_local += self._body_force_local(self.axes @ b)
-        return self.R.T @ f_local + f_global
+        return self._to_global(f_local) + f_global
 
     def _body_force_local(self, b_local: np.ndarray) -> np.ndarray:
         """Consistent nodal loads (local DOFs) of a uniform force per area
@@ -443,7 +464,7 @@ class ShellFormulation:
     def resultants(self, u_global: np.ndarray) -> dict:
         """Stress resultants at the 2x2 Gauss points and extrapolated to the
         nodes.  Keys: F (membrane F11,F22,F12), M (M11,M22,M12), V (V13,V23)."""
-        u = self.R @ u_global
+        u = self._to_local(u_global)
         Dm, Db, Ds = self.constitutive()
         gp = []
         F, M, V = [], [], []
@@ -487,7 +508,7 @@ class ShellFormulation:
 
     def geometric_stiffness_global(self, u_global: np.ndarray) -> np.ndarray:
         """Initial membrane-stress geometric stiffness (transverse w only)."""
-        u = self.R @ u_global
+        u = self._to_local(u_global)
         Dm, _, _ = self.constitutive()
         Kg = np.zeros((24, 24))
         idx = np.arange(2, 24, 6)

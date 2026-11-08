@@ -852,7 +852,16 @@ def _smooth(P, cells, feats, tol, passes):
 
 
 # ------------------------------------------------------------ automatic size
-AUTO_MAX_SIZE = 1.0  # m: never coarser than this
+# Default rule "etabs": the ETABS default automatic mesh - an approximate maximum
+# element size of 48 in = 4 ft = 1.2192 m for floors and walls (FLOORMESHMAXSIZE /
+# WALLMESHMAXSIZE of an ETABS file left at its defaults), with mesh lines through
+# the columns, beams, walls and joints of the floor (the features of tensor_mesh).
+# Rule "fine": the earlier, finer Structural Studio mesh (at least 8 elements
+# across a shell and 6 between columns, never coarser than 1 m) - about 6 to 8
+# times as many elements.  Analyze > Check Mesh refines either one.
+AUTO_RULE = "etabs"
+ETABS_MAX_SIZE = 1.2192  # m (48 in)
+AUTO_MAX_SIZE = 1.0  # m, rule "fine": never coarser than this
 AUTO_MIN_SIZE = 0.1  # m: never finer than this (unless the shell itself is smaller)
 AUTO_ACROSS = 8  # elements across the narrowest width of a shell
 AUTO_BETWEEN = 6  # elements between neighbouring supports / loaded joints
@@ -860,8 +869,13 @@ AUTO_MAX_ELEMENTS = 2500  # per shell object
 
 
 def auto_size(Q: np.ndarray, feats: Optional[Features] = None, tol: float = 1e-6,
-              max_size: float = AUTO_MAX_SIZE, factor: float = 1.0) -> float:
-    """Element size (SI) for one shell from its geometry alone.
+              max_size: Optional[float] = None, factor: float = 1.0, rule: Optional[str] = None) -> float:
+    """Element size (SI) for one shell.
+
+    Rule "etabs" (default, :data:`AUTO_RULE`): the ETABS approximate maximum mesh
+    size, 1.2192 m, times ``factor`` (a mesh check halves it: 0.6096, 0.3048 m...).
+
+    Rule "fine", from the shell's geometry:
 
     * at least ``AUTO_ACROSS`` elements across the narrowest width, taken as
       the smaller of the short side of the bounding box and 4A/perimeter
@@ -874,6 +888,14 @@ def auto_size(Q: np.ndarray, feats: Optional[Features] = None, tol: float = 1e-6
     ``factor`` scales the result (mesh refinement checks use 0.5, 0.25...).
     The size is rounded down to ``max_size / 2^k`` so that the meshes of
     neighbouring shells (floors and walls) nest into one another."""
+    rule = rule or AUTO_RULE
+    if rule == "etabs":
+        top = ETABS_MAX_SIZE if max_size is None else max_size
+        h = top * factor
+        k = max(0, math.ceil(math.log2(top / h) - 1e-9))
+        return top / 2 ** k
+    if max_size is None:
+        max_size = AUTO_MAX_SIZE
     Q = np.asarray(Q, float)
     ext = np.ptp(Q, axis=0)
     A = abs(pg.signed_area(Q))

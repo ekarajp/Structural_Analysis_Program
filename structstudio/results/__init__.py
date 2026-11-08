@@ -659,48 +659,91 @@ class Results:
         fm = self.U.factor("force")  # moment per length = force
         return np.array([1 / fl, 1 / fl, 1 / fl, 1 / fm, 1 / fm, 1 / fm, 1 / fl, 1 / fl])
 
+    SHELL_CACHE_ITEMS = 6  # cases / combinations whose shell resultants stay prepared
+
+    def _shell_cache(self) -> "OrderedDict":
+        c = getattr(self, "_shell_lru", None)
+        if c is None:
+            from collections import OrderedDict
+            c = self._shell_lru = OrderedDict()
+        return c
+
+    def _cached(self, key, make):
+        """A small LRU of derived shell results (the whole model, all components):
+        switching component / window / story reuses them instead of rebuilding."""
+        c = self._shell_cache()
+        if key in c:
+            c.move_to_end(key)
+            return c[key]
+        v = make()
+        c[key] = v
+        while len(c) > self.SHELL_CACHE_ITEMS:
+            c.popitem(last=False)
+        return v
+
+    def _shell_stack(self, case: str) -> Tuple[np.ndarray, "Envelope"]:
+        """Element ids and the Envelope of the stacked (n, 4, 8) nodal resultants
+        (model units) of a case or combination - computed once, read-only."""
+        fac = self._shell_factor()
+        key = ("stack", case, tuple(np.round(fac, 15)))
+
+        def make():
+            if case in self.model.load_combinations and case not in self.cases:
+                combo = self._combo(case)
+                parts = {it.name: self._shell_stack(it.name) for it in combo.items}  # each case once
+                common = None
+                for ids_, _ in parts.values():
+                    common = set(ids_.tolist()) if common is None else common & set(ids_.tolist())
+                ids = np.array(sorted(common or ()), dtype=int)
+
+                def pick(name):
+                    ids_n, env = parts[name]
+                    pos = np.searchsorted(ids_n, ids)
+                    return Envelope(env.max[pos], env.min[pos])
+                env = self._combine(combo, pick) if len(ids) else Envelope(np.zeros((0, 4, 8)), np.zeros((0, 4, 8)))
+            else:
+                r = self._case(case)
+                ids = np.array(sorted(r.shell_resultants), dtype=int)
+                if len(ids):
+                    vals = np.stack([np.hstack([r.shell_resultants[i]["F_nodes"], r.shell_resultants[i]["M_nodes"],
+                                                r.shell_resultants[i]["V_nodes"]]) for i in ids]) * fac
+                else:
+                    vals = np.zeros((0, 4, 8))
+                env = Envelope.symmetric(vals) if r.is_envelope else Envelope.single(vals)
+            for a in (env.max, env.min):
+                a.setflags(write=False)  # shared by every view: must not be changed in place
+            return ids, env
+        return self._cached(key, make)
+
     def shell_element_envelope(self, case: str) -> Dict[int, Envelope]:
         """Element id -> Envelope of (4 nodes, 8) nodal stress resultants
         F11,F22,F12 (force/length), M11,M22,M12 (moment/length), V13,V23."""
-        if case in self.model.load_combinations and case not in self.cases:
-            return self._combo_shells(case)
-        r = self._case(case)
-        fac = self._shell_factor()
-        out = {}
-        for eid, res in r.shell_resultants.items():
-            vals = np.hstack([res["F_nodes"], res["M_nodes"], res["V_nodes"]]) * fac
-            out[eid] = Envelope.symmetric(vals) if r.is_envelope else Envelope.single(vals)
-        return out
+        ids, env = self._shell_stack(case)
+        return {int(e): Envelope(env.max[k], env.min[k]) for k, e in enumerate(ids)}
 
     def _combo_shells(self, name: str) -> Dict[int, Envelope]:
-        combo = self._combo(name)
-        envs = {it.name: self.shell_element_envelope(it.name) for it in combo.items}  # each case once
-        ids = None
-        for env in envs.values():
-            ids = set(env) if ids is None else ids & set(env)
-        ids = ids or set()
-        out = {}
-        for eid in ids:
-            out[eid] = self._combine(combo, lambda n, e=eid: envs[n][e])
-        return out
+        return self.shell_element_envelope(name)
 
     def shell_forces(self, case: str, areas: Optional[Iterable[str]] = None) -> List[dict]:
         """Table like ETABS "Shell Forces": one row per element node."""
-        env = self.shell_element_envelope(case)
+        ids, env = self._shell_stack(case)
+        pos_of = {int(e): k for k, e in enumerate(ids)}
         wanted = set(areas) if areas is not None else None
         rows = []
         for se in self.am.shells:
             if wanted is not None and se.object not in wanted:
                 continue
-            e = env.get(se.id)
-            if e is None:
+            k = pos_of.get(se.id)
+            if k is None:
                 continue
-            for k, node in enumerate(se.nodes):
+            mx, mn = env.max[k], env.min[k]
+            two = mn is not None and not np.allclose(mn, mx)  # once per element, not per value
+            for kk, node in enumerate(se.nodes):
                 row = {"Area": se.object, "Element": se.id, "Node": node, "Case": case}
                 for j, lab in enumerate(self.SHELL_COMPONENTS):
-                    row[lab] = float(e.max[k, j])
-                    if e.min is not None and not np.allclose(e.min, e.max):
-                        row[lab + "Min"] = float(e.min[k, j])
+                    row[lab] = float(mx[kk, j])
+                    if two:
+                        row[lab + "Min"] = float(mn[kk, j])
                 rows.append(row)
         return rows
 
@@ -709,26 +752,37 @@ class Results:
         envelope) and the per-element node ids (n_shells, 4); nodal averaging
         over the elements of the same area object when ``average``."""
         j = self.SHELL_COMPONENTS.index(component)
-        env = self.shell_element_envelope(case)
-        shells = [se for se in self.am.shells if se.id in env]
-        vals = np.array([env[se.id].max[:, j] for se in shells]) if shells else np.zeros((0, 4))
-        nodes = np.array([se.nodes for se in shells], int) if shells else np.zeros((0, 4), int)
-        if average and len(shells):
-            # the slab inside a column (rigid zone) does not bend: its elements do not
-            # take part in the averaging, so the values at the column face are the slab's
-            rigid = self.rigid_zone_shells()
-            acc: Dict[Tuple[str, int], List[float]] = {}
-            for i, se in enumerate(shells):
-                if se.id in rigid:
-                    continue
-                for k, n in enumerate(se.nodes):
-                    acc.setdefault((se.object, n), []).append(vals[i, k])
-            for i, se in enumerate(shells):
-                if se.id in rigid:
-                    continue
-                for k, n in enumerate(se.nodes):
-                    vals[i, k] = float(np.mean(acc[(se.object, n)]))
-        return vals, nodes
+        fac = self._shell_factor()
+        key = ("nodes", case, component, bool(average), tuple(np.round(fac, 15)))
+
+        def make():
+            ids, env = self._shell_stack(case)
+            have = set(ids.tolist())
+            shells = [se for se in self.am.shells if se.id in have]
+            if not shells:
+                return np.zeros((0, 4)), np.zeros((0, 4), int)
+            pos = np.searchsorted(ids, np.array([se.id for se in shells]))
+            vals = np.array(env.max[pos, :, j], float)
+            nodes = np.array([se.nodes for se in shells], int)
+            if average:
+                # the slab inside a column (rigid zone) does not bend: its elements do not
+                # take part in the averaging, so the values at the column face are the slab's
+                rigid = self.rigid_zone_shells()
+                use = np.array([se.id not in rigid for se in shells])
+                objs = {}
+                obj = np.array([objs.setdefault(se.object, len(objs)) for se in shells], int)
+                # one key per (area object, node): averages never cross objects
+                keys = obj[:, None].astype(np.int64) * (int(nodes.max()) + 1) + nodes
+                k_use = keys[use].ravel()
+                uniq, inv = np.unique(k_use, return_inverse=True)
+                tot = np.bincount(inv, weights=vals[use].ravel(), minlength=len(uniq))
+                cnt = np.bincount(inv, minlength=len(uniq))
+                vals[use] = (tot / cnt)[inv].reshape(-1, 4)
+            vals.setflags(write=False)
+            nodes.setflags(write=False)
+            return vals, nodes
+        vals, nodes = self._cached(key, make)
+        return vals.copy(), nodes.copy()
 
     def rigid_zone_shells(self) -> set:
         """Ids of the shell elements lying inside a column's cross-section (all

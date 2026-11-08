@@ -7,14 +7,27 @@ from structstudio.mesh import area_mesh as am_
 from structstudio.model.properties import ShellSection
 
 
-def test_auto_size_follows_width_and_spans():
+def test_default_auto_size_is_the_etabs_default():
+    """ETABS default automatic mesh: approximate maximum size 48 in = 1.2192 m (floors
+    and walls); a mesh check halves it."""
+    assert am_.AUTO_RULE == "etabs" and am_.ETABS_MAX_SIZE == 1.2192
     sq = np.array([[0, 0], [8, 0], [8, 8], [0, 8]], float)
-    assert am_.auto_size(sq) == 1.0  # 8 m / 8 elements
     strip = np.array([[0, 0], [20, 0], [20, 2], [0, 2]], float)
-    assert am_.auto_size(strip) == 0.25  # 2 m wide -> 0.25, never 2.5
     cols = am_.Features(points=[(0.0, 0.0), (3.0, 0.0), (0.0, 3.0), (3.0, 3.0)])
-    assert am_.auto_size(sq, cols) == 0.5  # 3 m spans / 6 -> 0.5 (power of two of 1 m)
-    assert am_.auto_size(sq, factor=0.5) == 0.5
+    for Q, f in ((sq, None), (strip, None), (sq, cols)):
+        assert am_.auto_size(Q, f) == 1.2192
+    assert am_.auto_size(sq, factor=0.5) == 0.6096
+    assert am_.auto_size(sq, factor=0.25) == 0.3048
+
+
+def test_fine_auto_size_follows_width_and_spans():
+    sq = np.array([[0, 0], [8, 0], [8, 8], [0, 8]], float)
+    assert am_.auto_size(sq, rule="fine") == 1.0  # 8 m / 8 elements
+    strip = np.array([[0, 0], [20, 0], [20, 2], [0, 2]], float)
+    assert am_.auto_size(strip, rule="fine") == 0.25  # 2 m wide -> 0.25, never 2.5
+    cols = am_.Features(points=[(0.0, 0.0), (3.0, 0.0), (0.0, 3.0), (3.0, 3.0)])
+    assert am_.auto_size(sq, cols, rule="fine") == 0.5  # 3 m spans / 6 -> 0.5 (power of two of 1 m)
+    assert am_.auto_size(sq, factor=0.5, rule="fine") == 0.5
 
 
 def test_new_shell_sections_are_thick_plates():

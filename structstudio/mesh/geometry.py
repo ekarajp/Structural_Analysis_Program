@@ -71,6 +71,14 @@ def transformed_axes(nominal: np.ndarray, new_v1: np.ndarray) -> np.ndarray:
     return np.vstack([v1, v2, v3])
 
 
+
+def cross3(a, b) -> np.ndarray:
+    """Cross product of two 3-vectors: the same arithmetic as ``np.cross``
+    (bit-identical results) without its per-call overhead."""
+    a0, a1, a2 = float(a[0]), float(a[1]), float(a[2])
+    b0, b1, b2 = float(b[0]), float(b[1]), float(b[2])
+    return np.array([a1 * b2 - a2 * b1, a2 * b0 - a0 * b2, a0 * b1 - a1 * b0])
+
 def point_on_segment(p: np.ndarray, a: np.ndarray, b: np.ndarray, tol: float) -> Optional[float]:
     """Return the parameter t (0..1) if ``p`` lies on segment a-b (strictly
     inside, away from the ends), otherwise ``None``."""
@@ -127,7 +135,7 @@ def polygon_area(pts: np.ndarray) -> float:
     n = np.zeros(3)
     k = len(pts)
     for i in range(k):
-        n += np.cross(pts[i], pts[(i + 1) % k])
+        n += cross3(pts[i], pts[(i + 1) % k])
     return 0.5 * float(np.linalg.norm(n))
 
 
@@ -136,7 +144,7 @@ def polygon_centroid(pts: np.ndarray) -> np.ndarray:
     normal = polygon_normal(pts)
     # build in-plane 2D coordinates
     e1 = unit(pts[1] - pts[0])
-    e2 = np.cross(normal, e1)
+    e2 = cross3(normal, e1)
     origin = pts[0]
     uv = np.array([[(p - origin) @ e1, (p - origin) @ e2] for p in pts])
     a = 0.0
@@ -168,12 +176,12 @@ def shell_axes(pts: np.ndarray, angle_deg: float = 0.0) -> np.ndarray:
     v3 = polygon_normal(pts)
     if abs(v3 @ EZ) > 1.0 - 1e-6:  # horizontal element
         v1 = EX.copy()
-        v2 = np.cross(v3, v1)
+        v2 = cross3(v3, v1)
     else:
-        v2 = unit(np.cross(v3, np.cross(EZ, v3)))  # in plane, projection of Z
+        v2 = unit(cross3(v3, cross3(EZ, v3)))  # in plane, projection of Z
         if v2 @ EZ < 0:
             v2 = -v2
-        v1 = np.cross(v2, v3)
+        v1 = cross3(v2, v3)
     if angle_deg:
         a = math.radians(angle_deg)
         c, s = math.cos(a), math.sin(a)
@@ -190,7 +198,7 @@ def polygon_polar_inertia(pts: np.ndarray, about: np.ndarray) -> float:
     about the axis normal to its plane through point ``about``."""
     normal = polygon_normal(pts)
     e1 = unit(pts[1] - pts[0])
-    e2 = np.cross(normal, e1)
+    e2 = cross3(normal, e1)
     uv = np.array([[(p - about) @ e1, (p - about) @ e2] for p in pts])
     k = len(uv)
     ixx = iyy = 0.0
@@ -208,7 +216,7 @@ def quad_tributary_areas(quad: np.ndarray) -> np.ndarray:
     nodes of a planar quadrilateral."""
     normal = polygon_normal(quad)
     e1 = unit(quad[1] - quad[0])
-    e2 = np.cross(normal, e1)
+    e2 = cross3(normal, e1)
     xy = np.array([[(p - quad[0]) @ e1, (p - quad[0]) @ e2] for p in quad])
     g = 1.0 / math.sqrt(3.0)
     trib = np.zeros(4)

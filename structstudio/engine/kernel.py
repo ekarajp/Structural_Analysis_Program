@@ -7,9 +7,9 @@ compiled Rust/C++ kernel without touching assembly, elements or results.
 """
 from __future__ import annotations
 
-from typing import Optional, Protocol, Tuple
-
+import os
 import warnings
+from typing import Optional, Protocol, Tuple
 
 import numpy as np
 from scipy import linalg, sparse
@@ -42,6 +42,8 @@ class _SciPyFactor:
             return
         Kc = K.tocsc()
         try:
+            # COLAMD kept on purpose: the pivot-based instability report (which joints /
+            # DOFs) depends on the ordering, and must not change behind the user's back
             self.lu = splu(Kc, diag_pivot_thresh=0.0, options={"SymmetricMode": True})
         except RuntimeError as exc:
             raise ModelError("SINGULAR_STIFFNESS",
@@ -81,13 +83,22 @@ class SciPyKernel:
     def factor(self, K: sparse.csr_matrix) -> Factorization:
         return _SciPyFactor(K)
 
+    def describe(self) -> str:
+        return "SciPy SuperLU (single thread)"
+
     def eigen(self, K: sparse.csr_matrix, M: sparse.csr_matrix, n_modes: int, shift: float = 0.0,
-              method: str = "auto") -> Tuple[np.ndarray, np.ndarray]:
+              method: str = "auto", factor: Optional[Factorization] = None) -> Tuple[np.ndarray, np.ndarray]:
         """Lowest ``n_modes`` generalized eigenpairs K phi = w^2 M phi.
 
         ``M`` is a (possibly singular) diagonal lumped mass matrix.  Massless
         DOFs are condensed statically.  Returns (omega2, phi) with phi mass
         normalised, columns = modes, over the *same* DOF set as K.
+
+        ``factor``: a factorisation of this same K (the static cases'), reused
+        for the condensation onto the massive DOFs instead of factoring the
+        massless block again: with Y = K^-1 E_m (E_m the unit vectors of the
+        massive DOFs), the condensed stiffness is Y_mm^-1 and the massless
+        part of a mode -K_zz^-1 K_zm v = Y_zm Y_mm^-1 v (block inverse).
         """
         n = K.shape[0]
         M = sparse.csr_matrix(M)
@@ -110,7 +121,20 @@ class SciPyKernel:
             sparse_k = n > 3000
             Kd = None if sparse_k else K.toarray()
             Kmm = K[massive][:, massive].toarray() if sparse_k else Kd[np.ix_(massive, massive)]
-            if massless.size:
+            Y = None
+            if massless.size and sparse_k and factor is not None:
+                E = np.zeros((n, n_dyn))
+                E[massive, np.arange(n_dyn)] = 1.0
+                Y = np.asarray(factor.solve(E)).reshape(n, n_dyn)
+                if not np.all(np.isfinite(Y)):
+                    raise ModelError("SINGULAR_STIFFNESS", "Massless DOFs are unstable (mechanism)")
+                Ymm = 0.5 * (Y[massive] + Y[massive].T)
+                try:
+                    Kc = linalg.inv(Ymm)
+                except linalg.LinAlgError as exc:
+                    raise ModelError("SINGULAR_STIFFNESS", "Massless DOFs are unstable (mechanism)") from exc
+                X = None
+            elif massless.size:
                 if sparse_k:
                     Kcsc = sparse.csc_matrix(K)
                     Kzz = Kcsc[massless][:, massless].tocsc()
@@ -148,7 +172,7 @@ class SciPyKernel:
             phi = np.zeros((n, n_modes))
             phi[massive] = vm
             if massless.size:
-                phi[massless] = -X @ vm
+                phi[massless] = (Y[massless] @ (Kc @ vm)) if Y is not None else -X @ vm
         else:
             sigma = -float(shift) if shift else -1e-3 * float(np.max(np.abs(K.diagonal())) / max(np.max(m), 1e-300)) * 1e-6
             Ms = M
@@ -181,10 +205,31 @@ def _eigh_semidefinite(K: np.ndarray, M: np.ndarray):
     return w2[order], v[:, order]
 
 
+KERNEL_NOTE = ""  # why the default kernel is what it is (shown with the analysis messages)
+
+
 def default_kernel() -> Kernel:
+    """Intel MKL PARDISO when ``pypardiso`` is installed, else SciPy.
+    ``STRUCTSTUDIO_KERNEL=scipy`` forces SciPy."""
+    global KERNEL_NOTE
+    if os.environ.get("STRUCTSTUDIO_KERNEL", "").lower() == "scipy":
+        KERNEL_NOTE = "SciPy selected (STRUCTSTUDIO_KERNEL=scipy)"
+        return SciPyKernel()
     try:
         from .kernel_pardiso import PardisoKernel  # optional accelerated kernel
 
-        return PardisoKernel()
-    except Exception:
+        k = PardisoKernel()
+        KERNEL_NOTE = ""
+        return k
+    except Exception as exc:
+        KERNEL_NOTE = f"PARDISO not available ({type(exc).__name__}: {exc}) - install pypardiso for a faster solver"
         return SciPyKernel()
+
+
+def describe(kernel) -> str:
+    d = getattr(kernel, "describe", None)
+    text = d() if callable(d) else getattr(kernel, "name", "kernel")
+    fb = getattr(kernel, "last_fallback", None)
+    if fb:
+        text += f"; SuperLU used for a matrix PARDISO could not take ({fb})"
+    return text
