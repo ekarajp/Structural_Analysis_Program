@@ -1,0 +1,71 @@
+File C:\SAFE\slab.f2k was saved on 3/4/12 at 9:00:00
+
+TABLE:  "PROGRAM CONTROL"
+   ProgramName=SAFE   Version=12.3.2   CurrUnits="KN, m, C"   MergeTol=0.001   ModelDatum=0   StHtAbove=0   StHtBelow=3   ConcCode="ACI 318-08"
+
+TABLE:  "MATERIAL PROPERTIES 01 - GENERAL"
+   Material=C30   Type=Concrete   SymType=Isotropic   TempDepend=No   Color=Gray8Dark
+
+TABLE:  "MATERIAL PROPERTIES 02 - BASIC MECHANICAL PROPERTIES"
+   Material=C30   UnitWeight=24   UnitMass=2.4473   E1=25000000   G12=10416666.67   U12=0.2   A1=0.0000099
+
+TABLE:  "SLAB PROPERTIES 01 - GENERAL"
+   Slab=SLAB25   Type=Slab   MatProp=C30   Color=Blue
+
+TABLE:  "SLAB PROPERTIES 02 - SOLID SLABS"
+   Slab=SLAB25   Type=Slab   MatProp=C30   Thickness=0.25   Ortho=No
+
+TABLE:  "COLUMN PROPERTIES 01 - GENERAL"
+   Column=COL50   Type=Rectangular   MatProp=C30   SecDim2=0.5   SecDim3=0.5   AutoRigid=No   AutoDrop=No   IncludeCap=No
+
+TABLE:  "OBJ GEOM - POINT COORDINATES"
+   Point=1   GlobalX=0   GlobalY=0   GlobalZ=0   SpecialPt=No
+   Point=2   GlobalX=8   GlobalY=0   GlobalZ=0   SpecialPt=No
+   Point=3   GlobalX=8   GlobalY=8   GlobalZ=0   SpecialPt=No
+   Point=4   GlobalX=0   GlobalY=8   GlobalZ=0   SpecialPt=No
+   Point=5   GlobalX=0   GlobalY=0   GlobalZ=-3   SpecialPt=No
+   Point=6   GlobalX=8   GlobalY=0   GlobalZ=-3   SpecialPt=No
+   Point=7   GlobalX=8   GlobalY=8   GlobalZ=-3   SpecialPt=No
+   Point=8   GlobalX=0   GlobalY=8   GlobalZ=-3   SpecialPt=No
+
+TABLE:  "OBJ GEOM - LINES 01 - GENERAL"
+   Line=C1   PointI=5   PointJ=1   LineType=Column   Length=3
+   Line=C2   PointI=6   PointJ=2   LineType=Column   Length=3
+   Line=C3   PointI=7   PointJ=3   LineType=Column   Length=3
+   Line=C4   PointI=8   PointJ=4   LineType=Column   Length=3
+
+TABLE:  "OBJ GEOM - AREAS 01 - GENERAL"
+   Area=1   NumPoints=4   Point1=1   Point2=2   Point3=3   Point4=4
+
+TABLE:  "SLAB PROPERTY ASSIGNMENTS"
+   Area=1   SlabProp=SLAB25
+
+TABLE:  "COLUMN PROPERTY ASSIGNMENTS"
+   Line=C1   ColProp=COL50
+   Line=C2   ColProp=COL50
+   Line=C3   ColProp=COL50
+   Line=C4   ColProp=COL50
+
+TABLE:  "LOAD PATTERNS"
+   LoadPat=DEAD   Type=DEAD   SelfWtMult=1
+   LoadPat=LIVE   Type=LIVE   SelfWtMult=0
+
+TABLE:  "LOAD CASES 01 - GENERAL"
+   LoadCase=DEAD   Type=LinStatic
+   LoadCase=LIVE   Type=LinStatic
+
+TABLE:  "LOAD CASES 02 - STATIC"
+   LoadCase=DEAD   LoadPat=DEAD   SF=1
+   LoadCase=LIVE   LoadPat=LIVE   SF=1
+
+TABLE:  "LOAD COMBINATIONS"
+   Combo=ULS   Load=DEAD   SF=1.4   Type="Linear Add"
+   Combo=ULS   Load=LIVE   SF=1.7
+
+TABLE:  "LOAD ASSIGNMENTS - SURFACE LOADS"
+   Area=1   LoadPat=LIVE   Dir=Gravity   UnifLoad=3
+
+TABLE:  "LOAD ASSIGNMENTS - POINT LOADS"
+   Point=3   LoadPat=LIVE   Fgrav=50   Mx=0   My=0
+
+END TABLE DATA

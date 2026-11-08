@@ -1,0 +1,44 @@
+File cantilever.s2k was saved on 5/12/06 at 10:12:01
+
+TABLE:  "PROGRAM CONTROL"
+   ProgramName=SAP2000   Version=10.0.1   ProgLevel=Advanced   CurrUnits="Kip, in, F"   SteelCode=AISC-ASD89   ConcCode=ACI318-02   RegenHinge=Yes
+
+TABLE:  "JOINT COORDINATES"
+   Joint=1   CoordSys=GLOBAL   CoordType=Cartesian   XorR=0   Y=0   Z=0   SpecialJt=No   GlobalX=0   GlobalY=0   GlobalZ=0
+   Joint=2   CoordSys=GLOBAL   CoordType=Cartesian   XorR=120   Y=0   Z=0   SpecialJt=No   GlobalX=120   GlobalY=0   GlobalZ=0
+
+TABLE:  "JOINT RESTRAINT ASSIGNMENTS"
+   Joint=1   U1=Yes   U2=Yes   U3=Yes   R1=Yes   R2=Yes   R3=Yes
+
+TABLE:  "MATERIAL PROPERTIES 01 - GENERAL"
+   Material=STEEL   Type=Iso   DesignType=Steel   UnitMass=7.3240E-07   UnitWeight=2.8300E-04   E=29000   U=0.3   A=6.5E-06
+
+TABLE:  "FRAME SECTION PROPERTIES 01 - GENERAL"
+   SectionName=FSEC1   Material=STEEL   Shape=General   t3=10   t2=5   Area=10   TorsConst=50   I33=200   I22=40   AS2=0   AS3=0
+
+TABLE:  "CONNECTIVITY - FRAME"
+   Frame=1   JointI=1   JointJ=2   IsCurved=No   Length=120
+
+TABLE:  "FRAME SECTION ASSIGNMENTS"
+   Frame=1   SectionType=General   AutoSelect=N.A.   AnalSect=FSEC1   DesignSect=FSEC1   MatProp=Default
+
+TABLE:  "LOAD CASE DEFINITIONS"
+   LoadCase=DEAD   DesignType=DEAD   SelfWtMult=0
+   LoadCase=TIP   DesignType=LIVE   SelfWtMult=0
+
+TABLE:  "ANALYSIS CASE DEFINITIONS"
+   Case=DEAD   Type=LinStatic   InitialCond=Zero   RunCase=Yes
+   Case=TIP   Type=LinStatic   InitialCond=Zero   RunCase=Yes
+
+TABLE:  "CASE - STATIC 1 - LOAD ASSIGNMENTS"
+   Case=DEAD   LoadType="Load case"   LoadName=DEAD   LoadSF=1
+   Case=TIP   LoadType="Load case"   LoadName=TIP   LoadSF=1
+
+TABLE:  "JOINT LOADS - FORCE"
+   Joint=2   LoadCase=TIP   CoordSys=GLOBAL   F1=0   F2=0   F3=-1   M1=0   M2=0   M3=0
+
+TABLE:  "COMBINATION DEFINITIONS"
+   ComboName=COMB1   ComboType="Linear Add"   AutoDesign=Yes   CaseName=DEAD   ScaleFactor=1.4   SteelDesign=Yes
+   ComboName=COMB1   CaseName=TIP   ScaleFactor=1.7
+
+END TABLE DATA

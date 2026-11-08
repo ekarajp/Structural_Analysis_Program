@@ -1,0 +1,1419 @@
+TABLE:  "PROGRAM CONTROL"
+   ProgramName=SAFE   Version=22.3.0   CurrUnits=kip_in_F   ConvertedBy="Structural Studio / SAFE 22"   TableRoute=DisplayArray
+
+TABLE:  "Analysis Modeling Options"
+   TwoDOnly=Yes   RigidDiaTop=No   IgnoreOffs=Yes
+
+TABLE:  "Analysis Options - Automatic Mesh Settings for Floors"
+   MeshOpt=Rectangular   Localized=Yes   MergeJoints=Yes   MaxMeshSize=480
+
+TABLE:  "Analysis Options - Automatic Rectangular Mesh Options for Walls"
+   MaxMeshSize=48
+
+TABLE:  "Analysis Options - Cracking Analysis Options"
+   ReinfSource="User and Designed"   MinTenRat=0.0018   MinCompRat=0
+
+TABLE:  "Analysis Options - Design and Response Recovery Options"
+   NumDThreads=0   NumRThreads=0   UseMMFiles="Program Determined"   AllowDiff=No
+
+TABLE:  "Analysis Options - SAPFire Options"
+   SolverOpt=Advanced   AnalysisPro=Auto   NumAThreads=0   MaxFileSize=0
+
+TABLE:  "Area Assignments - Auto Edge Constraints"
+   UniqueName=2   Constraint=Yes
+   UniqueName=3   Constraint=Yes
+   UniqueName=4   Constraint=Yes
+   UniqueName=5   Constraint=Yes
+   UniqueName=6   Constraint=Yes
+   UniqueName=7   Constraint=Yes
+   UniqueName=8   Constraint=Yes
+   UniqueName=9   Constraint=Yes
+   UniqueName=10   Constraint=Yes
+   UniqueName=11   Constraint=Yes
+   UniqueName=12   Constraint=Yes
+   UniqueName=13   Constraint=Yes
+   UniqueName=14   Constraint=Yes
+   UniqueName=15   Constraint=Yes
+   UniqueName=16   Constraint=Yes
+   UniqueName=17   Constraint=Yes
+   UniqueName=18   Constraint=Yes
+   UniqueName=19   Constraint=Yes
+   UniqueName=20   Constraint=Yes
+   UniqueName=21   Constraint=Yes
+   UniqueName=22   Constraint=Yes
+   UniqueName=23   Constraint=Yes
+   UniqueName=24   Constraint=Yes
+   UniqueName=25   Constraint=Yes
+   UniqueName=26   Constraint=Yes
+   UniqueName=27   Constraint=Yes
+   UniqueName=28   Constraint=Yes
+   UniqueName=29   Constraint=Yes
+   UniqueName=30   Constraint=Yes
+   UniqueName=31   Constraint=Yes
+   UniqueName=32   Constraint=Yes
+   UniqueName=33   Constraint=Yes
+   UniqueName=34   Constraint=Yes
+   UniqueName=35   Constraint=Yes
+   UniqueName=36   Constraint=Yes
+   UniqueName=37   Constraint=Yes
+   UniqueName=38   Constraint=Yes
+   UniqueName=39   Constraint=Yes
+   UniqueName=40   Constraint=Yes
+   UniqueName=41   Constraint=Yes
+   UniqueName=42   Constraint=Yes
+   UniqueName=43   Constraint=Yes
+   UniqueName=44   Constraint=Yes
+   UniqueName=45   Constraint=Yes
+   UniqueName=46   Constraint=Yes
+   UniqueName=47   Constraint=Yes
+   UniqueName=48   Constraint=Yes
+   UniqueName=49   Constraint=Yes
+   UniqueName=50   Constraint=Yes
+   UniqueName=51   Constraint=Yes
+   UniqueName=52   Constraint=Yes
+   UniqueName=53   Constraint=Yes
+   UniqueName=54   Constraint=Yes
+   UniqueName=55   Constraint=Yes
+   UniqueName=56   Constraint=Yes
+   UniqueName=57   Constraint=Yes
+   UniqueName=58   Constraint=Yes
+   UniqueName=59   Constraint=Yes
+   UniqueName=60   Constraint=Yes
+   UniqueName=61   Constraint=Yes
+   UniqueName=62   Constraint=Yes
+   UniqueName=63   Constraint=Yes
+   UniqueName=64   Constraint=Yes
+   UniqueName=65   Constraint=Yes
+   UniqueName=66   Constraint=Yes
+   UniqueName=67   Constraint=Yes
+   UniqueName=68   Constraint=Yes
+   UniqueName=69   Constraint=Yes
+   UniqueName=70   Constraint=Yes
+   UniqueName=71   Constraint=Yes
+   UniqueName=72   Constraint=Yes
+   UniqueName=73   Constraint=Yes
+   UniqueName=74   Constraint=Yes
+   UniqueName=75   Constraint=Yes
+   UniqueName=76   Constraint=Yes
+   UniqueName=77   Constraint=Yes
+   UniqueName=78   Constraint=Yes
+   UniqueName=79   Constraint=Yes
+   UniqueName=80   Constraint=Yes
+   UniqueName=81   Constraint=Yes
+   UniqueName=82   Constraint=Yes
+   UniqueName=83   Constraint=Yes
+   UniqueName=84   Constraint=Yes
+   UniqueName=85   Constraint=Yes
+   UniqueName=86   Constraint=Yes
+   UniqueName=87   Constraint=Yes
+   UniqueName=88   Constraint=Yes
+   UniqueName=89   Constraint=Yes
+   UniqueName=90   Constraint=Yes
+   UniqueName=91   Constraint=Yes
+   UniqueName=92   Constraint=Yes
+   UniqueName=93   Constraint=Yes
+   UniqueName=94   Constraint=Yes
+   UniqueName=95   Constraint=Yes
+   UniqueName=96   Constraint=Yes
+   UniqueName=97   Constraint=Yes
+   UniqueName=98   Constraint=Yes
+   UniqueName=99   Constraint=Yes
+   UniqueName=100   Constraint=Yes
+   UniqueName=101   Constraint=Yes
+   UniqueName=102   Constraint=Yes
+   UniqueName=103   Constraint=Yes
+   UniqueName=104   Constraint=Yes
+   UniqueName=105   Constraint=Yes
+   UniqueName=106   Constraint=Yes
+   UniqueName=107   Constraint=Yes
+   UniqueName=108   Constraint=Yes
+   UniqueName=109   Constraint=Yes
+   UniqueName=110   Constraint=Yes
+   UniqueName=111   Constraint=Yes
+   UniqueName=112   Constraint=Yes
+   UniqueName=113   Constraint=Yes
+   UniqueName=114   Constraint=Yes
+   UniqueName=115   Constraint=Yes
+   UniqueName=116   Constraint=Yes
+   UniqueName=117   Constraint=Yes
+   UniqueName=118   Constraint=Yes
+   UniqueName=119   Constraint=Yes
+   UniqueName=120   Constraint=Yes
+   UniqueName=121   Constraint=Yes
+   UniqueName=122   Constraint=Yes
+   UniqueName=123   Constraint=Yes
+   UniqueName=124   Constraint=Yes
+   UniqueName=125   Constraint=Yes
+   UniqueName=126   Constraint=Yes
+   UniqueName=127   Constraint=Yes
+   UniqueName=128   Constraint=Yes
+   UniqueName=129   Constraint=Yes
+   UniqueName=130   Constraint=Yes
+   UniqueName=131   Constraint=Yes
+   UniqueName=132   Constraint=Yes
+   UniqueName=133   Constraint=Yes
+   UniqueName=134   Constraint=Yes
+   UniqueName=135   Constraint=Yes
+   UniqueName=136   Constraint=Yes
+   UniqueName=137   Constraint=Yes
+   UniqueName=138   Constraint=Yes
+   UniqueName=139   Constraint=Yes
+   UniqueName=140   Constraint=Yes
+   UniqueName=141   Constraint=Yes
+   UniqueName=142   Constraint=Yes
+   UniqueName=143   Constraint=Yes
+   UniqueName=144   Constraint=Yes
+   UniqueName=145   Constraint=Yes
+
+TABLE:  "Area Assignments - Floor Auto Mesh Options"
+   UniqueName=2   MeshOption=Default   Restraints=No
+   UniqueName=3   MeshOption=Default   Restraints=No
+   UniqueName=4   MeshOption=Default   Restraints=No
+   UniqueName=5   MeshOption=Default   Restraints=No
+   UniqueName=6   MeshOption=Default   Restraints=No
+   UniqueName=7   MeshOption=Default   Restraints=No
+   UniqueName=8   MeshOption=Default   Restraints=No
+   UniqueName=9   MeshOption=Default   Restraints=No
+   UniqueName=10   MeshOption=Default   Restraints=No
+   UniqueName=11   MeshOption=Default   Restraints=No
+   UniqueName=12   MeshOption=Default   Restraints=No
+   UniqueName=13   MeshOption=Default   Restraints=No
+   UniqueName=14   MeshOption=Default   Restraints=No
+   UniqueName=15   MeshOption=Default   Restraints=No
+   UniqueName=16   MeshOption=Default   Restraints=No
+   UniqueName=17   MeshOption=Default   Restraints=No
+   UniqueName=18   MeshOption=Default   Restraints=No
+   UniqueName=19   MeshOption=Default   Restraints=No
+   UniqueName=20   MeshOption=Default   Restraints=No
+   UniqueName=21   MeshOption=Default   Restraints=No
+   UniqueName=22   MeshOption=Default   Restraints=No
+   UniqueName=23   MeshOption=Default   Restraints=No
+   UniqueName=24   MeshOption=Default   Restraints=No
+   UniqueName=25   MeshOption=Default   Restraints=No
+   UniqueName=26   MeshOption=Default   Restraints=No
+   UniqueName=27   MeshOption=Default   Restraints=No
+   UniqueName=28   MeshOption=Default   Restraints=No
+   UniqueName=29   MeshOption=Default   Restraints=No
+   UniqueName=30   MeshOption=Default   Restraints=No
+   UniqueName=31   MeshOption=Default   Restraints=No
+   UniqueName=32   MeshOption=Default   Restraints=No
+   UniqueName=33   MeshOption=Default   Restraints=No
+   UniqueName=34   MeshOption=Default   Restraints=No
+   UniqueName=35   MeshOption=Default   Restraints=No
+   UniqueName=36   MeshOption=Default   Restraints=No
+   UniqueName=37   MeshOption=Default   Restraints=No
+   UniqueName=38   MeshOption=Default   Restraints=No
+   UniqueName=39   MeshOption=Default   Restraints=No
+   UniqueName=40   MeshOption=Default   Restraints=No
+   UniqueName=41   MeshOption=Default   Restraints=No
+   UniqueName=42   MeshOption=Default   Restraints=No
+   UniqueName=43   MeshOption=Default   Restraints=No
+   UniqueName=44   MeshOption=Default   Restraints=No
+   UniqueName=45   MeshOption=Default   Restraints=No
+   UniqueName=46   MeshOption=Default   Restraints=No
+   UniqueName=47   MeshOption=Default   Restraints=No
+   UniqueName=48   MeshOption=Default   Restraints=No
+   UniqueName=49   MeshOption=Default   Restraints=No
+   UniqueName=50   MeshOption=Default   Restraints=No
+   UniqueName=51   MeshOption=Default   Restraints=No
+   UniqueName=52   MeshOption=Default   Restraints=No
+   UniqueName=53   MeshOption=Default   Restraints=No
+   UniqueName=54   MeshOption=Default   Restraints=No
+   UniqueName=55   MeshOption=Default   Restraints=No
+   UniqueName=56   MeshOption=Default   Restraints=No
+   UniqueName=57   MeshOption=Default   Restraints=No
+   UniqueName=58   MeshOption=Default   Restraints=No
+   UniqueName=59   MeshOption=Default   Restraints=No
+   UniqueName=60   MeshOption=Default   Restraints=No
+   UniqueName=61   MeshOption=Default   Restraints=No
+   UniqueName=62   MeshOption=Default   Restraints=No
+   UniqueName=63   MeshOption=Default   Restraints=No
+   UniqueName=64   MeshOption=Default   Restraints=No
+   UniqueName=65   MeshOption=Default   Restraints=No
+   UniqueName=66   MeshOption=Default   Restraints=No
+   UniqueName=67   MeshOption=Default   Restraints=No
+   UniqueName=68   MeshOption=Default   Restraints=No
+   UniqueName=69   MeshOption=Default   Restraints=No
+   UniqueName=70   MeshOption=Default   Restraints=No
+   UniqueName=71   MeshOption=Default   Restraints=No
+   UniqueName=72   MeshOption=Default   Restraints=No
+   UniqueName=73   MeshOption=Default   Restraints=No
+   UniqueName=74   MeshOption=Default   Restraints=No
+   UniqueName=75   MeshOption=Default   Restraints=No
+   UniqueName=76   MeshOption=Default   Restraints=No
+   UniqueName=77   MeshOption=Default   Restraints=No
+   UniqueName=78   MeshOption=Default   Restraints=No
+   UniqueName=79   MeshOption=Default   Restraints=No
+   UniqueName=80   MeshOption=Default   Restraints=No
+   UniqueName=81   MeshOption=Default   Restraints=No
+   UniqueName=82   MeshOption=Default   Restraints=No
+   UniqueName=83   MeshOption=Default   Restraints=No
+   UniqueName=84   MeshOption=Default   Restraints=No
+   UniqueName=85   MeshOption=Default   Restraints=No
+   UniqueName=86   MeshOption=Default   Restraints=No
+   UniqueName=87   MeshOption=Default   Restraints=No
+   UniqueName=88   MeshOption=Default   Restraints=No
+   UniqueName=89   MeshOption=Default   Restraints=No
+   UniqueName=90   MeshOption=Default   Restraints=No
+   UniqueName=91   MeshOption=Default   Restraints=No
+   UniqueName=92   MeshOption=Default   Restraints=No
+   UniqueName=93   MeshOption=Default   Restraints=No
+   UniqueName=94   MeshOption=Default   Restraints=No
+   UniqueName=95   MeshOption=Default   Restraints=No
+   UniqueName=96   MeshOption=Default   Restraints=No
+   UniqueName=97   MeshOption=Default   Restraints=No
+   UniqueName=98   MeshOption=Default   Restraints=No
+   UniqueName=99   MeshOption=Default   Restraints=No
+   UniqueName=100   MeshOption=Default   Restraints=No
+   UniqueName=101   MeshOption=Default   Restraints=No
+   UniqueName=102   MeshOption=Default   Restraints=No
+   UniqueName=103   MeshOption=Default   Restraints=No
+   UniqueName=104   MeshOption=Default   Restraints=No
+   UniqueName=105   MeshOption=Default   Restraints=No
+   UniqueName=106   MeshOption=Default   Restraints=No
+   UniqueName=107   MeshOption=Default   Restraints=No
+   UniqueName=108   MeshOption=Default   Restraints=No
+   UniqueName=109   MeshOption=Default   Restraints=No
+   UniqueName=110   MeshOption=Default   Restraints=No
+   UniqueName=111   MeshOption=Default   Restraints=No
+   UniqueName=112   MeshOption=Default   Restraints=No
+   UniqueName=113   MeshOption=Default   Restraints=No
+   UniqueName=114   MeshOption=Default   Restraints=No
+   UniqueName=115   MeshOption=Default   Restraints=No
+   UniqueName=116   MeshOption=Default   Restraints=No
+   UniqueName=117   MeshOption=Default   Restraints=No
+   UniqueName=118   MeshOption=Default   Restraints=No
+   UniqueName=119   MeshOption=Default   Restraints=No
+   UniqueName=120   MeshOption=Default   Restraints=No
+   UniqueName=121   MeshOption=Default   Restraints=No
+   UniqueName=122   MeshOption=Default   Restraints=No
+   UniqueName=123   MeshOption=Default   Restraints=No
+   UniqueName=124   MeshOption=Default   Restraints=No
+   UniqueName=125   MeshOption=Default   Restraints=No
+   UniqueName=126   MeshOption=Default   Restraints=No
+   UniqueName=127   MeshOption=Default   Restraints=No
+   UniqueName=128   MeshOption=Default   Restraints=No
+   UniqueName=129   MeshOption=Default   Restraints=No
+   UniqueName=130   MeshOption=Default   Restraints=No
+   UniqueName=131   MeshOption=Default   Restraints=No
+   UniqueName=132   MeshOption=Default   Restraints=No
+   UniqueName=133   MeshOption=Default   Restraints=No
+   UniqueName=134   MeshOption=Default   Restraints=No
+   UniqueName=135   MeshOption=Default   Restraints=No
+   UniqueName=136   MeshOption=Default   Restraints=No
+   UniqueName=137   MeshOption=Default   Restraints=No
+   UniqueName=138   MeshOption=Default   Restraints=No
+   UniqueName=139   MeshOption=Default   Restraints=No
+   UniqueName=140   MeshOption=Default   Restraints=No
+   UniqueName=141   MeshOption=Default   Restraints=No
+   UniqueName=142   MeshOption=Default   Restraints=No
+   UniqueName=143   MeshOption=Default   Restraints=No
+   UniqueName=144   MeshOption=Default   Restraints=No
+   UniqueName=145   MeshOption=Default   Restraints=No
+
+TABLE:  "Area Assignments - Insertion Point"
+   UniqueName=2   CardinalPt=Top   Transform=No
+   UniqueName=3   CardinalPt=Top   Transform=No
+   UniqueName=4   CardinalPt=Top   Transform=No
+   UniqueName=5   CardinalPt=Top   Transform=No
+   UniqueName=6   CardinalPt=Top   Transform=No
+   UniqueName=7   CardinalPt=Top   Transform=No
+   UniqueName=8   CardinalPt=Top   Transform=No
+   UniqueName=9   CardinalPt=Top   Transform=No
+   UniqueName=10   CardinalPt=Top   Transform=No
+   UniqueName=11   CardinalPt=Top   Transform=No
+   UniqueName=12   CardinalPt=Top   Transform=No
+   UniqueName=13   CardinalPt=Top   Transform=No
+   UniqueName=14   CardinalPt=Top   Transform=No
+   UniqueName=15   CardinalPt=Top   Transform=No
+   UniqueName=16   CardinalPt=Top   Transform=No
+   UniqueName=17   CardinalPt=Top   Transform=No
+   UniqueName=18   CardinalPt=Top   Transform=No
+   UniqueName=19   CardinalPt=Top   Transform=No
+   UniqueName=20   CardinalPt=Top   Transform=No
+   UniqueName=21   CardinalPt=Top   Transform=No
+   UniqueName=22   CardinalPt=Top   Transform=No
+   UniqueName=23   CardinalPt=Top   Transform=No
+   UniqueName=24   CardinalPt=Top   Transform=No
+   UniqueName=25   CardinalPt=Top   Transform=No
+   UniqueName=26   CardinalPt=Top   Transform=No
+   UniqueName=27   CardinalPt=Top   Transform=No
+   UniqueName=28   CardinalPt=Top   Transform=No
+   UniqueName=29   CardinalPt=Top   Transform=No
+   UniqueName=30   CardinalPt=Top   Transform=No
+   UniqueName=31   CardinalPt=Top   Transform=No
+   UniqueName=32   CardinalPt=Top   Transform=No
+   UniqueName=33   CardinalPt=Top   Transform=No
+   UniqueName=34   CardinalPt=Top   Transform=No
+   UniqueName=35   CardinalPt=Top   Transform=No
+   UniqueName=36   CardinalPt=Top   Transform=No
+   UniqueName=37   CardinalPt=Top   Transform=No
+   UniqueName=38   CardinalPt=Top   Transform=No
+   UniqueName=39   CardinalPt=Top   Transform=No
+   UniqueName=40   CardinalPt=Top   Transform=No
+   UniqueName=41   CardinalPt=Top   Transform=No
+   UniqueName=42   CardinalPt=Top   Transform=No
+   UniqueName=43   CardinalPt=Top   Transform=No
+   UniqueName=44   CardinalPt=Top   Transform=No
+   UniqueName=45   CardinalPt=Top   Transform=No
+   UniqueName=46   CardinalPt=Top   Transform=No
+   UniqueName=47   CardinalPt=Top   Transform=No
+   UniqueName=48   CardinalPt=Top   Transform=No
+   UniqueName=49   CardinalPt=Top   Transform=No
+   UniqueName=50   CardinalPt=Top   Transform=No
+   UniqueName=51   CardinalPt=Top   Transform=No
+   UniqueName=52   CardinalPt=Top   Transform=No
+   UniqueName=53   CardinalPt=Top   Transform=No
+   UniqueName=54   CardinalPt=Top   Transform=No
+   UniqueName=55   CardinalPt=Top   Transform=No
+   UniqueName=56   CardinalPt=Top   Transform=No
+   UniqueName=57   CardinalPt=Top   Transform=No
+   UniqueName=58   CardinalPt=Top   Transform=No
+   UniqueName=59   CardinalPt=Top   Transform=No
+   UniqueName=60   CardinalPt=Top   Transform=No
+   UniqueName=61   CardinalPt=Top   Transform=No
+   UniqueName=62   CardinalPt=Top   Transform=No
+   UniqueName=63   CardinalPt=Top   Transform=No
+   UniqueName=64   CardinalPt=Top   Transform=No
+   UniqueName=65   CardinalPt=Top   Transform=No
+   UniqueName=66   CardinalPt=Top   Transform=No
+   UniqueName=67   CardinalPt=Top   Transform=No
+   UniqueName=68   CardinalPt=Top   Transform=No
+   UniqueName=69   CardinalPt=Top   Transform=No
+   UniqueName=70   CardinalPt=Top   Transform=No
+   UniqueName=71   CardinalPt=Top   Transform=No
+   UniqueName=72   CardinalPt=Top   Transform=No
+   UniqueName=73   CardinalPt=Top   Transform=No
+   UniqueName=74   CardinalPt=Top   Transform=No
+   UniqueName=75   CardinalPt=Top   Transform=No
+   UniqueName=76   CardinalPt=Top   Transform=No
+   UniqueName=77   CardinalPt=Top   Transform=No
+   UniqueName=78   CardinalPt=Top   Transform=No
+   UniqueName=79   CardinalPt=Top   Transform=No
+   UniqueName=80   CardinalPt=Top   Transform=No
+   UniqueName=81   CardinalPt=Top   Transform=No
+   UniqueName=82   CardinalPt=Top   Transform=No
+   UniqueName=83   CardinalPt=Top   Transform=No
+   UniqueName=84   CardinalPt=Top   Transform=No
+   UniqueName=85   CardinalPt=Top   Transform=No
+   UniqueName=86   CardinalPt=Top   Transform=No
+   UniqueName=87   CardinalPt=Top   Transform=No
+   UniqueName=88   CardinalPt=Top   Transform=No
+   UniqueName=89   CardinalPt=Top   Transform=No
+   UniqueName=90   CardinalPt=Top   Transform=No
+   UniqueName=91   CardinalPt=Top   Transform=No
+   UniqueName=92   CardinalPt=Top   Transform=No
+   UniqueName=93   CardinalPt=Top   Transform=No
+   UniqueName=94   CardinalPt=Top   Transform=No
+   UniqueName=95   CardinalPt=Top   Transform=No
+   UniqueName=96   CardinalPt=Top   Transform=No
+   UniqueName=97   CardinalPt=Top   Transform=No
+   UniqueName=98   CardinalPt=Top   Transform=No
+   UniqueName=99   CardinalPt=Top   Transform=No
+   UniqueName=100   CardinalPt=Top   Transform=No
+   UniqueName=101   CardinalPt=Top   Transform=No
+   UniqueName=102   CardinalPt=Top   Transform=No
+   UniqueName=103   CardinalPt=Top   Transform=No
+   UniqueName=104   CardinalPt=Top   Transform=No
+   UniqueName=105   CardinalPt=Top   Transform=No
+   UniqueName=106   CardinalPt=Top   Transform=No
+   UniqueName=107   CardinalPt=Top   Transform=No
+   UniqueName=108   CardinalPt=Top   Transform=No
+   UniqueName=109   CardinalPt=Top   Transform=No
+   UniqueName=110   CardinalPt=Top   Transform=No
+   UniqueName=111   CardinalPt=Top   Transform=No
+   UniqueName=112   CardinalPt=Top   Transform=No
+   UniqueName=113   CardinalPt=Top   Transform=No
+   UniqueName=114   CardinalPt=Top   Transform=No
+   UniqueName=115   CardinalPt=Top   Transform=No
+   UniqueName=116   CardinalPt=Top   Transform=No
+   UniqueName=117   CardinalPt=Top   Transform=No
+   UniqueName=118   CardinalPt=Top   Transform=No
+   UniqueName=119   CardinalPt=Top   Transform=No
+   UniqueName=120   CardinalPt=Top   Transform=No
+   UniqueName=121   CardinalPt=Top   Transform=No
+   UniqueName=122   CardinalPt=Top   Transform=No
+   UniqueName=123   CardinalPt=Top   Transform=No
+   UniqueName=124   CardinalPt=Top   Transform=No
+   UniqueName=125   CardinalPt=Top   Transform=No
+   UniqueName=126   CardinalPt=Top   Transform=No
+   UniqueName=127   CardinalPt=Top   Transform=No
+   UniqueName=128   CardinalPt=Top   Transform=No
+   UniqueName=129   CardinalPt=Top   Transform=No
+   UniqueName=130   CardinalPt=Top   Transform=No
+   UniqueName=131   CardinalPt=Top   Transform=No
+   UniqueName=132   CardinalPt=Top   Transform=No
+   UniqueName=133   CardinalPt=Top   Transform=No
+   UniqueName=134   CardinalPt=Top   Transform=No
+   UniqueName=135   CardinalPt=Top   Transform=No
+   UniqueName=136   CardinalPt=Top   Transform=No
+   UniqueName=137   CardinalPt=Top   Transform=No
+   UniqueName=138   CardinalPt=Top   Transform=No
+   UniqueName=139   CardinalPt=Top   Transform=No
+   UniqueName=140   CardinalPt=Top   Transform=No
+   UniqueName=141   CardinalPt=Top   Transform=No
+   UniqueName=142   CardinalPt=Top   Transform=No
+   UniqueName=143   CardinalPt=Top   Transform=No
+   UniqueName=144   CardinalPt=Top   Transform=No
+   UniqueName=145   CardinalPt=Top   Transform=No
+
+TABLE:  "Area Assignments - Section Properties"
+   UniqueName=2   SectProp=Slab   PropType=Slab
+   UniqueName=3   SectProp=Slab   PropType=Slab
+   UniqueName=4   SectProp=Slab   PropType=Slab
+   UniqueName=5   SectProp=Slab   PropType=Slab
+   UniqueName=6   SectProp=Slab   PropType=Slab
+   UniqueName=7   SectProp=Slab   PropType=Slab
+   UniqueName=8   SectProp=Slab   PropType=Slab
+   UniqueName=9   SectProp=Slab   PropType=Slab
+   UniqueName=10   SectProp=Slab   PropType=Slab
+   UniqueName=11   SectProp=Slab   PropType=Slab
+   UniqueName=12   SectProp=Slab   PropType=Slab
+   UniqueName=13   SectProp=Slab   PropType=Slab
+   UniqueName=14   SectProp=Slab   PropType=Slab
+   UniqueName=15   SectProp=Slab   PropType=Slab
+   UniqueName=16   SectProp=Slab   PropType=Slab
+   UniqueName=17   SectProp=Slab   PropType=Slab
+   UniqueName=18   SectProp=Slab   PropType=Slab
+   UniqueName=19   SectProp=Slab   PropType=Slab
+   UniqueName=20   SectProp=Slab   PropType=Slab
+   UniqueName=21   SectProp=Slab   PropType=Slab
+   UniqueName=22   SectProp=Slab   PropType=Slab
+   UniqueName=23   SectProp=Slab   PropType=Slab
+   UniqueName=24   SectProp=Slab   PropType=Slab
+   UniqueName=25   SectProp=Slab   PropType=Slab
+   UniqueName=26   SectProp=Slab   PropType=Slab
+   UniqueName=27   SectProp=Slab   PropType=Slab
+   UniqueName=28   SectProp=Slab   PropType=Slab
+   UniqueName=29   SectProp=Slab   PropType=Slab
+   UniqueName=30   SectProp=Slab   PropType=Slab
+   UniqueName=31   SectProp=Slab   PropType=Slab
+   UniqueName=32   SectProp=Slab   PropType=Slab
+   UniqueName=33   SectProp=Slab   PropType=Slab
+   UniqueName=34   SectProp=Slab   PropType=Slab
+   UniqueName=35   SectProp=Slab   PropType=Slab
+   UniqueName=36   SectProp=Slab   PropType=Slab
+   UniqueName=37   SectProp=Slab   PropType=Slab
+   UniqueName=38   SectProp=Slab   PropType=Slab
+   UniqueName=39   SectProp=Slab   PropType=Slab
+   UniqueName=40   SectProp=Slab   PropType=Slab
+   UniqueName=41   SectProp=Slab   PropType=Slab
+   UniqueName=42   SectProp=Slab   PropType=Slab
+   UniqueName=43   SectProp=Slab   PropType=Slab
+   UniqueName=44   SectProp=Slab   PropType=Slab
+   UniqueName=45   SectProp=Slab   PropType=Slab
+   UniqueName=46   SectProp=Slab   PropType=Slab
+   UniqueName=47   SectProp=Slab   PropType=Slab
+   UniqueName=48   SectProp=Slab   PropType=Slab
+   UniqueName=49   SectProp=Slab   PropType=Slab
+   UniqueName=50   SectProp=Slab   PropType=Slab
+   UniqueName=51   SectProp=Slab   PropType=Slab
+   UniqueName=52   SectProp=Slab   PropType=Slab
+   UniqueName=53   SectProp=Slab   PropType=Slab
+   UniqueName=54   SectProp=Slab   PropType=Slab
+   UniqueName=55   SectProp=Slab   PropType=Slab
+   UniqueName=56   SectProp=Slab   PropType=Slab
+   UniqueName=57   SectProp=Slab   PropType=Slab
+   UniqueName=58   SectProp=Slab   PropType=Slab
+   UniqueName=59   SectProp=Slab   PropType=Slab
+   UniqueName=60   SectProp=Slab   PropType=Slab
+   UniqueName=61   SectProp=Slab   PropType=Slab
+   UniqueName=62   SectProp=Slab   PropType=Slab
+   UniqueName=63   SectProp=Slab   PropType=Slab
+   UniqueName=64   SectProp=Slab   PropType=Slab
+   UniqueName=65   SectProp=Slab   PropType=Slab
+   UniqueName=66   SectProp=Slab   PropType=Slab
+   UniqueName=67   SectProp=Slab   PropType=Slab
+   UniqueName=68   SectProp=Slab   PropType=Slab
+   UniqueName=69   SectProp=Slab   PropType=Slab
+   UniqueName=70   SectProp=Slab   PropType=Slab
+   UniqueName=71   SectProp=Slab   PropType=Slab
+   UniqueName=72   SectProp=Slab   PropType=Slab
+   UniqueName=73   SectProp=Slab   PropType=Slab
+   UniqueName=74   SectProp=Slab   PropType=Slab
+   UniqueName=75   SectProp=Slab   PropType=Slab
+   UniqueName=76   SectProp=Slab   PropType=Slab
+   UniqueName=77   SectProp=Slab   PropType=Slab
+   UniqueName=78   SectProp=Slab   PropType=Slab
+   UniqueName=79   SectProp=Slab   PropType=Slab
+   UniqueName=80   SectProp=Slab   PropType=Slab
+   UniqueName=81   SectProp=Slab   PropType=Slab
+   UniqueName=82   SectProp=Slab   PropType=Slab
+   UniqueName=83   SectProp=Slab   PropType=Slab
+   UniqueName=84   SectProp=Slab   PropType=Slab
+   UniqueName=85   SectProp=Slab   PropType=Slab
+   UniqueName=86   SectProp=Slab   PropType=Slab
+   UniqueName=87   SectProp=Slab   PropType=Slab
+   UniqueName=88   SectProp=Slab   PropType=Slab
+   UniqueName=89   SectProp=Slab   PropType=Slab
+   UniqueName=90   SectProp=Slab   PropType=Slab
+   UniqueName=91   SectProp=Slab   PropType=Slab
+   UniqueName=92   SectProp=Slab   PropType=Slab
+   UniqueName=93   SectProp=Slab   PropType=Slab
+   UniqueName=94   SectProp=Slab   PropType=Slab
+   UniqueName=95   SectProp=Slab   PropType=Slab
+   UniqueName=96   SectProp=Slab   PropType=Slab
+   UniqueName=97   SectProp=Slab   PropType=Slab
+   UniqueName=98   SectProp=Slab   PropType=Slab
+   UniqueName=99   SectProp=Slab   PropType=Slab
+   UniqueName=100   SectProp=Slab   PropType=Slab
+   UniqueName=101   SectProp=Slab   PropType=Slab
+   UniqueName=102   SectProp=Slab   PropType=Slab
+   UniqueName=103   SectProp=Slab   PropType=Slab
+   UniqueName=104   SectProp=Slab   PropType=Slab
+   UniqueName=105   SectProp=Slab   PropType=Slab
+   UniqueName=106   SectProp=Slab   PropType=Slab
+   UniqueName=107   SectProp=Slab   PropType=Slab
+   UniqueName=108   SectProp=Slab   PropType=Slab
+   UniqueName=109   SectProp=Slab   PropType=Slab
+   UniqueName=110   SectProp=Slab   PropType=Slab
+   UniqueName=111   SectProp=Slab   PropType=Slab
+   UniqueName=112   SectProp=Slab   PropType=Slab
+   UniqueName=113   SectProp=Slab   PropType=Slab
+   UniqueName=114   SectProp=Slab   PropType=Slab
+   UniqueName=115   SectProp=Slab   PropType=Slab
+   UniqueName=116   SectProp=Slab   PropType=Slab
+   UniqueName=117   SectProp=Slab   PropType=Slab
+   UniqueName=118   SectProp=Slab   PropType=Slab
+   UniqueName=119   SectProp=Slab   PropType=Slab
+   UniqueName=120   SectProp=Slab   PropType=Slab
+   UniqueName=121   SectProp=Slab   PropType=Slab
+   UniqueName=122   SectProp=Slab   PropType=Slab
+   UniqueName=123   SectProp=Slab   PropType=Slab
+   UniqueName=124   SectProp=Slab   PropType=Slab
+   UniqueName=125   SectProp=Slab   PropType=Slab
+   UniqueName=126   SectProp=Slab   PropType=Slab
+   UniqueName=127   SectProp=Slab   PropType=Slab
+   UniqueName=128   SectProp=Slab   PropType=Slab
+   UniqueName=129   SectProp=Slab   PropType=Slab
+   UniqueName=130   SectProp=Slab   PropType=Slab
+   UniqueName=131   SectProp=Slab   PropType=Slab
+   UniqueName=132   SectProp=Slab   PropType=Slab
+   UniqueName=133   SectProp=Slab   PropType=Slab
+   UniqueName=134   SectProp=Slab   PropType=Slab
+   UniqueName=135   SectProp=Slab   PropType=Slab
+   UniqueName=136   SectProp=Slab   PropType=Slab
+   UniqueName=137   SectProp=Slab   PropType=Slab
+   UniqueName=138   SectProp=Slab   PropType=Slab
+   UniqueName=139   SectProp=Slab   PropType=Slab
+   UniqueName=140   SectProp=Slab   PropType=Slab
+   UniqueName=141   SectProp=Slab   PropType=Slab
+   UniqueName=142   SectProp=Slab   PropType=Slab
+   UniqueName=143   SectProp=Slab   PropType=Slab
+   UniqueName=144   SectProp=Slab   PropType=Slab
+   UniqueName=145   SectProp=Slab   PropType=Slab
+
+TABLE:  "Area Load Assignments - Uniform"
+   UniqueName=2   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=f7b37e9a-48ca-492d-b99d-a7061737efab
+   UniqueName=3   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=3aff350a-b7f4-473a-a7f5-0946a7f54b99
+   UniqueName=4   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=5ffbffeb-0165-432f-8dc1-b62181264485
+   UniqueName=5   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=79c82e5a-3214-4ad9-a837-3d5637104563
+   UniqueName=6   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=80d81b62-8fcf-452a-a5a3-784ea8636a93
+   UniqueName=7   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=ccfcde3b-d1f3-4ce8-a3b8-383adc08e6f8
+   UniqueName=8   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=008b2ac5-eea0-4e8f-8c55-e9901785f5c9
+   UniqueName=9   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=3179c676-bcdd-4713-9d1f-89266a2574cf
+   UniqueName=10   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=36b3e66f-93cd-4ccd-b6c3-01c01d4f3f0f
+   UniqueName=11   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=08396290-9a84-4b98-87b6-ea373e85d9b8
+   UniqueName=12   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=093b5ea2-6968-4404-8b25-a0b8d6268925
+   UniqueName=13   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=894c322a-c564-4141-af17-ef1dffcdd824
+   UniqueName=14   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=034b45b1-4a4f-480c-a5e3-caf8b04f7755
+   UniqueName=15   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=c94f69e7-bdc9-41c0-ae05-3997fa06fd51
+   UniqueName=16   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=46bc0c7c-ff86-4ace-aa93-cde81abe7863
+   UniqueName=17   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=d4d8f063-0ff4-4ab2-8451-beee548e4569
+   UniqueName=18   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=924a4996-ec91-41ef-aa47-b8aa1d94bb3f
+   UniqueName=19   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=456444fa-639a-4afd-9f73-4dea1c26f45a
+   UniqueName=20   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=726d19a2-7c2a-43cb-bfc8-342ce4360eb0
+   UniqueName=21   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=50ba01d9-8631-45bd-b7cc-904bd4578e55
+   UniqueName=22   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=a31cd0ff-15e6-4189-ab61-386130ddf9ed
+   UniqueName=23   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=034810ce-791a-4a62-86ea-51109661af82
+   UniqueName=24   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=5577762d-5ec4-4c33-aaa7-2ba522d3e34c
+   UniqueName=25   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=7f3b0a90-7ba5-43fe-aca8-83fc58d79d90
+   UniqueName=26   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=ab47d59b-4706-4055-ade4-90f90d41105d
+   UniqueName=27   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=2d902611-fa0a-4c84-8f05-c93660986100
+   UniqueName=28   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=c036ddf6-68df-446c-8418-9c4ebe7f54cb
+   UniqueName=29   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=ed608c63-9ec7-495e-9d61-29f5acf8af77
+   UniqueName=30   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=9e684687-3ce1-421a-9220-181271b3bd82
+   UniqueName=31   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=89b297f7-4747-4876-989a-91fea9222a3b
+   UniqueName=32   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=5780f7f2-b4fe-472e-aa79-07d9a64c3d73
+   UniqueName=33   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=ecbfc33c-2138-4a9f-8454-38b365889a16
+   UniqueName=34   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=c0a662aa-5e86-47c9-a178-a076457adba2
+   UniqueName=35   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=de047d7b-ceb8-4541-bc04-2b2c0ad92d43
+   UniqueName=36   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=4c390fd4-aaef-42d1-bdd9-0cb03cd1dd3b
+   UniqueName=37   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=b2cf1928-c14b-4366-a543-1e4634279342
+   UniqueName=38   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=8847ae7a-77ee-4e73-9114-1806941708d6
+   UniqueName=39   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=fa97ae8a-8ba5-4818-8145-92ed1989c634
+   UniqueName=40   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=ebc56033-0d61-43db-b143-7966e9c22c35
+   UniqueName=41   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=a4293c41-fc18-461c-ac71-b108ccba8dc9
+   UniqueName=42   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=3294baec-2ede-4d4c-b8ee-485b0621fe0c
+   UniqueName=43   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=be3cf7b3-4502-41d4-960f-f46d5487749a
+   UniqueName=44   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=97b41c70-8728-43e2-9141-2899d7650648
+   UniqueName=45   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=51fc6f77-3149-4836-8118-1cb9f2dfb65b
+   UniqueName=46   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=18aa16ec-b6f2-48d0-aec3-78e736d7a890
+   UniqueName=47   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=2a60d3c5-9f88-4463-9441-04dd9cfade6f
+   UniqueName=48   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=f766dd1c-9b73-41b4-bd8a-d0daf1da9af3
+   UniqueName=49   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=73862ff8-bc6f-49b4-8e49-92d9979408d8
+   UniqueName=50   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=7c200601-64ba-42f8-b535-1430d91ac201
+   UniqueName=51   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=ad2affa9-bb55-4214-9eb0-0816ecbf268b
+   UniqueName=52   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=f78e186c-33bb-47db-b1e7-4cb653f17dbb
+   UniqueName=53   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=17b36852-22ea-4142-b5ed-cb1af0c53cf6
+   UniqueName=54   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=9a897818-65da-47a5-8081-d8ba69fbaa87
+   UniqueName=55   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=d4c66533-dd2b-491c-ab1d-9d87e11a0c6c
+   UniqueName=56   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=cab9e7dc-ffa2-415a-a445-55f0fc543c6c
+   UniqueName=57   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=dcbde6b3-a664-4dfd-bd4a-240e02292a02
+   UniqueName=58   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=4036e6cd-0606-4756-b559-8cd9e9a41c8e
+   UniqueName=59   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=6696e148-1e61-43e4-b578-9fbfb62d9d57
+   UniqueName=60   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=301e3496-1611-4cb4-acdf-a91e84a9cafa
+   UniqueName=61   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=9b74464e-5dcd-4f59-bb9c-2731f3a6d999
+   UniqueName=62   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=6df34af0-0b99-4dd7-a12e-793f9eb40d0c
+   UniqueName=63   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=d916d978-ab65-4270-b2f7-2a7c1b5ecfe5
+   UniqueName=64   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=982ef86e-8f47-4e98-bff2-e932a35ff14b
+   UniqueName=65   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=f22b67c0-0d04-4307-ae3f-bf407957e2cb
+   UniqueName=66   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=6e6bbc19-240b-459a-a837-55e2eeab48eb
+   UniqueName=67   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=9eaa96d9-1cab-4813-9cee-c82c413ac9d3
+   UniqueName=68   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=42612622-79ec-4fb5-a885-bf7e1d02e00b
+   UniqueName=69   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=0bc9ce24-630a-4b1e-a5de-73a944fc63b4
+   UniqueName=70   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=d583bf42-ddf6-4b23-886c-4b61fd7e27eb
+   UniqueName=71   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=f0967236-5f97-4e38-a312-4b134c3e4d6e
+   UniqueName=72   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=0a68be2b-d83a-47a6-bfc1-da2de1a221a4
+   UniqueName=73   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=058624d7-b040-4c56-8d9f-00614bdd2736
+   UniqueName=74   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=fc397d32-248a-4682-8f7b-5ed6af978358
+   UniqueName=75   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=4b45c913-468d-4b43-a0af-0d8625b80fb0
+   UniqueName=76   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=3b1d20d0-efe3-41a8-a811-db6ac4667013
+   UniqueName=77   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=84905b49-3edc-4ec2-96d9-b3d2b347cc26
+   UniqueName=78   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=c6ad4ee4-d7af-4fb8-9a91-fbf11fbd223b
+   UniqueName=79   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=f0e190bc-29e4-4114-8fa8-99f29082913a
+   UniqueName=80   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=d71e2097-e4ca-439f-a48e-d70868c808fe
+   UniqueName=81   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=604fb24a-6832-4fe1-be1d-769d66ccf27f
+   UniqueName=82   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=f737cedf-3778-426b-8fd6-b041da7d4117
+   UniqueName=83   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=86b9e43a-4099-4948-833d-73a8cbb10f44
+   UniqueName=84   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=fce41b85-0019-4d45-8064-066f84b9d275
+   UniqueName=85   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=cc5eae1f-4407-4ec2-8a5d-72a928ea7543
+   UniqueName=86   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=6bd4298e-a33e-4867-ae94-f870c1128f41
+   UniqueName=87   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=56d5095e-98dc-4d2b-a4d5-0e0345a32488
+   UniqueName=88   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=9f69c6d1-7dd6-4474-80f9-6e1dbe0bd11e
+   UniqueName=89   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=031be665-b573-429e-b100-5a2656d42576
+   UniqueName=90   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=3c3c458c-522e-4cfc-92c7-5916e20e5291
+   UniqueName=91   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=10338ccc-7f0e-4ef9-8755-0bcbf9d3d301
+   UniqueName=92   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=5618991e-0e6b-4449-a5d0-fc7eb42e9ce7
+   UniqueName=93   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=975b53fd-a83d-4fe7-a3a7-8222fdd1a5ec
+   UniqueName=94   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=c790edfb-d4e2-491e-b6f9-762c046e4187
+   UniqueName=95   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=363ea75a-77fb-4880-9437-3e2ec4ec942d
+   UniqueName=96   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=4f070bcc-e17f-4fe5-92b1-6aed46b8a9c2
+   UniqueName=97   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=cf19f499-38be-46f5-aa0f-40f8f0e8e51c
+   UniqueName=98   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=f9e02a52-62af-41cd-8a58-70047af7e50b
+   UniqueName=99   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=e34e19d3-0ab4-447e-8936-288a44ce8936
+   UniqueName=100   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=4bcc4e7f-0c4f-4062-8578-068a9fcacd12
+   UniqueName=101   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=062c463f-1c98-4cc6-9856-d8daf0aad3c0
+   UniqueName=102   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=592c74fb-3426-46c0-b08e-c6f4114ad5bd
+   UniqueName=103   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=fd82c13a-59ff-47dd-8d4e-871cd6a21f1a
+   UniqueName=104   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=bdf2db49-343b-4bd6-9cfc-8a67fa879981
+   UniqueName=105   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=81edaa3e-8c53-4f7b-a758-02633fcfc379
+   UniqueName=106   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=72b6429e-2bf0-491d-a134-144fef6a79e7
+   UniqueName=107   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=bb80817e-2ee7-4037-b342-39ead28471c5
+   UniqueName=108   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=91e5058c-0b05-44e5-8e09-9492ce9061d6
+   UniqueName=109   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=4b5ce277-670f-4442-8d52-ff7369a4930c
+   UniqueName=110   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=96354fe2-a499-4366-babc-5776474ab3f6
+   UniqueName=111   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=0560a8bd-19f9-4019-82fd-73bb1ec31be2
+   UniqueName=112   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=ab6630a6-c3d2-487b-9ea7-4b6aaa74ac15
+   UniqueName=113   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=28ecd414-68a0-4e85-bd13-3ee36b3e3c18
+   UniqueName=114   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=197beb8c-f0e1-4c68-8951-14f81dce075b
+   UniqueName=115   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=b7eaa95f-3785-421c-b826-4199d18588ad
+   UniqueName=116   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=86d257c3-6485-4414-bcd7-4b08bb81066c
+   UniqueName=117   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=e1cd33fb-5981-44db-9acc-fe240c344a22
+   UniqueName=118   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=c51b51db-1a32-4e92-a3bf-42f13b32c767
+   UniqueName=119   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=f39387e9-7ee7-4421-a338-9f50ca5c9097
+   UniqueName=120   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=38cd57ff-b55d-4867-b92e-ffb7aa7a9288
+   UniqueName=121   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=36d74d14-f401-41a0-b128-e512eeff6ebd
+   UniqueName=122   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=f55e8340-8a23-4300-a486-e81bbe180dff
+   UniqueName=123   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=d392bed7-ad8b-44b3-8ab8-c12adcf291fc
+   UniqueName=124   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=4de54684-ab9f-46e7-93f3-f951fdc34640
+   UniqueName=125   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=71a59094-69c7-4168-818a-31e751a7efd3
+   UniqueName=126   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=9d13d563-cfc1-4e30-a1b6-9b557bc25741
+   UniqueName=127   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=24dc3178-3498-4d3c-ab81-b3245a84a37b
+   UniqueName=128   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=a3d83931-c49c-4598-a333-50e90a2ce208
+   UniqueName=129   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=d995cc6e-043d-4a3c-8beb-a8cfeb00c108
+   UniqueName=130   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=53f217c9-9be2-4e60-9045-6dfb6f1bac3f
+   UniqueName=131   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=21fb8d1c-f16c-4a40-96bf-08c7b67a8d78
+   UniqueName=132   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=efac39ed-a512-463a-8848-3901667f53b4
+   UniqueName=133   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=c5e09939-1526-4314-8578-8ee0d5858ee6
+   UniqueName=134   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=8881fa88-5da0-4789-be73-9873d207ff6b
+   UniqueName=135   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=25b5ad0c-97d7-4089-9132-0197d9b626f9
+   UniqueName=136   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=dc7ca821-090f-4780-a414-971d74811aa9
+   UniqueName=137   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=6098c054-1975-46fa-9913-4a12d308fcb5
+   UniqueName=138   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=a558fbd1-120e-44a6-a6e6-848ed8f02c83
+   UniqueName=139   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=6a4fce82-3ef9-49d1-b126-4903a294f9fc
+   UniqueName=140   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=1cc6076d-7a3c-4fb5-9195-e09d0f03327c
+   UniqueName=141   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=242e1cff-668f-4b67-ae0a-0b8376b30d60
+   UniqueName=142   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=37c590d1-6c0c-47be-8298-160b663d013d
+   UniqueName=143   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=d8b2b7a9-961e-419a-9dea-b0851632caf3
+   UniqueName=144   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=cd13ba68-4e5f-4b29-ab62-9c822c09f52b
+   UniqueName=145   LoadPattern=UNIFORM   Dir=Gravity   Load=0.00069   GUID=74b4adc9-64d0-4648-b5d3-034da62893ec
+
+TABLE:  "Composite Beam Design Preferences - AISC 360-16"
+   Shored=No   MidRange=70   PatLLF=0.75   DCLimit=1   AxialForce=No   MinPCC=25   MaxPCC=100   SingleSeg=No   MinLngSpc=4.5   MaxLngSpc=36   MinTrnSpc=3   MaxStudPRow=3   StudPos="Middle of the Ribs"   Camber=Yes   CamberDL=80   MinBmDepth=13.5   MinWebTick=0.25   MinBmSpan=288   MinCamber=0.75   MinCamOSpan=900   CamAbsMax=6   CamMaxRat=180   CamInt=0.25   CamRndDown=Yes   PCDLRat=0   SDLAndLLRat=240   LLRat=360   NetRat=240   IeffRed=1   Criteria=Walking   Occupancy="Paper Office"   WalkAccel=0.005   Damp1=0.025   OptPrice=Yes   SteelPrice=1000   StudPrice=2   CamberPrice=100   phib=0.9   phibcpp=0.9   phiv=0.9   ReacFact=1
+
+TABLE:  "Concrete Design Preferences - ACI 318-08"
+   PhiTen=0.9   PhiComp=0.65   PhiShear=0.75   IgnorePu=No   PatLLF=0.75   CoverTop=0.75   CoverBot=0.75   BarSize=#6   InnerLayer="Layer B"   PTCGSTop=1   PTCGSBotExt=1.75   PTCGSBotInt=1   SlabType="Two Way"   CoverTopBm=1.5   CoverBotBm=1.5   BarSizeFlex=#9   BarSizeShr=#4   PTCGSTopBm=2   PTCGSBotBm=2   UserStress=Yes   InitConcRat=0.8   InitTopTen=3   InitBotTen=3   InitExComp=0.6   FinTopTen=6   FinBotTen=6   FinExComp=0.6   SusExComp=0.45   LLFraction=0.5
+
+TABLE:  "Concrete Slab Design Load Combination Data"
+   ComboType=Strength   ComboName=DCON1
+   ComboType=Strength   ComboName=DCON2
+
+TABLE:  "Concrete Slab Design Overwrites - Finite Element Based"
+   UniqueName=2   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=3   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=4   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=5   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=6   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=7   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=8   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=9   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=10   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=11   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=12   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=13   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=14   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=15   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=16   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=17   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=18   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=19   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=20   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=21   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=22   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=23   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=24   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=25   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=26   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=27   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=28   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=29   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=30   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=31   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=32   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=33   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=34   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=35   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=36   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=37   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=38   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=39   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=40   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=41   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=42   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=43   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=44   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=45   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=46   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=47   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=48   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=49   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=50   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=51   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=52   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=53   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=54   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=55   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=56   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=57   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=58   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=59   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=60   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=61   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=62   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=63   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=64   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=65   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=66   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=67   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=68   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=69   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=70   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=71   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=72   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=73   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=74   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=75   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=76   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=77   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=78   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=79   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=80   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=81   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=82   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=83   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=84   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=85   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=86   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=87   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=88   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=89   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=90   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=91   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=92   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=93   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=94   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=95   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=96   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=97   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=98   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=99   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=100   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=101   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=102   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=103   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=104   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=105   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=106   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=107   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=108   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=109   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=110   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=111   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=112   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=113   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=114   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=115   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=116   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=117   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=118   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=119   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=120   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=121   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=122   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=123   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=124   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=125   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=126   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=127   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=128   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=129   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=130   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=131   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=132   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=133   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=134   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=135   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=136   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=137   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=138   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=139   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=140   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=141   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=142   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=143   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=144   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+   UniqueName=145   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1   DoDesign=Yes   IgnorePT=No
+
+TABLE:  "Concrete Slab Design Overwrites - Strip Based"
+   StripName=3   StripLayer=A   DesignType="Column Strip"   DoDesign=Yes   IgnorePT=No   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1
+   StripName=4   StripLayer=A   DesignType="Column Strip"   DoDesign=Yes   IgnorePT=No   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1
+   StripName=5   StripLayer=A   DesignType="Column Strip"   DoDesign=Yes   IgnorePT=No   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1
+   StripName=6   StripLayer=B   DesignType="Column Strip"   DoDesign=Yes   IgnorePT=No   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1
+   StripName=7   StripLayer=B   DesignType="Column Strip"   DoDesign=Yes   IgnorePT=No   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1
+   StripName=8   StripLayer=B   DesignType="Column Strip"   DoDesign=Yes   IgnorePT=No   RebarMat=A615Gr60   CoverType="From Preferences"   LLRF=1
+
+TABLE:  "Floor Object Connectivity"
+   UniqueName=2   UniquePt1=1   UniquePt2=17   UniquePt3=18   UniquePt4=19   Perimeter=80   Area=400   GUID=ecaecdee-3af6-4f96-b26a-c1b77203afd9
+   UniqueName=3   UniquePt1=19   UniquePt2=18   UniquePt3=20   UniquePt4=21   Perimeter=80   Area=400   GUID=0d5ee20f-d77f-48e0-940e-5bec9b520cb7
+   UniqueName=4   UniquePt1=21   UniquePt2=20   UniquePt3=22   UniquePt4=23   Perimeter=80   Area=400   GUID=3cf69327-bdb0-4533-9423-ce6c93c2d386
+   UniqueName=5   UniquePt1=23   UniquePt2=22   UniquePt3=24   UniquePt4=25   Perimeter=80   Area=400   GUID=df8cff5c-ed5d-4036-b289-39481077c634
+   UniqueName=6   UniquePt1=25   UniquePt2=24   UniquePt3=26   UniquePt4=27   Perimeter=80   Area=400   GUID=4ded9cd2-aa71-4a6b-8850-d13117c02941
+   UniqueName=7   UniquePt1=27   UniquePt2=26   UniquePt3=28   UniquePt4=7   Perimeter=80   Area=400   GUID=ba871ee2-2c01-418b-b265-8586fa16ee38
+   UniqueName=8   UniquePt1=7   UniquePt2=28   UniquePt3=29   UniquePt4=30   Perimeter=80   Area=400   GUID=66c38d54-ef86-4379-a4c7-a79739aeb7eb
+   UniqueName=9   UniquePt1=30   UniquePt2=29   UniquePt3=31   UniquePt4=32   Perimeter=80   Area=400   GUID=24458404-7a87-4032-acc5-0bbdf75b1c52
+   UniqueName=10   UniquePt1=32   UniquePt2=31   UniquePt3=33   UniquePt4=34   Perimeter=80   Area=400   GUID=20d78120-33e9-45e2-96c6-bb54252ec43e
+   UniqueName=11   UniquePt1=34   UniquePt2=33   UniquePt3=35   UniquePt4=36   Perimeter=80   Area=400   GUID=a6856f95-0e4f-4f14-8a04-526da5d926b2
+   UniqueName=12   UniquePt1=36   UniquePt2=35   UniquePt3=37   UniquePt4=38   Perimeter=80   Area=400   GUID=25a41e58-89f5-417e-aaa8-e2a4d7035a77
+   UniqueName=13   UniquePt1=38   UniquePt2=37   UniquePt3=39   UniquePt4=3   Perimeter=80   Area=400   GUID=c398b01c-0b28-42f3-94cf-28e64a7867a8
+   UniqueName=14   UniquePt1=17   UniquePt2=40   UniquePt3=41   UniquePt4=18   Perimeter=80   Area=400   GUID=7912f727-4a8e-46ad-8c5b-fc3028762cd1
+   UniqueName=15   UniquePt1=18   UniquePt2=41   UniquePt3=42   UniquePt4=20   Perimeter=80   Area=400   GUID=1c64573a-be89-4f55-93f8-e91dacf6396d
+   UniqueName=16   UniquePt1=20   UniquePt2=42   UniquePt3=43   UniquePt4=22   Perimeter=80   Area=400   GUID=dd0f52f7-c9b7-41aa-b375-d3b739c8a9a2
+   UniqueName=17   UniquePt1=22   UniquePt2=43   UniquePt3=44   UniquePt4=24   Perimeter=80   Area=400   GUID=1e93aff3-4b6d-4b1b-aaa6-796f29effcae
+   UniqueName=18   UniquePt1=24   UniquePt2=44   UniquePt3=45   UniquePt4=26   Perimeter=80   Area=400   GUID=84528e30-c4c0-4d1f-b160-23c71e3c5798
+   UniqueName=19   UniquePt1=26   UniquePt2=45   UniquePt3=46   UniquePt4=28   Perimeter=80   Area=400   GUID=ff4c231e-c86b-411e-8ec3-f6c3f40021a5
+   UniqueName=20   UniquePt1=28   UniquePt2=46   UniquePt3=47   UniquePt4=29   Perimeter=80   Area=400   GUID=a3a62876-fcc0-416c-8181-af2dfe4cba29
+   UniqueName=21   UniquePt1=29   UniquePt2=47   UniquePt3=48   UniquePt4=31   Perimeter=80   Area=400   GUID=cf5fc646-bcf2-479a-9bcf-a54822864422
+   UniqueName=22   UniquePt1=31   UniquePt2=48   UniquePt3=49   UniquePt4=33   Perimeter=80   Area=400   GUID=eb93e587-e3b1-4def-b2ce-4a1fca9ed744
+   UniqueName=23   UniquePt1=33   UniquePt2=49   UniquePt3=50   UniquePt4=35   Perimeter=80   Area=400   GUID=0b85f26b-de80-4a63-aaac-8a2d2bd9c480
+   UniqueName=24   UniquePt1=35   UniquePt2=50   UniquePt3=51   UniquePt4=37   Perimeter=80   Area=400   GUID=365274d7-bfe1-40a9-b79b-36a636a94635
+   UniqueName=25   UniquePt1=37   UniquePt2=51   UniquePt3=52   UniquePt4=39   Perimeter=80   Area=400   GUID=47ecd0cd-b988-410e-9e3b-d7ddef8eac5c
+   UniqueName=26   UniquePt1=40   UniquePt2=53   UniquePt3=54   UniquePt4=41   Perimeter=80   Area=400   GUID=27b7cff4-c899-42fd-8b4d-bda66d69f7e9
+   UniqueName=27   UniquePt1=41   UniquePt2=54   UniquePt3=55   UniquePt4=42   Perimeter=80   Area=400   GUID=9dec5cc5-92c6-4b42-819a-c07f1cadd3f7
+   UniqueName=28   UniquePt1=42   UniquePt2=55   UniquePt3=56   UniquePt4=43   Perimeter=80   Area=400   GUID=b5aae401-61b6-464f-a082-dd583485a07f
+   UniqueName=29   UniquePt1=43   UniquePt2=56   UniquePt3=57   UniquePt4=44   Perimeter=80   Area=400   GUID=fa3ef589-9404-4663-ab63-284a238dbc8e
+   UniqueName=30   UniquePt1=44   UniquePt2=57   UniquePt3=58   UniquePt4=45   Perimeter=80   Area=400   GUID=dac812fb-61ef-4a66-b50c-982eae4fa97d
+   UniqueName=31   UniquePt1=45   UniquePt2=58   UniquePt3=59   UniquePt4=46   Perimeter=80   Area=400   GUID=8b191b03-c023-45fc-b40f-f91caed7dc4a
+   UniqueName=32   UniquePt1=46   UniquePt2=59   UniquePt3=60   UniquePt4=47   Perimeter=80   Area=400   GUID=43699647-88fb-46ad-9cf0-35fdf76d36d3
+   UniqueName=33   UniquePt1=47   UniquePt2=60   UniquePt3=61   UniquePt4=48   Perimeter=80   Area=400   GUID=0443f4fa-cbbe-4114-b8b0-8fdd36e595e0
+   UniqueName=34   UniquePt1=48   UniquePt2=61   UniquePt3=62   UniquePt4=49   Perimeter=80   Area=400   GUID=f83765c7-ac3e-4a3d-acf9-ced0e84bf241
+   UniqueName=35   UniquePt1=49   UniquePt2=62   UniquePt3=63   UniquePt4=50   Perimeter=80   Area=400   GUID=48057492-06df-4a9f-bd0e-4dc68c36993a
+   UniqueName=36   UniquePt1=50   UniquePt2=63   UniquePt3=64   UniquePt4=51   Perimeter=80   Area=400   GUID=a9a2a8bb-08f1-4e99-97eb-d43d5ed23295
+   UniqueName=37   UniquePt1=51   UniquePt2=64   UniquePt3=65   UniquePt4=52   Perimeter=80   Area=400   GUID=21120f66-2f8b-49d0-9cf5-7b25339b174d
+   UniqueName=38   UniquePt1=53   UniquePt2=66   UniquePt3=67   UniquePt4=54   Perimeter=120   Area=800   GUID=df5598f6-4267-4b19-a1c2-20cf830faaf8
+   UniqueName=39   UniquePt1=54   UniquePt2=67   UniquePt3=68   UniquePt4=55   Perimeter=120   Area=800   GUID=76e986da-b631-4287-bfb6-dc2d3ed62a24
+   UniqueName=40   UniquePt1=55   UniquePt2=68   UniquePt3=69   UniquePt4=56   Perimeter=120   Area=800   GUID=d6183ca1-174b-4940-a941-d250538515a4
+   UniqueName=41   UniquePt1=56   UniquePt2=69   UniquePt3=70   UniquePt4=57   Perimeter=120   Area=800   GUID=9fc0643a-d0c9-448f-bb96-05891c72813c
+   UniqueName=42   UniquePt1=57   UniquePt2=70   UniquePt3=71   UniquePt4=58   Perimeter=120   Area=800   GUID=13aa7db3-8713-4dc8-966b-78e36e22324f
+   UniqueName=43   UniquePt1=58   UniquePt2=71   UniquePt3=72   UniquePt4=59   Perimeter=120   Area=800   GUID=7462e6ba-a5b0-414a-a0c9-89e1098c5275
+   UniqueName=44   UniquePt1=59   UniquePt2=72   UniquePt3=73   UniquePt4=60   Perimeter=120   Area=800   GUID=1d023bfc-690a-499c-8b37-759b0eb4e77e
+   UniqueName=45   UniquePt1=60   UniquePt2=73   UniquePt3=74   UniquePt4=61   Perimeter=120   Area=800   GUID=8afb9dda-6d50-473d-b204-04bb0298e27d
+   UniqueName=46   UniquePt1=61   UniquePt2=74   UniquePt3=75   UniquePt4=62   Perimeter=120   Area=800   GUID=867ca374-bcc5-48e7-adfe-e21ef900ea1d
+   UniqueName=47   UniquePt1=62   UniquePt2=75   UniquePt3=76   UniquePt4=63   Perimeter=120   Area=800   GUID=9480a867-214b-4893-b40b-9f702aa81448
+   UniqueName=48   UniquePt1=63   UniquePt2=76   UniquePt3=77   UniquePt4=64   Perimeter=120   Area=800   GUID=74c0ad7a-efe0-4040-a109-11add1d85d47
+   UniqueName=49   UniquePt1=64   UniquePt2=77   UniquePt3=78   UniquePt4=65   Perimeter=120   Area=800   GUID=82b4257c-22e2-4dd6-bafd-96fc5a293367
+   UniqueName=50   UniquePt1=66   UniquePt2=79   UniquePt3=80   UniquePt4=67   Perimeter=120   Area=800   GUID=fde99f86-fbae-46a4-93f8-f82317a4fe8a
+   UniqueName=51   UniquePt1=67   UniquePt2=80   UniquePt3=81   UniquePt4=68   Perimeter=120   Area=800   GUID=509159ab-e1c4-4fa4-b19b-de28b8391e6c
+   UniqueName=52   UniquePt1=68   UniquePt2=81   UniquePt3=82   UniquePt4=69   Perimeter=120   Area=800   GUID=bd02ecb3-9f15-466a-9a2b-9e2bb9b3043a
+   UniqueName=53   UniquePt1=69   UniquePt2=82   UniquePt3=83   UniquePt4=70   Perimeter=120   Area=800   GUID=24d49512-c116-42d0-8d43-a952bd8d44fb
+   UniqueName=54   UniquePt1=70   UniquePt2=83   UniquePt3=84   UniquePt4=71   Perimeter=120   Area=800   GUID=d5ac5489-6972-4283-aaa7-8c7e108a7664
+   UniqueName=55   UniquePt1=71   UniquePt2=84   UniquePt3=85   UniquePt4=72   Perimeter=120   Area=800   GUID=2273153b-5e6f-4769-ab6e-18f3aebcf24a
+   UniqueName=56   UniquePt1=72   UniquePt2=85   UniquePt3=86   UniquePt4=73   Perimeter=120   Area=800   GUID=2b4938ca-b526-44f5-90a5-369cfb96f549
+   UniqueName=57   UniquePt1=73   UniquePt2=86   UniquePt3=87   UniquePt4=74   Perimeter=120   Area=800   GUID=409f74a7-76e4-4552-b1d6-78c81c69afe0
+   UniqueName=58   UniquePt1=74   UniquePt2=87   UniquePt3=88   UniquePt4=75   Perimeter=120   Area=800   GUID=15a3679d-3c48-48b7-a9a9-beaa88735cf5
+   UniqueName=59   UniquePt1=75   UniquePt2=88   UniquePt3=89   UniquePt4=76   Perimeter=120   Area=800   GUID=4b60f96a-1964-4a1b-9aad-40feaa286e30
+   UniqueName=60   UniquePt1=76   UniquePt2=89   UniquePt3=90   UniquePt4=77   Perimeter=120   Area=800   GUID=fbd0056f-f747-4bbc-b008-b0adc60d0284
+   UniqueName=61   UniquePt1=77   UniquePt2=90   UniquePt3=91   UniquePt4=78   Perimeter=120   Area=800   GUID=3d699b6c-93b0-45f5-9305-6f35941b4235
+   UniqueName=62   UniquePt1=79   UniquePt2=13   UniquePt3=92   UniquePt4=80   Perimeter=120   Area=800   GUID=8c4c9d6c-2614-48da-a85a-2fd9fd45fed0
+   UniqueName=63   UniquePt1=80   UniquePt2=92   UniquePt3=93   UniquePt4=81   Perimeter=120   Area=800   GUID=c571a6b4-d3aa-45c5-81cd-fc25642707f4
+   UniqueName=64   UniquePt1=81   UniquePt2=93   UniquePt3=94   UniquePt4=82   Perimeter=120   Area=800   GUID=d2cfd3c5-5265-4d93-8e17-f948f4db6b5d
+   UniqueName=65   UniquePt1=82   UniquePt2=94   UniquePt3=95   UniquePt4=83   Perimeter=120   Area=800   GUID=5fe051a7-d89b-486c-b321-8cdc2695416b
+   UniqueName=66   UniquePt1=83   UniquePt2=95   UniquePt3=96   UniquePt4=84   Perimeter=120   Area=800   GUID=ac0aedc6-ce83-4e45-a383-659e17935560
+   UniqueName=67   UniquePt1=84   UniquePt2=96   UniquePt3=97   UniquePt4=85   Perimeter=120   Area=800   GUID=363a4210-7fd1-44b4-8596-fc5c5864c761
+   UniqueName=68   UniquePt1=85   UniquePt2=97   UniquePt3=98   UniquePt4=86   Perimeter=120   Area=800   GUID=71e833d7-1578-47a0-9e01-02e045fad07e
+   UniqueName=69   UniquePt1=86   UniquePt2=98   UniquePt3=99   UniquePt4=87   Perimeter=120   Area=800   GUID=59ded7ad-dd30-4a6e-ba58-6b50cae3cd00
+   UniqueName=70   UniquePt1=87   UniquePt2=99   UniquePt3=100   UniquePt4=88   Perimeter=120   Area=800   GUID=92fbe86b-9eef-479c-914b-8aed9430db72
+   UniqueName=71   UniquePt1=88   UniquePt2=100   UniquePt3=101   UniquePt4=89   Perimeter=120   Area=800   GUID=620593f6-ffca-428e-ae10-5171fab9a85f
+   UniqueName=72   UniquePt1=89   UniquePt2=101   UniquePt3=102   UniquePt4=90   Perimeter=120   Area=800   GUID=df25855c-0f5c-4bd2-9563-59ec089a58e3
+   UniqueName=73   UniquePt1=90   UniquePt2=102   UniquePt3=14   UniquePt4=91   Perimeter=120   Area=800   GUID=d9df1e6c-5bce-4c13-acbc-0d00eed459ec
+   UniqueName=74   UniquePt1=13   UniquePt2=103   UniquePt3=104   UniquePt4=92   Perimeter=120   Area=800   GUID=af3ac08b-0d8d-40d9-a96d-ea16acc63c60
+   UniqueName=75   UniquePt1=92   UniquePt2=104   UniquePt3=105   UniquePt4=93   Perimeter=120   Area=800   GUID=1fd13ea6-fb4b-4dcb-b6d6-e674297c2d28
+   UniqueName=76   UniquePt1=93   UniquePt2=105   UniquePt3=106   UniquePt4=94   Perimeter=120   Area=800   GUID=5a03ea6a-22ae-484b-82b1-8db50e0b00bf
+   UniqueName=77   UniquePt1=94   UniquePt2=106   UniquePt3=107   UniquePt4=95   Perimeter=120   Area=800   GUID=720d330c-31b4-4262-9251-e8ab52f08812
+   UniqueName=78   UniquePt1=95   UniquePt2=107   UniquePt3=108   UniquePt4=96   Perimeter=120   Area=800   GUID=35f55708-cd13-47d0-b86a-4b3b07b93d58
+   UniqueName=79   UniquePt1=96   UniquePt2=108   UniquePt3=109   UniquePt4=97   Perimeter=120   Area=800   GUID=e251e2ca-f296-4a0e-9be0-6dcb0a9a7166
+   UniqueName=80   UniquePt1=97   UniquePt2=109   UniquePt3=110   UniquePt4=98   Perimeter=120   Area=800   GUID=49ede6c1-26b5-4df2-9caf-85030f70d9fd
+   UniqueName=81   UniquePt1=98   UniquePt2=110   UniquePt3=111   UniquePt4=99   Perimeter=120   Area=800   GUID=a453b174-90c0-4f61-b112-8373bac84f76
+   UniqueName=82   UniquePt1=99   UniquePt2=111   UniquePt3=112   UniquePt4=100   Perimeter=120   Area=800   GUID=700ea1ff-136b-44f8-899d-f861cfb44070
+   UniqueName=83   UniquePt1=100   UniquePt2=112   UniquePt3=113   UniquePt4=101   Perimeter=120   Area=800   GUID=74e70688-6f3b-44c8-a383-6fe5f4d0f761
+   UniqueName=84   UniquePt1=101   UniquePt2=113   UniquePt3=114   UniquePt4=102   Perimeter=120   Area=800   GUID=4058a001-bcce-4a64-bb87-38967bb4baa8
+   UniqueName=85   UniquePt1=102   UniquePt2=114   UniquePt3=115   UniquePt4=14   Perimeter=120   Area=800   GUID=b37493d2-302b-4275-aeb2-b7c13be3991c
+   UniqueName=86   UniquePt1=103   UniquePt2=116   UniquePt3=117   UniquePt4=104   Perimeter=120   Area=800   GUID=d7931b1d-6a14-43c8-8fbf-8e535ed55c28
+   UniqueName=87   UniquePt1=104   UniquePt2=117   UniquePt3=118   UniquePt4=105   Perimeter=120   Area=800   GUID=2838e3ae-142f-431c-bc25-91bfee1da86d
+   UniqueName=88   UniquePt1=105   UniquePt2=118   UniquePt3=119   UniquePt4=106   Perimeter=120   Area=800   GUID=f54edca4-eb42-421d-b766-3904a1148e01
+   UniqueName=89   UniquePt1=106   UniquePt2=119   UniquePt3=120   UniquePt4=107   Perimeter=120   Area=800   GUID=d2d18b2c-1776-4780-ae9a-982d333efa01
+   UniqueName=90   UniquePt1=107   UniquePt2=120   UniquePt3=121   UniquePt4=108   Perimeter=120   Area=800   GUID=147f3f9f-7167-445c-ad83-c8510cddd351
+   UniqueName=91   UniquePt1=108   UniquePt2=121   UniquePt3=122   UniquePt4=109   Perimeter=120   Area=800   GUID=96732308-e3a9-4221-9ca9-355842691c74
+   UniqueName=92   UniquePt1=109   UniquePt2=122   UniquePt3=123   UniquePt4=110   Perimeter=120   Area=800   GUID=5001d905-5279-4ae7-95aa-d2c1dc473d4b
+   UniqueName=93   UniquePt1=110   UniquePt2=123   UniquePt3=124   UniquePt4=111   Perimeter=120   Area=800   GUID=b48e2b0b-4d7d-4e23-a7f4-5eb6ddbe2a2e
+   UniqueName=94   UniquePt1=111   UniquePt2=124   UniquePt3=125   UniquePt4=112   Perimeter=120   Area=800   GUID=ee29198d-c684-4352-97cc-8226dd6dede3
+   UniqueName=95   UniquePt1=112   UniquePt2=125   UniquePt3=126   UniquePt4=113   Perimeter=120   Area=800   GUID=824c9d90-5aa0-4219-b1c1-b9408aee7c39
+   UniqueName=96   UniquePt1=113   UniquePt2=126   UniquePt3=127   UniquePt4=114   Perimeter=120   Area=800   GUID=d4ba0a5a-e593-4b0a-b96a-47dd2eb28325
+   UniqueName=97   UniquePt1=114   UniquePt2=127   UniquePt3=128   UniquePt4=115   Perimeter=120   Area=800   GUID=73a24f1a-7bcb-401d-afe3-ad970367169c
+   UniqueName=98   UniquePt1=116   UniquePt2=129   UniquePt3=130   UniquePt4=117   Perimeter=120   Area=800   GUID=58eb2ae8-edf5-43ae-aa02-4ded6acff9fb
+   UniqueName=99   UniquePt1=117   UniquePt2=130   UniquePt3=131   UniquePt4=118   Perimeter=120   Area=800   GUID=351feef7-10e8-4f0d-b736-8e8be2aae363
+   UniqueName=100   UniquePt1=118   UniquePt2=131   UniquePt3=132   UniquePt4=119   Perimeter=120   Area=800   GUID=8a6bca3c-b70d-40f6-a0cc-fee3617eb809
+   UniqueName=101   UniquePt1=119   UniquePt2=132   UniquePt3=133   UniquePt4=120   Perimeter=120   Area=800   GUID=af1e0d6a-5ba5-4bda-8450-9fd3b2537194
+   UniqueName=102   UniquePt1=120   UniquePt2=133   UniquePt3=134   UniquePt4=121   Perimeter=120   Area=800   GUID=d9dc0634-ab44-40c2-8c7b-0567f297bc01
+   UniqueName=103   UniquePt1=121   UniquePt2=134   UniquePt3=135   UniquePt4=122   Perimeter=120   Area=800   GUID=135f5a87-31cf-4d9b-aa8a-e5ac6cd35a6e
+   UniqueName=104   UniquePt1=122   UniquePt2=135   UniquePt3=136   UniquePt4=123   Perimeter=120   Area=800   GUID=7ed02bb4-fcda-4ee8-9001-5f2ed9e28840
+   UniqueName=105   UniquePt1=123   UniquePt2=136   UniquePt3=137   UniquePt4=124   Perimeter=120   Area=800   GUID=c330225b-35dd-4f75-a24a-3c6235744639
+   UniqueName=106   UniquePt1=124   UniquePt2=137   UniquePt3=138   UniquePt4=125   Perimeter=120   Area=800   GUID=d6f21e43-fec6-44d5-8f2b-1fb0a48642f1
+   UniqueName=107   UniquePt1=125   UniquePt2=138   UniquePt3=139   UniquePt4=126   Perimeter=120   Area=800   GUID=2eaa9acb-b2af-4cae-af05-95387b823776
+   UniqueName=108   UniquePt1=126   UniquePt2=139   UniquePt3=140   UniquePt4=127   Perimeter=120   Area=800   GUID=b999ed78-4a3f-4743-b5b2-d9c93f1c483e
+   UniqueName=109   UniquePt1=127   UniquePt2=140   UniquePt3=141   UniquePt4=128   Perimeter=120   Area=800   GUID=92093b7c-3ad5-4399-beb0-98dd533c4487
+   UniqueName=110   UniquePt1=129   UniquePt2=142   UniquePt3=143   UniquePt4=130   Perimeter=80   Area=400   GUID=5024dc7f-225c-4339-8f9a-e411f661cbf1
+   UniqueName=111   UniquePt1=130   UniquePt2=143   UniquePt3=144   UniquePt4=131   Perimeter=80   Area=400   GUID=73b41018-6283-43ff-83ab-99da5a209150
+   UniqueName=112   UniquePt1=131   UniquePt2=144   UniquePt3=145   UniquePt4=132   Perimeter=80   Area=400   GUID=d8ccc9c0-c3a0-4ca8-9e24-a5d5104d2b2d
+   UniqueName=113   UniquePt1=132   UniquePt2=145   UniquePt3=146   UniquePt4=133   Perimeter=80   Area=400   GUID=65ee6ebe-0aca-4db5-aa20-591c44f8b10f
+   UniqueName=114   UniquePt1=133   UniquePt2=146   UniquePt3=147   UniquePt4=134   Perimeter=80   Area=400   GUID=fda1d6a9-5d96-46fe-aa6e-ae0b527327f8
+   UniqueName=115   UniquePt1=134   UniquePt2=147   UniquePt3=148   UniquePt4=135   Perimeter=80   Area=400   GUID=09ad33c5-b4cb-4343-970c-70ae1073b090
+   UniqueName=116   UniquePt1=135   UniquePt2=148   UniquePt3=149   UniquePt4=136   Perimeter=80   Area=400   GUID=a491687f-e48e-4cf6-9798-fc55d2c136bd
+   UniqueName=117   UniquePt1=136   UniquePt2=149   UniquePt3=150   UniquePt4=137   Perimeter=80   Area=400   GUID=2478bc66-43b3-4644-b744-cc6249ae24ed
+   UniqueName=118   UniquePt1=137   UniquePt2=150   UniquePt3=151   UniquePt4=138   Perimeter=80   Area=400   GUID=99f39c4a-b046-4d28-bed7-385ba63964e8
+   UniqueName=119   UniquePt1=138   UniquePt2=151   UniquePt3=152   UniquePt4=139   Perimeter=80   Area=400   GUID=ff1eaa5e-29a0-4f2b-94dc-74ccf4604ff5
+   UniqueName=120   UniquePt1=139   UniquePt2=152   UniquePt3=153   UniquePt4=140   Perimeter=80   Area=400   GUID=98fe3469-27e3-42e8-8a5a-e37b633c1fda
+   UniqueName=121   UniquePt1=140   UniquePt2=153   UniquePt3=154   UniquePt4=141   Perimeter=80   Area=400   GUID=96688a32-c950-450f-a32c-4929483de507
+   UniqueName=122   UniquePt1=142   UniquePt2=155   UniquePt3=156   UniquePt4=143   Perimeter=80   Area=400   GUID=9a02a391-53b8-45f5-9e03-98f20f6e10ec
+   UniqueName=123   UniquePt1=143   UniquePt2=156   UniquePt3=157   UniquePt4=144   Perimeter=80   Area=400   GUID=abe55b25-9d64-44b3-91c5-04c4e3d3f1c9
+   UniqueName=124   UniquePt1=144   UniquePt2=157   UniquePt3=158   UniquePt4=145   Perimeter=80   Area=400   GUID=25f960fe-45dc-4fb3-8a13-169db66da2ca
+   UniqueName=125   UniquePt1=145   UniquePt2=158   UniquePt3=159   UniquePt4=146   Perimeter=80   Area=400   GUID=19a5d80b-9301-468e-b3a0-4356b675d40d
+   UniqueName=126   UniquePt1=146   UniquePt2=159   UniquePt3=160   UniquePt4=147   Perimeter=80   Area=400   GUID=3b680291-6029-48f9-b1dc-9134d41babef
+   UniqueName=127   UniquePt1=147   UniquePt2=160   UniquePt3=161   UniquePt4=148   Perimeter=80   Area=400   GUID=60faa601-09d8-4f1c-8b4d-3255125b7f05
+   UniqueName=128   UniquePt1=148   UniquePt2=161   UniquePt3=162   UniquePt4=149   Perimeter=80   Area=400   GUID=844882cb-f14b-4219-83dd-e3e579ddac5d
+   UniqueName=129   UniquePt1=149   UniquePt2=162   UniquePt3=163   UniquePt4=150   Perimeter=80   Area=400   GUID=9d39ea7b-0491-4dd7-9e58-6448908cc1ab
+   UniqueName=130   UniquePt1=150   UniquePt2=163   UniquePt3=164   UniquePt4=151   Perimeter=80   Area=400   GUID=cc8c6d58-008f-480c-b600-5e7e4295e0d6
+   UniqueName=131   UniquePt1=151   UniquePt2=164   UniquePt3=165   UniquePt4=152   Perimeter=80   Area=400   GUID=10b0bae0-b484-4674-86f9-443dcd8a04de
+   UniqueName=132   UniquePt1=152   UniquePt2=165   UniquePt3=166   UniquePt4=153   Perimeter=80   Area=400   GUID=b7d2ef25-defa-4f5c-b392-94aa269c51ba
+   UniqueName=133   UniquePt1=153   UniquePt2=166   UniquePt3=167   UniquePt4=154   Perimeter=80   Area=400   GUID=6b5779bc-f31c-4807-b5fc-0ee8e4dbc314
+   UniqueName=134   UniquePt1=155   UniquePt2=2   UniquePt3=168   UniquePt4=156   Perimeter=80   Area=400   GUID=ffb57099-b0b9-4d75-ae50-405977d72401
+   UniqueName=135   UniquePt1=156   UniquePt2=168   UniquePt3=169   UniquePt4=157   Perimeter=80   Area=400   GUID=8a133705-1421-4466-8b77-77e21e788644
+   UniqueName=136   UniquePt1=157   UniquePt2=169   UniquePt3=170   UniquePt4=158   Perimeter=80   Area=400   GUID=090af814-677a-40c3-bea2-a5ee90901de8
+   UniqueName=137   UniquePt1=158   UniquePt2=170   UniquePt3=171   UniquePt4=159   Perimeter=80   Area=400   GUID=5ade18c5-fbd3-41fd-b0a6-1a163628d24e
+   UniqueName=138   UniquePt1=159   UniquePt2=171   UniquePt3=172   UniquePt4=160   Perimeter=80   Area=400   GUID=dc4519ce-fb5e-44cc-b1a8-d17f927a72d6
+   UniqueName=139   UniquePt1=160   UniquePt2=172   UniquePt3=8   UniquePt4=161   Perimeter=80   Area=400   GUID=08ddf113-b9c1-4406-a33e-5fc1efc8db19
+   UniqueName=140   UniquePt1=161   UniquePt2=8   UniquePt3=173   UniquePt4=162   Perimeter=80   Area=400   GUID=58972b0a-4139-4b07-b603-f760a4ff5d14
+   UniqueName=141   UniquePt1=162   UniquePt2=173   UniquePt3=174   UniquePt4=163   Perimeter=80   Area=400   GUID=f4cdb8d0-2559-49ad-a6b9-a7b526c5fe30
+   UniqueName=142   UniquePt1=163   UniquePt2=174   UniquePt3=175   UniquePt4=164   Perimeter=80   Area=400   GUID=22d6c2c9-85f0-4434-9e8b-9b31df0be23c
+   UniqueName=143   UniquePt1=164   UniquePt2=175   UniquePt3=176   UniquePt4=165   Perimeter=80   Area=400   GUID=f4142342-aec8-4c3c-be34-597996bdd660
+   UniqueName=144   UniquePt1=165   UniquePt2=176   UniquePt3=177   UniquePt4=166   Perimeter=80   Area=400   GUID=f74a2709-51ee-408e-b162-db236b623ae9
+   UniqueName=145   UniquePt1=166   UniquePt2=177   UniquePt3=4   UniquePt4=167   Perimeter=80   Area=400   GUID=83f3eb76-181d-4902-8b06-561195140672
+
+TABLE:  "Frame Assignments - End Length Offsets"
+   UniqueName=1   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=2   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=3   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+
+TABLE:  "Frame Assignments - Frame Auto Mesh Options"
+   UniqueName=1   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=Yes   SegLength=480
+   UniqueName=2   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=Yes   SegLength=480
+   UniqueName=3   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=Yes   SegLength=480
+
+TABLE:  "Frame Assignments - Insertion Point"
+   UniqueName=1   CardinalPt="8 (Top Center)"   Mirror2=No   Mirror3=No   NoTransform=No
+   UniqueName=2   CardinalPt="8 (Top Center)"   Mirror2=No   Mirror3=No   NoTransform=No
+   UniqueName=3   CardinalPt="8 (Top Center)"   Mirror2=No   Mirror3=No   NoTransform=No
+
+TABLE:  "Frame Assignments - Line Springs"
+   UniqueName=1   SpringProp=1
+   UniqueName=2   SpringProp=2
+   UniqueName=3   SpringProp=2
+
+TABLE:  "Frame Assignments - Output Stations"
+   UniqueName=1   StationOpt="Min Stations"   MinStations=3
+   UniqueName=2   StationOpt="Min Stations"   MinStations=3
+   UniqueName=3   StationOpt="Min Stations"   MinStations=3
+
+TABLE:  "Frame Assignments - Section Properties"
+   UniqueName=1   Shape=N.A.   AutoSelect=N.A.   SectProp=None
+   UniqueName=2   Shape=N.A.   AutoSelect=N.A.   SectProp=None
+   UniqueName=3   Shape=N.A.   AutoSelect=N.A.   SectProp=None
+
+TABLE:  "Frame Section Property Definitions - Concrete Rectangular"
+   Name=BEAM1   Material=4000Psi   FromFile=No   t3=24   t2=60   RigidZone=No   ColumnDropPanel=No   ColumnDropPanelAxis2=0   ColumnDropPanelAxis3=0   ColumnDropPanelSlabProperty=0   NotSizeType=User   NotUserSize=3.937   SectionType=Beam   RebarMatL=A615Gr60   RebarMatS=A615Gr60   FlngDimOpt="Slab Property"   CoverTop=2.5   CoverBot=2.5   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=7f9bf1e4-06f7-41d6-a72f-5cc854a9b4c7
+   Name=COL1   Material=4000Psi   FromFile=No   t3=24   t2=12   RigidZone=No   ColumnDropPanel=No   ColumnDropPanelAxis2=48   ColumnDropPanelAxis3=48   ColumnDropPanelSlabProperty=0   NotSizeType=User   NotUserSize=3.937   SectionType=Column   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=d919b93a-b515-4c09-ac14-c7f52bbbce96
+
+TABLE:  "Grid Definitions - General"
+   Name=GLOBAL   Type=Cartesian   Ux=0   Uy=0   Rz=0   DatumName=Story1   StryNmAbove=Story2   StryNmBelow=Base   ModelDatum=0   StryHtAbove=144   StryHtBelow=144   BubbleSize=60   Color=10461087   GUID=c7ca107f-7ba8-4dc4-abb2-fcf9fed0b490
+
+TABLE:  "Grid Definitions - Grid Lines"
+   Name=GLOBAL   LineType="X (Cartesian)"   ID=A   Ordinate=0   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="X (Cartesian)"   Ordinate=20   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="X (Cartesian)"   Ordinate=40   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="X (Cartesian)"   Ordinate=60   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="X (Cartesian)"   Ordinate=100   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="X (Cartesian)"   Ordinate=140   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="X (Cartesian)"   Ordinate=180   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="X (Cartesian)"   Ordinate=220   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="X (Cartesian)"   Ordinate=260   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="X (Cartesian)"   Ordinate=300   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="X (Cartesian)"   Ordinate=320   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="X (Cartesian)"   Ordinate=340   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="X (Cartesian)"   ID=B   Ordinate=360   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="Y (Cartesian)"   ID=1   Ordinate=0   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="Y (Cartesian)"   Ordinate=20   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="Y (Cartesian)"   Ordinate=40   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="Y (Cartesian)"   Ordinate=60   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="Y (Cartesian)"   Ordinate=80   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="Y (Cartesian)"   Ordinate=100   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="Y (Cartesian)"   Ordinate=120   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="Y (Cartesian)"   Ordinate=140   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="Y (Cartesian)"   Ordinate=160   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="Y (Cartesian)"   Ordinate=180   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="Y (Cartesian)"   Ordinate=200   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="Y (Cartesian)"   Ordinate=220   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="Y (Cartesian)"   ID=2   Ordinate=240   BubbleLoc=End   Visible=Yes
+
+TABLE:  "Group Definitions"
+   Name=All   Color=Red   Steel=No   Concrete=No   Composite=No   GUID=3ecc05f2-9f5e-4763-b043-619028ca73c0
+
+TABLE:  "Load Case Definitions - Linear Static"
+   Name=UNIFORM   Group=None   MassSource=MsSrc1   InitialCond="Nonlinear Case"   NonlinCase=None   LoadType=Load   LoadName=UNIFORM   LoadSF=1   DesignType="Program Determined"   GUID=5886a447-f6ae-44ae-8fc3-b05770efa185
+
+TABLE:  "Load Combination Definitions"
+   Name=DCON1   Type="Linear Add"   IsAuto=No   LoadName=UNIFORM   SF=1.4   GUID=7917f28c-a906-4657-b673-adeeabdf6d4f   Notes=DCON1
+   Name=DCON2   Type="Linear Add"   IsAuto=No   LoadName=UNIFORM   SF=1.4   GUID=d77aeaaf-39f1-4435-9479-3730fb6a753e   Notes=DCON2
+
+TABLE:  "Load Pattern Definitions"
+   Name=UNIFORM   IsAuto=No   Type=Dead   SelfWtMult=0   GUID=64401c4e-382c-4ff2-8ed5-e01d86c95692
+
+TABLE:  "Mass Source Definition"
+   Name=MsSrc1   IsDefault=Yes   IncLateral=No   IncVertical=Yes   LumpMass=Yes   SourceSelf=Yes   SourceAdded=Yes   SourceLoads=No   MoveMass=No   GUID=f3b6fee8-170a-42bd-a02b-b39e19cb1716
+
+TABLE:  "Material Properties - Basic Mechanical Properties"
+   Material=4000Psi   DensityType=Mass   UnitWeight=8.7E-05   UnitMass=2.248E-07   E1=3604.997   G12=1502.082   U12=0.2   A1=5.5E-06
+   Material=A416Gr270   DensityType=Mass   UnitWeight=0.000284   UnitMass=1E-06   E1=28500   A1=6.5E-06
+   Material=A615Gr60   DensityType=Mass   UnitWeight=0.000284   UnitMass=1E-06   E1=29000   A1=6.5E-06
+   Material=A992Fy50   DensityType=Weight   UnitWeight=0.000284   UnitMass=1E-06   E1=29000   G12=11153.846   U12=0.3   A1=6.5E-06
+   Material=MAT1   DensityType=Mass   UnitWeight=0   UnitMass=0   E1=3000   G12=1153.846   U12=0.3   A1=5.5E-06
+
+TABLE:  "Material Properties - Concrete Data"
+   Material=4000Psi   Fc=4   LtWtConc=No   IsUserFr=No   SSCurveOpt=Simple   SSHysType=Kinematic   SFc=0.002219   SCap=0.005   FinalSlope=-0.1   FAngle=0   DAngle=0
+   Material=MAT1   Fc=4   LtWtConc=No   IsUserFr=No   SSCurveOpt=Simple   SSHysType=Kinematic   SFc=0.002219   SCap=0.005   FinalSlope=-0.1   FAngle=0   DAngle=0
+
+TABLE:  "Material Properties - General"
+   Material=4000Psi   Type=Concrete   SymType=Isotropic   Grade=Unknown   Color=Yellow   GUID=9b742444-bd91-49d3-b86e-60a335eef800   Notes="Normalweight f'c = 4 ksi added 11/17/2008 4:42:44 PM"
+   Material=A416Gr270   Type=Tendon   SymType=Uniaxial   Grade=Unknown   Color=Cyan   GUID=e1649091-2a2d-47f5-ad32-55eeff970c85   Notes="ASTM A416 Grade 270 added 11/17/2008 4:42:44 PM"
+   Material=A615Gr60   Type=Rebar   SymType=Uniaxial   Grade=Unknown   Color=Blue   GUID=c82dd473-2f40-4bd1-8d97-bf4accc6ca57   Notes="ASTM A615 Grade 60 added 11/17/2008 4:42:44 PM"
+   Material=A992Fy50   Type=Steel   SymType=Isotropic   Grade="Grade 50"   Color=Gray8Dark   GUID=32bb2be5-076f-4200-a31c-0918ef6cd48f
+   Material=MAT1   Type=Concrete   SymType=Isotropic   Grade=Unknown   Color=Yellow   GUID=f79388d0-afe5-4b5c-9f25-416400b6d714   Notes="Normalweight f'c = 4 ksi added 11/17/2008 4:42:44 PM"
+
+TABLE:  "Material Properties - Rebar Data"
+   Material=A615Gr60   Fy=60   Fu=90   Fye=66   Fue=99   SSCurveOpt=Simple   SSHysType=Kinematic   SHard=0.01   SCap=0.09   FinalSlope=-0.1
+
+TABLE:  "Material Properties - Steel Data"
+   Material=A992Fy50   Fy=50   Fu=65   Fye=55   Fue=71.5   SSCurveOpt=Simple   SSHysType=Kinematic   SHard=0.015   SMax=0.11   SRup=0.17   FinalSlope=-0.1
+
+TABLE:  "Material Properties - Tendon Data"
+   Material=A416Gr270   Fy=245.1   Fu=270   SSCurveOpt="270 ksi"   SSHysType=Kinematic   FinalSlope=-0.1
+
+TABLE:  "Miscellaneous Options"
+   StartPage=Yes   CursorValue=Yes   FrameInfo=Yes   BoundPlane=No   ArchDim=No   MomentTens=Yes   AniSound=Yes   AutoSave=No   Crosshairs=No   ModelExp=Yes
+
+TABLE:  "Null Line Object Connectivity"
+   UniqueName=1   UniquePtI=1   UniquePtJ=2   Length=360   GUID=5c1b4bb2-e9f1-4fec-8db5-1b444647f54f
+   UniqueName=2   UniquePtI=1   UniquePtJ=3   Length=240   GUID=cd5d7539-47fa-44c1-9551-ddeb4af99a05
+   UniqueName=3   UniquePtI=2   UniquePtJ=4   Length=240   GUID=10c3195c-89ba-4003-9d4d-26e4d93e12d4
+
+TABLE:  "Options - Colors - Display"
+   DeviceType=Screen   ColorColumns=10507331   ColorBeams=10507331   ColorBraces=10507331   ColorLinks=10507331   ColorSprings=Black   ColorTendons=DarkCyan   ColorSlabPanels=Green   ColorWalls=Red   ColorFloors=Gray4   ColorNullObjects=Gray8Dark   ColorOpenings=Black   ColorColStripA=Red   ColorColStripB=Blue   ColorMidStripA=Yellow   ColorMidStripB=Cyan   ColorStripEdge=16744703   ColorOtherStripFill=Green   ColorSupportLines=13816320   ColorDimLines=10461087   ColorText=2105376   ColorGridLines=Gray6   ColorBackground=White   ColorUserMeshEdge=5065984   ColorStlDesign=DarkCyan   ColorCompDesign=Cyan   ColorConcDesign=4227327   ColorNoDesign=4227327   TransColumns=0.5   TransBeams=0.5   TransBraces=0.5   TransFloors=0.5   TransWalls=0.4   TransLinks=0.5   Darkness=0.3
+   DeviceType=Printer   ColorColumns=Black   ColorBeams=Black   ColorBraces=Black   ColorLinks=Gray8Dark   ColorSprings=Gray8Dark   ColorTendons=Black   ColorSlabPanels=Green   ColorWalls=Gray4   ColorFloors=Gray4   ColorNullObjects=Gray4   ColorOpenings=Gray8Dark   ColorColStripA=Black   ColorColStripB=Black   ColorMidStripA=Black   ColorMidStripB=Black   ColorStripEdge=Black   ColorOtherStripFill=Black   ColorSupportLines=Black   ColorDimLines=Gray4   ColorText=Black   ColorGridLines=Gray4   ColorBackground=White   ColorUserMeshEdge=Gray4   ColorStlDesign=Black   ColorCompDesign=Gray4   ColorConcDesign=Gray8Dark   ColorNoDesign=Gray4   TransColumns=0.5   TransBeams=0.5   TransBraces=0.5   TransFloors=0.5   TransWalls=0.4   TransLinks=0.5   Darkness=0.5
+   DeviceType="Color Printer"   ColorColumns=Blue   ColorBeams=Blue   ColorBraces=Blue   ColorLinks=10516060   ColorSprings=DarkCyan   ColorTendons=DarkCyan   ColorSlabPanels=Green   ColorWalls=14865869   ColorFloors=Gray4   ColorNullObjects=Gray8Dark   ColorOpenings=Black   ColorColStripA=DarkCyan   ColorColStripB=DarkCyan   ColorMidStripA=DarkCyan   ColorMidStripB=DarkCyan   ColorStripEdge=DarkCyan   ColorOtherStripFill=DarkCyan   ColorSupportLines=DarkCyan   ColorDimLines=10461087   ColorText=Black   ColorGridLines=Gray8Dark   ColorBackground=White   ColorUserMeshEdge=5065984   ColorStlDesign=DarkCyan   ColorCompDesign=Cyan   ColorConcDesign=4227327   ColorNoDesign=4227327   TransColumns=0.5   TransBeams=0.5   TransBraces=0.5   TransFloors=0.5   TransWalls=0.4   TransLinks=0.5   Darkness=0.3
+
+TABLE:  "Options - Colors - Output"
+   DeviceType="Screen Classic"   Contour1=13107400   Contour2=6553828   Contour3=Red   Contour4=16639   Contour5=Orange   Contour6=43775   Contour7=54527   Contour8=Yellow   Contour9=65408   Contour10=Green   Contour11=8453888   Contour12=Cyan   Contour13=16755200   Contour14=16733440   Contour15=Blue   TransContours=0   Ratio1=Cyan   Ratio2=Green   Ratio3=Yellow   Ratio4=Magenta   Ratio5=Red   RatioNotD=Gray4   RatioVal1=0.5   RatioVal2=0.7   RatioVal3=0.9   RatioVal4=1   HState1=Gray2   HState2=Green   HState3=Yellow   HState4=Cyan   HState5=Blue   HStatus1=Gray2   HStatus2=Green   HStatus3=Cyan   HStatus4=Red   DFillPos=Yellow   DFillNeg=Red   DFillRange=Blue   TransDiag=0.2
+   DeviceType="Screen GrayScale"   Contour1=Black   Contour2=3158064   Contour3=4210752   Contour4=5263440   Contour5=6316128   Contour6=7368816   Contour7=Gray8Dark   Contour8=Gray7   Contour9=Gray6   Contour10=Gray5   Contour11=Gray4   Contour12=Gray3   Contour13=Gray2   Contour14=Gray1Light   Contour15=White   TransContours=0   Ratio1=Gray2   Ratio2=Gray4   Ratio3=Gray8Dark   Ratio4=4210752   Ratio5=Black   RatioNotD=Gray4   RatioVal1=0.5   RatioVal2=0.7   RatioVal3=0.9   RatioVal4=1   HState1=Gray3   HState2=Gray5   HState3=Gray7   HState4=7368816   HState5=5263440   HStatus1=Gray2   HStatus2=Gray4   HStatus3=Gray8Dark   HStatus4=4210752   DFillPos=Gray8Dark   DFillNeg=Gray4   DFillRange=Gray8Dark   TransDiag=0.2
+   DeviceType=Printer   Contour1=Black   Contour2=3158064   Contour3=4210752   Contour4=5263440   Contour5=6316128   Contour6=7368816   Contour7=Gray8Dark   Contour8=Gray7   Contour9=Gray6   Contour10=Gray5   Contour11=Gray4   Contour12=Gray3   Contour13=Gray2   Contour14=Gray1Light   Contour15=White   TransContours=0   Ratio1=Gray2   Ratio2=Gray4   Ratio3=Gray8Dark   Ratio4=4210752   Ratio5=Black   RatioNotD=Gray4   RatioVal1=0.5   RatioVal2=0.7   RatioVal3=0.9   RatioVal4=1   HState1=Gray3   HState2=Gray5   HState3=Gray7   HState4=7368816   HState5=5263440   HStatus1=Gray2   HStatus2=Gray4   HStatus3=Gray8Dark   HStatus4=4210752   DFillPos=Gray8Dark   DFillNeg=Gray8Dark   DFillRange=4210752   TransDiag=0.2
+   DeviceType="Color Printer"   Contour1=13107400   Contour2=6553828   Contour3=Red   Contour4=16639   Contour5=Orange   Contour6=43775   Contour7=54527   Contour8=Yellow   Contour9=65408   Contour10=Green   Contour11=8453888   Contour12=Cyan   Contour13=16755200   Contour14=16733440   Contour15=Blue   TransContours=0   Ratio1=Cyan   Ratio2=Green   Ratio3=Yellow   Ratio4=Magenta   Ratio5=Red   RatioNotD=Gray4   RatioVal1=0.5   RatioVal2=0.7   RatioVal3=0.9   RatioVal4=1   HState1=Gray2   HState2=Green   HState3=Yellow   HState4=Cyan   HState5=Blue   HStatus1=Gray2   HStatus2=Green   HStatus3=Cyan   HStatus4=Red   DFillPos=Yellow   DFillNeg=Red   DFillRange=Blue   TransDiag=0.2
+
+TABLE:  "Point Object Connectivity"
+   UniqueName=1   IsAuto=No   IsSpecial=No   X=0   Y=0   Z=0   GUID=9344f14f-d1a6-4019-b53f-c54817b6fa23
+   UniqueName=2   IsAuto=No   IsSpecial=No   X=360   Y=0   Z=0   GUID=4071b4b9-2482-41c8-9e64-2bc30845cef6
+   UniqueName=3   IsAuto=No   IsSpecial=No   X=0   Y=240   Z=0   GUID=1be0972c-a809-4c76-968a-90493969a4fb
+   UniqueName=4   IsAuto=No   IsSpecial=No   X=360   Y=240   Z=0   GUID=bd153b3c-b2af-4054-a4e7-e7b930db2a33
+   UniqueName=5   IsAuto=No   IsSpecial=No   X=0   Y=210   Z=0   GUID=6bdac6b3-98d1-4ac8-bde0-6ab153ad8657
+   UniqueName=6   IsAuto=No   IsSpecial=No   X=360   Y=210   Z=0   GUID=5b2664cd-469f-45f2-8882-b0a5a5cb1582
+   UniqueName=7   IsAuto=No   IsSpecial=No   X=0   Y=120   Z=0   GUID=571d0176-54ae-40ed-af2b-a90b16735ef2
+   UniqueName=8   IsAuto=No   IsSpecial=No   X=360   Y=120   Z=0   GUID=2f79d353-887e-4a9d-88d8-d31204ba132f
+   UniqueName=9   IsAuto=No   IsSpecial=No   X=0   Y=30   Z=0   GUID=4df6201c-68d0-42eb-b9d2-848c65168fdf
+   UniqueName=10   IsAuto=No   IsSpecial=No   X=360   Y=30   Z=0   GUID=d0715b0f-8b6b-492d-a5c4-9c55dd64e3d6
+   UniqueName=11   IsAuto=No   IsSpecial=No   X=30   Y=0   Z=0   GUID=0b11f76c-e08f-4792-9cc8-ae1a3e3265eb
+   UniqueName=12   IsAuto=No   IsSpecial=No   X=30   Y=240   Z=0   GUID=595b1451-1b01-49ba-b008-dfba30e58003
+   UniqueName=13   IsAuto=No   IsSpecial=No   X=180   Y=0   Z=0   GUID=8e89a12b-22e1-4f5f-9129-81cfae2ecf04
+   UniqueName=14   IsAuto=No   IsSpecial=No   X=180   Y=240   Z=0   GUID=2d534b18-d9c3-4735-9768-c9b42f0a0906
+   UniqueName=15   IsAuto=No   IsSpecial=No   X=330   Y=0   Z=0   GUID=cda268b8-661c-4eda-8f4b-3cce59b9a1cc
+   UniqueName=16   IsAuto=No   IsSpecial=No   X=330   Y=240   Z=0   GUID=85426315-b932-470a-9bc9-0ef494474087
+   UniqueName=17   IsAuto=No   IsSpecial=No   X=20   Y=0   Z=0   GUID=9e8d4f50-eb39-43f7-9f3d-2cebb0b8a139
+   UniqueName=18   IsAuto=No   IsSpecial=No   X=20   Y=20   Z=0   GUID=dcf1d639-8166-4314-a4c0-67ad3f719124
+   UniqueName=19   IsAuto=No   IsSpecial=No   X=0   Y=20   Z=0   GUID=3e9fb168-a03a-44cd-b2a9-74737e6ba7ac
+   UniqueName=20   IsAuto=No   IsSpecial=No   X=20   Y=40   Z=0   GUID=eec17b36-137d-49fc-8ed1-2e95bd8e9a6c
+   UniqueName=21   IsAuto=No   IsSpecial=No   X=0   Y=40   Z=0   GUID=30312aaf-7ab0-4404-a310-1cdd840554e3
+   UniqueName=22   IsAuto=No   IsSpecial=No   X=20   Y=60   Z=0   GUID=b949a3fb-6db8-420c-b1c9-54c835dbe98e
+   UniqueName=23   IsAuto=No   IsSpecial=No   X=0   Y=60   Z=0   GUID=a457a53e-4ee0-4a61-b5a6-654b269cf517
+   UniqueName=24   IsAuto=No   IsSpecial=No   X=20   Y=80   Z=0   GUID=675404d4-5fe6-4688-9f59-6a8122600fa8
+   UniqueName=25   IsAuto=No   IsSpecial=No   X=0   Y=80   Z=0   GUID=c6c5d94b-cc36-4779-92c8-ef7198cb74d2
+   UniqueName=26   IsAuto=No   IsSpecial=No   X=20   Y=100   Z=0   GUID=53e4fee3-dbc4-42a1-9667-9986f4ff2dd2
+   UniqueName=27   IsAuto=No   IsSpecial=No   X=0   Y=100   Z=0   GUID=7ca9a66d-d25d-48a4-a204-dd617fce4764
+   UniqueName=28   IsAuto=No   IsSpecial=No   X=20   Y=120   Z=0   GUID=c3bbfc6a-4765-411c-bb2c-b287f7a0de76
+   UniqueName=29   IsAuto=No   IsSpecial=No   X=20   Y=140   Z=0   GUID=9b20a6cc-5905-404b-8822-2e0a7e98e53d
+   UniqueName=30   IsAuto=No   IsSpecial=No   X=0   Y=140   Z=0   GUID=df1069de-c0d8-418f-a635-2b82a1a663e7
+   UniqueName=31   IsAuto=No   IsSpecial=No   X=20   Y=160   Z=0   GUID=3c4e6a31-8537-4531-95b7-d88932ed9a8f
+   UniqueName=32   IsAuto=No   IsSpecial=No   X=0   Y=160   Z=0   GUID=94e0120e-b3c2-4546-9352-1e3581012b02
+   UniqueName=33   IsAuto=No   IsSpecial=No   X=20   Y=180   Z=0   GUID=7786f460-2b0e-4c07-80c7-8668cc660a6c
+   UniqueName=34   IsAuto=No   IsSpecial=No   X=0   Y=180   Z=0   GUID=380d6252-f518-4b41-bb51-63681088de44
+   UniqueName=35   IsAuto=No   IsSpecial=No   X=20   Y=200   Z=0   GUID=b245e830-aa9b-437d-802f-815c9c4c74ca
+   UniqueName=36   IsAuto=No   IsSpecial=No   X=0   Y=200   Z=0   GUID=945bbb71-a293-4504-975c-5a4d61f6a353
+   UniqueName=37   IsAuto=No   IsSpecial=No   X=20   Y=220   Z=0   GUID=38c792c2-e2c9-4994-8a00-c249fc8d2312
+   UniqueName=38   IsAuto=No   IsSpecial=No   X=0   Y=220   Z=0   GUID=a46f4cbe-2f3f-4907-802b-3158074e44e4
+   UniqueName=39   IsAuto=No   IsSpecial=No   X=20   Y=240   Z=0   GUID=701a0960-23a5-455d-9f7f-ebbe8167db33
+   UniqueName=40   IsAuto=No   IsSpecial=No   X=40   Y=0   Z=0   GUID=2e8a11b6-3a99-4d5d-9a0b-113462ea0d7c
+   UniqueName=41   IsAuto=No   IsSpecial=No   X=40   Y=20   Z=0   GUID=7e1d564f-178f-42e1-a169-624a9922b247
+   UniqueName=42   IsAuto=No   IsSpecial=No   X=40   Y=40   Z=0   GUID=12b12de7-76eb-4105-8599-0bbfa35b97c3
+   UniqueName=43   IsAuto=No   IsSpecial=No   X=40   Y=60   Z=0   GUID=55dd62b2-ee79-4779-a7b6-9e6d4246e53d
+   UniqueName=44   IsAuto=No   IsSpecial=No   X=40   Y=80   Z=0   GUID=36a193bb-9459-4094-a978-eaaf154defff
+   UniqueName=45   IsAuto=No   IsSpecial=No   X=40   Y=100   Z=0   GUID=6b49d65f-c56f-4905-b855-c398a9008c05
+   UniqueName=46   IsAuto=No   IsSpecial=No   X=40   Y=120   Z=0   GUID=efc0038c-e431-465f-af08-b6197867069f
+   UniqueName=47   IsAuto=No   IsSpecial=No   X=40   Y=140   Z=0   GUID=2e681c11-0242-47a6-953b-c57215476ebf
+   UniqueName=48   IsAuto=No   IsSpecial=No   X=40   Y=160   Z=0   GUID=3c159a40-55b1-4e1d-bddb-d2fd0e1b6d31
+   UniqueName=49   IsAuto=No   IsSpecial=No   X=40   Y=180   Z=0   GUID=fc2addaf-a478-4e7a-8d8d-24bcaad3dbc0
+   UniqueName=50   IsAuto=No   IsSpecial=No   X=40   Y=200   Z=0   GUID=68b9b78d-c878-4ccd-a15d-f08c7360da55
+   UniqueName=51   IsAuto=No   IsSpecial=No   X=40   Y=220   Z=0   GUID=d8bc372a-d78f-4484-b17f-b280936fd157
+   UniqueName=52   IsAuto=No   IsSpecial=No   X=40   Y=240   Z=0   GUID=833a02dc-232f-4ad5-8ceb-8816e9a27fda
+   UniqueName=53   IsAuto=No   IsSpecial=No   X=60   Y=0   Z=0   GUID=609d2439-db54-40e3-9099-070d57aa21a8
+   UniqueName=54   IsAuto=No   IsSpecial=No   X=60   Y=20   Z=0   GUID=3afd2033-cde7-4571-9012-13fe30bb9012
+   UniqueName=55   IsAuto=No   IsSpecial=No   X=60   Y=40   Z=0   GUID=16b5a061-7c84-47a4-a1fd-cf9c16ab0386
+   UniqueName=56   IsAuto=No   IsSpecial=No   X=60   Y=60   Z=0   GUID=798973f2-d2df-4cab-af66-d38356ab7265
+   UniqueName=57   IsAuto=No   IsSpecial=No   X=60   Y=80   Z=0   GUID=e8cc4bae-1940-47b7-8942-56ef4eba1f03
+   UniqueName=58   IsAuto=No   IsSpecial=No   X=60   Y=100   Z=0   GUID=84c46a1c-2f18-4d74-adee-3f62aa24627f
+   UniqueName=59   IsAuto=No   IsSpecial=No   X=60   Y=120   Z=0   GUID=870c3be2-59cb-4d83-836a-03f3fa37766b
+   UniqueName=60   IsAuto=No   IsSpecial=No   X=60   Y=140   Z=0   GUID=bc1638c0-b6bc-4016-949a-835aff6758db
+   UniqueName=61   IsAuto=No   IsSpecial=No   X=60   Y=160   Z=0   GUID=c9880960-4533-4f5e-bf0d-938a179b97c7
+   UniqueName=62   IsAuto=No   IsSpecial=No   X=60   Y=180   Z=0   GUID=2c22ff8d-a4bc-4dce-b7a2-9c4bbb09ba99
+   UniqueName=63   IsAuto=No   IsSpecial=No   X=60   Y=200   Z=0   GUID=933ef7e3-cc5d-48dd-be56-f34da99b1f92
+   UniqueName=64   IsAuto=No   IsSpecial=No   X=60   Y=220   Z=0   GUID=f492aad1-f5d5-4292-8f8c-0a020f85b6d1
+   UniqueName=65   IsAuto=No   IsSpecial=No   X=60   Y=240   Z=0   GUID=bdbaf21d-e823-4d1d-a68f-f662d20d2d72
+   UniqueName=66   IsAuto=No   IsSpecial=No   X=100   Y=0   Z=0   GUID=fd78417d-523b-418f-a50d-d1ba48128ad7
+   UniqueName=67   IsAuto=No   IsSpecial=No   X=100   Y=20   Z=0   GUID=0003188d-b25c-4d57-835b-88d5aa1173cb
+   UniqueName=68   IsAuto=No   IsSpecial=No   X=100   Y=40   Z=0   GUID=ff9587bd-db92-4e6d-89d2-5fac469717e0
+   UniqueName=69   IsAuto=No   IsSpecial=No   X=100   Y=60   Z=0   GUID=22984f67-a356-4726-8307-0ad7c6f56b5d
+   UniqueName=70   IsAuto=No   IsSpecial=No   X=100   Y=80   Z=0   GUID=70275ddb-f6db-4aaa-b17e-47db22a26f91
+   UniqueName=71   IsAuto=No   IsSpecial=No   X=100   Y=100   Z=0   GUID=0e138e25-381d-4592-ad40-cdfea26807f7
+   UniqueName=72   IsAuto=No   IsSpecial=No   X=100   Y=120   Z=0   GUID=50c46e8a-31d2-4ae4-add8-446f4d710d58
+   UniqueName=73   IsAuto=No   IsSpecial=No   X=100   Y=140   Z=0   GUID=0c13fc1c-07da-408f-a834-94f37631b8da
+   UniqueName=74   IsAuto=No   IsSpecial=No   X=100   Y=160   Z=0   GUID=2eca140f-4f5b-46c5-8412-6bd5312f886e
+   UniqueName=75   IsAuto=No   IsSpecial=No   X=100   Y=180   Z=0   GUID=185439ce-98e4-49d4-89b7-f8e866deede0
+   UniqueName=76   IsAuto=No   IsSpecial=No   X=100   Y=200   Z=0   GUID=274ea356-92ca-4988-a715-3b5ad6fdbc77
+   UniqueName=77   IsAuto=No   IsSpecial=No   X=100   Y=220   Z=0   GUID=5e01578a-d78f-40f4-b8be-6885a06b37fe
+   UniqueName=78   IsAuto=No   IsSpecial=No   X=100   Y=240   Z=0   GUID=1f74a3f7-1d4c-4e9f-9ce2-d91a7207b65b
+   UniqueName=79   IsAuto=No   IsSpecial=No   X=140   Y=0   Z=0   GUID=21784965-9107-43af-8c13-2ffbf3b9c317
+   UniqueName=80   IsAuto=No   IsSpecial=No   X=140   Y=20   Z=0   GUID=f9daf515-f414-4b9c-bf31-dd2078a3dd3a
+   UniqueName=81   IsAuto=No   IsSpecial=No   X=140   Y=40   Z=0   GUID=b242b403-1c64-4306-86c5-1723cf450e87
+   UniqueName=82   IsAuto=No   IsSpecial=No   X=140   Y=60   Z=0   GUID=4f501f9b-8f76-4872-a78e-b31682d66578
+   UniqueName=83   IsAuto=No   IsSpecial=No   X=140   Y=80   Z=0   GUID=97916f5b-cd80-49cf-aa95-17f8d0f25c1b
+   UniqueName=84   IsAuto=No   IsSpecial=No   X=140   Y=100   Z=0   GUID=7cbb8534-38c8-4bc7-9b46-dcb0c9dcc008
+   UniqueName=85   IsAuto=No   IsSpecial=No   X=140   Y=120   Z=0   GUID=d996c297-bca9-4cd3-ae1f-15272e975478
+   UniqueName=86   IsAuto=No   IsSpecial=No   X=140   Y=140   Z=0   GUID=0a6d9e22-c18c-4c29-b122-afa49080b718
+   UniqueName=87   IsAuto=No   IsSpecial=No   X=140   Y=160   Z=0   GUID=a9bc981d-2593-4059-923c-ef1c0bdeebb5
+   UniqueName=88   IsAuto=No   IsSpecial=No   X=140   Y=180   Z=0   GUID=86b6bc0b-1ec3-4aeb-9e04-325730c5413a
+   UniqueName=89   IsAuto=No   IsSpecial=No   X=140   Y=200   Z=0   GUID=21a715f9-b19d-46a7-b0a2-3848e6de79dd
+   UniqueName=90   IsAuto=No   IsSpecial=No   X=140   Y=220   Z=0   GUID=a08aa781-2598-4c41-a04d-c385c235c0e4
+   UniqueName=91   IsAuto=No   IsSpecial=No   X=140   Y=240   Z=0   GUID=e8933ab2-63ea-4c25-9870-becc017bde69
+   UniqueName=92   IsAuto=No   IsSpecial=No   X=180   Y=20   Z=0   GUID=0b220933-3e51-470c-a24a-7c4e0f0b82b5
+   UniqueName=93   IsAuto=No   IsSpecial=No   X=180   Y=40   Z=0   GUID=f41c55be-29f0-4c5d-92d7-a16dc865d055
+   UniqueName=94   IsAuto=No   IsSpecial=No   X=180   Y=60   Z=0   GUID=484ccbb8-657d-44ec-aff4-255ea387382b
+   UniqueName=95   IsAuto=No   IsSpecial=No   X=180   Y=80   Z=0   GUID=cbfcdb3f-14f4-47e8-a0a9-9369d8fab71f
+   UniqueName=96   IsAuto=No   IsSpecial=No   X=180   Y=100   Z=0   GUID=c5556ff4-a882-4c87-8ae2-6b5e6f56263b
+   UniqueName=97   IsAuto=No   IsSpecial=No   X=180   Y=120   Z=0   GUID=d6349ea8-162b-430d-aa11-af91209567d4
+   UniqueName=98   IsAuto=No   IsSpecial=No   X=180   Y=140   Z=0   GUID=911090fe-33aa-4841-801c-0a8a62a4499d
+   UniqueName=99   IsAuto=No   IsSpecial=No   X=180   Y=160   Z=0   GUID=650ec538-9df7-489d-9eac-bb7cd5a8355a
+   UniqueName=100   IsAuto=No   IsSpecial=No   X=180   Y=180   Z=0   GUID=d1f78320-a43c-4adb-b7cf-dfca2a958f27
+   UniqueName=101   IsAuto=No   IsSpecial=No   X=180   Y=200   Z=0   GUID=81e8ee74-2824-4bcf-a4a0-06db080457ec
+   UniqueName=102   IsAuto=No   IsSpecial=No   X=180   Y=220   Z=0   GUID=2225b336-d5f3-4c66-bd8c-dcfa28729ea3
+   UniqueName=103   IsAuto=No   IsSpecial=No   X=220   Y=0   Z=0   GUID=6fdc0cf9-6c6d-4a7a-81b8-35c511f4e8c5
+   UniqueName=104   IsAuto=No   IsSpecial=No   X=220   Y=20   Z=0   GUID=7a498050-b30d-4ff9-a466-cbabb5855b29
+   UniqueName=105   IsAuto=No   IsSpecial=No   X=220   Y=40   Z=0   GUID=a7ee6537-cc61-4c40-a622-73e50cc1cc16
+   UniqueName=106   IsAuto=No   IsSpecial=No   X=220   Y=60   Z=0   GUID=a4af49ab-ae55-471d-86e3-cf2928a943e8
+   UniqueName=107   IsAuto=No   IsSpecial=No   X=220   Y=80   Z=0   GUID=30952645-35de-412c-a914-30e34bf99f1a
+   UniqueName=108   IsAuto=No   IsSpecial=No   X=220   Y=100   Z=0   GUID=d60ad3d5-9489-44cf-a577-db1e4bcdbe78
+   UniqueName=109   IsAuto=No   IsSpecial=No   X=220   Y=120   Z=0   GUID=22b7a511-6d97-4fd2-943d-c306a0e96d8b
+   UniqueName=110   IsAuto=No   IsSpecial=No   X=220   Y=140   Z=0   GUID=d4e4f6cc-2245-4f5b-9885-df126c635ddc
+   UniqueName=111   IsAuto=No   IsSpecial=No   X=220   Y=160   Z=0   GUID=3581a7bb-b0ea-4658-b8b0-2fdb3c1ac298
+   UniqueName=112   IsAuto=No   IsSpecial=No   X=220   Y=180   Z=0   GUID=bf52f83b-0aa9-4b23-b159-fe1eed1aaebd
+   UniqueName=113   IsAuto=No   IsSpecial=No   X=220   Y=200   Z=0   GUID=1b38f743-b42a-4782-8325-dc953497e791
+   UniqueName=114   IsAuto=No   IsSpecial=No   X=220   Y=220   Z=0   GUID=729eae83-0cfa-438b-ac93-9e654252e320
+   UniqueName=115   IsAuto=No   IsSpecial=No   X=220   Y=240   Z=0   GUID=391727af-6d76-440c-9c46-4bccfa86dc28
+   UniqueName=116   IsAuto=No   IsSpecial=No   X=260   Y=0   Z=0   GUID=0ad052a3-a528-44d8-9c5c-a486958fa444
+   UniqueName=117   IsAuto=No   IsSpecial=No   X=260   Y=20   Z=0   GUID=d7f99537-212f-4fc2-99fa-8859c4b8de0b
+   UniqueName=118   IsAuto=No   IsSpecial=No   X=260   Y=40   Z=0   GUID=a5d28e30-971a-448a-90d0-3c037a680c05
+   UniqueName=119   IsAuto=No   IsSpecial=No   X=260   Y=60   Z=0   GUID=5f4216d9-74d5-413f-bae0-a9a156307664
+   UniqueName=120   IsAuto=No   IsSpecial=No   X=260   Y=80   Z=0   GUID=36ce5ec3-8504-4c76-99bd-445b75bd90a9
+   UniqueName=121   IsAuto=No   IsSpecial=No   X=260   Y=100   Z=0   GUID=a6122662-910c-43b0-b176-bc5125f4ece0
+   UniqueName=122   IsAuto=No   IsSpecial=No   X=260   Y=120   Z=0   GUID=75685abc-7761-4c22-a210-cf4534276dd2
+   UniqueName=123   IsAuto=No   IsSpecial=No   X=260   Y=140   Z=0   GUID=d1bcd976-7bf4-4e95-a3f4-f7353c53b5ad
+   UniqueName=124   IsAuto=No   IsSpecial=No   X=260   Y=160   Z=0   GUID=7415b53f-9333-46cd-a5c5-ba2b5772e882
+   UniqueName=125   IsAuto=No   IsSpecial=No   X=260   Y=180   Z=0   GUID=a267b128-0771-449b-bb07-e9c32ff41f31
+   UniqueName=126   IsAuto=No   IsSpecial=No   X=260   Y=200   Z=0   GUID=d7830701-d8ed-4fe4-a4f4-579076b1608c
+   UniqueName=127   IsAuto=No   IsSpecial=No   X=260   Y=220   Z=0   GUID=5ab64de1-247e-4894-90ab-a3fe201ebe2c
+   UniqueName=128   IsAuto=No   IsSpecial=No   X=260   Y=240   Z=0   GUID=4acd6dd9-efbf-4a3f-adc4-301fcdaeadd0
+   UniqueName=129   IsAuto=No   IsSpecial=No   X=300   Y=0   Z=0   GUID=66b302f2-7d92-4b97-b596-c17eb0112359
+   UniqueName=130   IsAuto=No   IsSpecial=No   X=300   Y=20   Z=0   GUID=5276f761-a93d-4137-8178-6c41f32c93e3
+   UniqueName=131   IsAuto=No   IsSpecial=No   X=300   Y=40   Z=0   GUID=9c6b2476-48a7-4943-bb07-980b2f5ddcf9
+   UniqueName=132   IsAuto=No   IsSpecial=No   X=300   Y=60   Z=0   GUID=8e22de02-966f-4777-bd8c-e553fa4c2268
+   UniqueName=133   IsAuto=No   IsSpecial=No   X=300   Y=80   Z=0   GUID=147f49e7-015d-4db0-af92-4ceae7aa27c4
+   UniqueName=134   IsAuto=No   IsSpecial=No   X=300   Y=100   Z=0   GUID=d1b23181-72cc-40a8-94d4-4da647660c93
+   UniqueName=135   IsAuto=No   IsSpecial=No   X=300   Y=120   Z=0   GUID=4a05f870-f3c1-492f-83ac-db18ad7ec6b4
+   UniqueName=136   IsAuto=No   IsSpecial=No   X=300   Y=140   Z=0   GUID=51f0f6bd-b353-484f-836a-918e26245abf
+   UniqueName=137   IsAuto=No   IsSpecial=No   X=300   Y=160   Z=0   GUID=d2d38c66-02b9-4061-88c0-15a8ae91a086
+   UniqueName=138   IsAuto=No   IsSpecial=No   X=300   Y=180   Z=0   GUID=c804a8bd-fda0-4f31-b974-d84bfdb5e8fc
+   UniqueName=139   IsAuto=No   IsSpecial=No   X=300   Y=200   Z=0   GUID=bc59c593-926e-4d4f-b62b-42352bd8bdd6
+   UniqueName=140   IsAuto=No   IsSpecial=No   X=300   Y=220   Z=0   GUID=a29d5879-9a70-45fb-ac49-f75da5329831
+   UniqueName=141   IsAuto=No   IsSpecial=No   X=300   Y=240   Z=0   GUID=4519fccc-1a4d-409a-b8b2-6359f9c54302
+   UniqueName=142   IsAuto=No   IsSpecial=No   X=320   Y=0   Z=0   GUID=0ac9b851-5760-40a7-80af-2a293804891e
+   UniqueName=143   IsAuto=No   IsSpecial=No   X=320   Y=20   Z=0   GUID=04feac85-934e-4d70-a92c-cf613a5c3b45
+   UniqueName=144   IsAuto=No   IsSpecial=No   X=320   Y=40   Z=0   GUID=a2106a2f-e0e8-4db4-a17d-b0635048acb8
+   UniqueName=145   IsAuto=No   IsSpecial=No   X=320   Y=60   Z=0   GUID=41d2a84a-b950-4a18-be0e-c9ea3d0630c5
+   UniqueName=146   IsAuto=No   IsSpecial=No   X=320   Y=80   Z=0   GUID=344c4e9c-b8b0-4421-8476-1bfed3a07228
+   UniqueName=147   IsAuto=No   IsSpecial=No   X=320   Y=100   Z=0   GUID=eacf400f-7fac-4f97-9990-55cf527d46ea
+   UniqueName=148   IsAuto=No   IsSpecial=No   X=320   Y=120   Z=0   GUID=0fd297f6-1d38-44ea-af24-aa9f66f77d9e
+   UniqueName=149   IsAuto=No   IsSpecial=No   X=320   Y=140   Z=0   GUID=94b83065-f1e8-43ef-8a17-b8e5933ee2cd
+   UniqueName=150   IsAuto=No   IsSpecial=No   X=320   Y=160   Z=0   GUID=604e72d9-7fa5-421a-800c-d5cb6e6a542e
+   UniqueName=151   IsAuto=No   IsSpecial=No   X=320   Y=180   Z=0   GUID=50cc94c5-8b2a-4354-bcba-b242e5c1f11f
+   UniqueName=152   IsAuto=No   IsSpecial=No   X=320   Y=200   Z=0   GUID=61ced49e-e5b2-4365-b2c3-4abb0a9c8656
+   UniqueName=153   IsAuto=No   IsSpecial=No   X=320   Y=220   Z=0   GUID=4a3d7d12-2696-4c43-a5df-761fdac26581
+   UniqueName=154   IsAuto=No   IsSpecial=No   X=320   Y=240   Z=0   GUID=ef0f13ca-b408-44af-854c-cdf12966806c
+   UniqueName=155   IsAuto=No   IsSpecial=No   X=340   Y=0   Z=0   GUID=c40be05e-cb48-47bb-b98d-897823338e6f
+   UniqueName=156   IsAuto=No   IsSpecial=No   X=340   Y=20   Z=0   GUID=32141a85-97de-4157-9a4f-3590441b363b
+   UniqueName=157   IsAuto=No   IsSpecial=No   X=340   Y=40   Z=0   GUID=bf5a681f-38e5-4c1f-880d-54418f19c701
+   UniqueName=158   IsAuto=No   IsSpecial=No   X=340   Y=60   Z=0   GUID=2806cd21-866e-49a9-afb8-cc6cfb3dbb2b
+   UniqueName=159   IsAuto=No   IsSpecial=No   X=340   Y=80   Z=0   GUID=7f124519-e011-4cef-a690-526cf4580576
+   UniqueName=160   IsAuto=No   IsSpecial=No   X=340   Y=100   Z=0   GUID=171d21af-d56b-4859-8b51-538ac83b64d3
+   UniqueName=161   IsAuto=No   IsSpecial=No   X=340   Y=120   Z=0   GUID=31e6e4fd-b6d3-471a-b35e-7b4cba01191d
+   UniqueName=162   IsAuto=No   IsSpecial=No   X=340   Y=140   Z=0   GUID=00d854dc-c029-4d1e-a381-8350d1a5a998
+   UniqueName=163   IsAuto=No   IsSpecial=No   X=340   Y=160   Z=0   GUID=d98990b0-4711-42d5-859b-ae4165ceb720
+   UniqueName=164   IsAuto=No   IsSpecial=No   X=340   Y=180   Z=0   GUID=344a6f96-524f-4417-9350-7560e31fbcfe
+   UniqueName=165   IsAuto=No   IsSpecial=No   X=340   Y=200   Z=0   GUID=06e4c3ac-bcb7-4830-86e2-0e6293175f16
+   UniqueName=166   IsAuto=No   IsSpecial=No   X=340   Y=220   Z=0   GUID=eea944bd-2224-4659-ba71-d91a7f3d3158
+   UniqueName=167   IsAuto=No   IsSpecial=No   X=340   Y=240   Z=0   GUID=ee671d99-5a39-4d52-97ad-cb5fab48f3cf
+   UniqueName=168   IsAuto=No   IsSpecial=No   X=360   Y=20   Z=0   GUID=0f11cfe8-5907-4f29-aaff-849a67d15aa3
+   UniqueName=169   IsAuto=No   IsSpecial=No   X=360   Y=40   Z=0   GUID=75e031d4-9fe9-47af-81c9-d83569bea228
+   UniqueName=170   IsAuto=No   IsSpecial=No   X=360   Y=60   Z=0   GUID=440f640f-84e9-4a63-baa7-9bd1611f2c0d
+   UniqueName=171   IsAuto=No   IsSpecial=No   X=360   Y=80   Z=0   GUID=6f5f468d-f42e-4c8f-aea8-a88efd42365e
+   UniqueName=172   IsAuto=No   IsSpecial=No   X=360   Y=100   Z=0   GUID=1af360d0-327d-42cf-8df3-64c4109a1d20
+   UniqueName=173   IsAuto=No   IsSpecial=No   X=360   Y=140   Z=0   GUID=b8aa814e-360d-4237-8888-ec957c5ca125
+   UniqueName=174   IsAuto=No   IsSpecial=No   X=360   Y=160   Z=0   GUID=9ca8e6c1-8096-4a66-b595-b41e6f9bfbc2
+   UniqueName=175   IsAuto=No   IsSpecial=No   X=360   Y=180   Z=0   GUID=bc9fb804-1781-46ee-a7ea-e7e68602e6de
+   UniqueName=176   IsAuto=No   IsSpecial=No   X=360   Y=200   Z=0   GUID=931fb588-1718-45aa-bf55-f9b7f3988cd0
+   UniqueName=177   IsAuto=No   IsSpecial=No   X=360   Y=220   Z=0   GUID=4d4c9cfe-4613-4351-a4bd-8801f41d14e2
+
+TABLE:  "Preferences - Graphics"
+   MaxFontSize=6   MinFontSize=3   MinSLineThick=1   MinPLineThick=4   AntiAliasing?=Yes   ConstantLineThick?=Yes   ShadingWithinElement?=No   AutoZoomStep=10   ShrinkFactor=70
+
+TABLE:  "Preferences - Tolerance"
+   MergeTol=0.1   MaxInclVertCol=1   MaxInclHorzBmFlr=20
+
+TABLE:  "Project Information"
+   ClientName="Example 3-Rectangular plate with two edges S/S ,third edge free and"   ProjectName="fourth clamped,20'x30'[SAFE analysis] - 12x12 mesh Units: kip-inch"
+
+TABLE:  "Reinforcing Bar Sizes"
+   Name=#2   Diameter=0.25   Area=0.05   GUID=d1a8e988-2415-4487-8d04-2532625b10a8
+   Name=#3   Diameter=0.375   Area=0.11   GUID=26c1ed91-7b32-4309-9e2e-b66d011652e5
+   Name=#4   Diameter=0.5   Area=0.2   GUID=dc5c1cf4-5b76-4bdd-a256-cd5a0aea6032
+   Name=#5   Diameter=0.625   Area=0.31   GUID=cb069ffc-00f9-48b6-83e3-fd86b262c2bf
+   Name=#6   Diameter=0.75   Area=0.44   GUID=055a14b1-a748-4a14-b29a-bd1f74618c32
+   Name=#7   Diameter=0.875   Area=0.6   GUID=2bc8ba62-3190-4ddd-b60a-3a9c8b9b4b5b
+   Name=#8   Diameter=1   Area=0.79   GUID=b4afaeb0-b74a-4b45-aacc-c49dc1db6337
+   Name=#9   Diameter=1.128   Area=1   GUID=6075843e-eef6-4a09-9049-cde8caf64596
+   Name=#10   Diameter=1.27   Area=1.27   GUID=bc5bfcb2-2b79-4ffb-a155-20aedbc4f89f
+   Name=#11   Diameter=1.41   Area=1.56   GUID=991a11b4-a7f5-4275-9801-f5f34a7d4502
+   Name=#14   Diameter=1.693   Area=2.25   GUID=3491ccda-56b9-4132-8604-bcc6249d4611
+   Name=#18   Diameter=2.257   Area=4   GUID=73546a56-e5d6-4fca-98bd-cf79ac718ac4
+
+TABLE:  "Slab Property Definitions"
+   Name=Slab   ModelType=Shell-Thick   PropType=Slab   Material=MAT1   Thickness=8   NotSizeType=User   NotUserSize=3.937   f11Mod=1   f22Mod=1   f12Mod=1   m11Mod=1   m22Mod=1   m12Mod=1   v13Mod=1   v23Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=d3816936-e4d2-489f-9fb0-7410a272bc57   Ortho=No
+
+TABLE:  "Spring Property Definitions - Area Springs"
+   Name=SOIL1   StiffOpt=User   SubModulus=0.1   NonlinOpt="Compression Only"   Color=Blue   GUID=856ff279-6f35-46d2-a7c9-9d791f1b7f7c
+
+TABLE:  "Spring Property Definitions - Line Springs"
+   Name=1   StiffOpt=User   VertStiff=1   RotStiff=1   NonlinOpt="None (Linear)"   Color=Yellow   GUID=034eab10-5407-4e01-a11b-bbb537bd3510
+   Name=2   StiffOpt=User   VertStiff=1   RotStiff=0   NonlinOpt="None (Linear)"   Color=Gray8Dark   GUID=82169f49-aa26-40fd-b8f1-01cb9ba0cf09
+   Name=LSPR1   StiffOpt=User   VertStiff=1   RotStiff=1   NonlinOpt="None (Linear)"   Color=Red   GUID=244947c5-ee89-4142-b99a-258cec09c1fa
+
+TABLE:  "Spring Property Definitions - Point Springs"
+   Name=PSPR1   StiffUX=0   StiffUY=0   StiffUZ=1   StiffRX=0   StiffRY=0   StiffRZ=0   NonlinSpecOpt=Quick   NonlinOpt="None (Linear)"   Color=Yellow   GUID=395822db-7479-4990-bb7f-3c9a825b66b2
+
+TABLE:  "Strip Object Connectivity"
+   Name=3   NumSegs=1   StartPoint=5   EndPoint=6   WStartLeft=30   WStartRight=30   WEndLeft=30   WEndRight=30   AutoWiden=No   Layer=A   GUID=216ff54c-5614-4de6-a362-b64d72477e28
+   Name=4   NumSegs=1   StartPoint=7   EndPoint=8   WStartLeft=60   WStartRight=60   WEndLeft=60   WEndRight=60   AutoWiden=No   Layer=A   GUID=57cdadcf-8bdd-4bfd-8932-8210fcb57fcb
+   Name=5   NumSegs=1   StartPoint=9   EndPoint=10   WStartLeft=30   WStartRight=30   WEndLeft=30   WEndRight=30   AutoWiden=No   Layer=A   GUID=c6e0fb34-ab55-4cda-8a30-73f6e8aebeef
+   Name=6   NumSegs=1   StartPoint=11   EndPoint=12   WStartLeft=30   WStartRight=30   WEndLeft=30   WEndRight=30   AutoWiden=No   Layer=B   GUID=3fbba31e-793d-4ac4-9bc3-a91e9bae474c
+   Name=7   NumSegs=1   StartPoint=13   EndPoint=14   WStartLeft=120   WStartRight=120   WEndLeft=120   WEndRight=120   AutoWiden=No   Layer=B   GUID=e294f6f9-01eb-42fd-9d81-305747149640
+   Name=8   NumSegs=1   StartPoint=15   EndPoint=16   WStartLeft=30   WStartRight=30   WEndLeft=30   WEndRight=30   AutoWiden=No   Layer=B   GUID=d40f13e4-d1f0-4c26-a091-797e2b62d55a
+
+TABLE:  "Tendon Section Properties"
+   Name=Tendon1   Material=A416Gr270   StrandArea=0.15   Color=Blue   GUID=4fa7adec-cd26-44e1-8464-063fdd87eb37
+
+TABLE:  "Wall Property Definitions - Specified"
+   Name=WALL1   ModelType=Shell-Thin   Material=4000Psi   Thickness=12   RigidZone=No   NotSizeType=User   NotUserSize=3.937   f11Mod=1   f22Mod=1   f12Mod=1   m11Mod=1   m22Mod=1   m12Mod=1   v13Mod=1   v23Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=5409a4c5-9ff3-4d50-be9f-baecfba82760
+
+END TABLE DATA

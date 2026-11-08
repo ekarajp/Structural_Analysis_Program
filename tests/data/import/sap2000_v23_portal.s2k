@@ -1,0 +1,136 @@
+File C:\Models\portal.s2k was saved on m/d/yy at h:mm:ss
+
+TABLE:  "PROGRAM CONTROL"
+   ProgramName=SAP2000   Version=23.0.0   ProgLevel=Ultimate   LicenseNum=0   CurrUnits="KN, m, C"   SteelCode=AISC360-16   ConcCode="ACI 318-19"   AlumCode="AA 2015"   ColdCode=AISI-16   RegenHinge=Yes
+
+TABLE:  "ACTIVE DEGREES OF FREEDOM"
+   UX=Yes   UY=Yes   UZ=Yes   RX=Yes   RY=Yes   RZ=Yes
+
+TABLE:  "COORDINATE SYSTEMS"
+   Name=GLOBAL   Type=Cartesian   X=0   Y=0   Z=0   AboutZ=0   AboutY=0   AboutX=0
+
+TABLE:  "GRID LINES"
+   CoordSys=GLOBAL   AxisDir=X   GridID=A   XRYZCoord=0   LineType=Primary   LineColor=Gray8Dark   Visible=Yes   BubbleLoc=End
+   CoordSys=GLOBAL   AxisDir=X   GridID=B   XRYZCoord=6   LineType=Primary   LineColor=Gray8Dark   Visible=Yes   BubbleLoc=End
+   CoordSys=GLOBAL   AxisDir=Y   GridID=1   XRYZCoord=0   LineType=Primary   LineColor=Gray8Dark   Visible=Yes   BubbleLoc=Start
+   CoordSys=GLOBAL   AxisDir=Z   GridID=Z1   XRYZCoord=0   LineType=Primary   LineColor=Gray8Dark   Visible=Yes   BubbleLoc=End
+   CoordSys=GLOBAL   AxisDir=Z   GridID=Z2   XRYZCoord=4   LineType=Primary   LineColor=Gray8Dark   Visible=Yes   BubbleLoc=End
+
+TABLE:  "MATERIAL PROPERTIES 01 - GENERAL"
+   Material=4000Psi   Type=Concrete   Grade="f'c 4000 psi"   SymType=Isotropic   TempDepend=No   Color=Green   GUID=   Notes=
+   Material=A992Fy50   Type=Steel   Grade="Grade 50"   SymType=Isotropic   TempDepend=No   Color=Blue
+
+TABLE:  "MATERIAL PROPERTIES 02 - BASIC MECHANICAL PROPERTIES"
+   Material=4000Psi   UnitWeight=23.5631216161854   UnitMass=2.40276960558926   E1=24855578.2847654   G12=10356490.9519856   U12=0.2   A1=9.9E-06
+   Material=A992Fy50   UnitWeight=76.9728639422648   UnitMass=7.84904737995992   E1=199947978.795958   G12=76903068.7676762   U12=0.3   A1=1.17E-05
+
+TABLE:  "MATERIAL PROPERTIES 03B - CONCRETE DATA"
+   Material=4000Psi   Fc=27579.0291772935   eFc=27579.0291772935   LtWtConc=No   SSCurveOpt=Mander
+
+TABLE:  "FRAME SECTION PROPERTIES 01 - GENERAL"
+   SectionName=COL40   Material=4000Psi   Shape=Rectangular   t3=0.4   t2=0.4   Area=0.16   TorsConst=0.0036096   I33=0.00213333333333333   I22=0.00213333333333333   I23=0   AS2=0.133333333333333 _
+       AS3=0.133333333333333   S33=0.0106666666666667   S22=0.0106666666666667   Z33=0.016   Z22=0.016   R33=0.115470053837925   R22=0.115470053837925   EccV2=0   ConcCol=Yes   ConcBeam=No   Color=Yellow   TotalWt=0   TotalMass=0   FromFile=No   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1
+   SectionName=BM3060   Material=4000Psi   Shape=Rectangular   t3=0.6   t2=0.3   Area=0.18   TorsConst=0.00370800000000001   I33=0.0054   I22=0.00135   I23=0   AS2=0.15   AS3=0.15   S33=0.018   S22=0.009   Z33=0.027   Z22=0.0135   R33=0.173205080756888   R22=0.0866025403784439   EccV2=0   ConcCol=No   ConcBeam=Yes   Color=Cyan   FromFile=No   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=0.35   I3Mod=0.35   MMod=1   WMod=1
+
+TABLE:  "AREA SECTION PROPERTIES"
+   Section=SLAB20   Material=4000Psi   MatAngle=0   AreaType=Shell   Type=Shell-Thin   DrillDOF=Yes   Thickness=0.2   BendThick=0.2   Color=Red   F11Mod=1   F22Mod=1   F12Mod=1   M11Mod=1   M22Mod=1   M12Mod=1   V13Mod=1   V23Mod=1   MMod=1   WMod=1
+
+TABLE:  "JOINT COORDINATES"
+   Joint=1   CoordSys=GLOBAL   CoordType=Cartesian   XorR=0   Y=0   Z=0   SpecialJt=No   GlobalX=0   GlobalY=0   GlobalZ=0
+   Joint=2   CoordSys=GLOBAL   CoordType=Cartesian   XorR=0   Y=0   Z=4   SpecialJt=No   GlobalX=0   GlobalY=0   GlobalZ=4
+   Joint=3   CoordSys=GLOBAL   CoordType=Cartesian   XorR=6   Y=0   Z=0   SpecialJt=No   GlobalX=6   GlobalY=0   GlobalZ=0
+   Joint=4   CoordSys=GLOBAL   CoordType=Cartesian   XorR=6   Y=0   Z=4   SpecialJt=No   GlobalX=6   GlobalY=0   GlobalZ=4
+   Joint=5   CoordSys=GLOBAL   CoordType=Cartesian   XorR=6   Y=5   Z=4   SpecialJt=No   GlobalX=6   GlobalY=5   GlobalZ=4
+   Joint=6   CoordSys=GLOBAL   CoordType=Cartesian   XorR=0   Y=5   Z=4   SpecialJt=No   GlobalX=0   GlobalY=5   GlobalZ=4
+
+TABLE:  "JOINT RESTRAINT ASSIGNMENTS"
+   Joint=1   U1=Yes   U2=Yes   U3=Yes   R1=Yes   R2=Yes   R3=Yes
+   Joint=3   U1=Yes   U2=Yes   U3=Yes   R1=Yes   R2=Yes   R3=Yes
+   Joint=5   U1=No   U2=No   U3=Yes   R1=No   R2=No   R3=No
+   Joint=6   U1=No   U2=No   U3=Yes   R1=No   R2=No   R3=No
+
+TABLE:  "CONNECTIVITY - FRAME"
+   Frame=1   JointI=1   JointJ=2   IsCurved=No   Length=4   CentroidX=0   CentroidY=0   CentroidZ=2
+   Frame=2   JointI=3   JointJ=4   IsCurved=No   Length=4   CentroidX=6   CentroidY=0   CentroidZ=2
+   Frame=3   JointI=2   JointJ=4   IsCurved=No   Length=6   CentroidX=3   CentroidY=0   CentroidZ=4
+
+TABLE:  "FRAME SECTION ASSIGNMENTS"
+   Frame=1   SectionType=Rectangular   AutoSelect=N.A.   AnalSect=COL40   DesignSect=COL40   MatProp=Default
+   Frame=2   SectionType=Rectangular   AutoSelect=N.A.   AnalSect=COL40   DesignSect=COL40   MatProp=Default
+   Frame=3   SectionType=Rectangular   AutoSelect=N.A.   AnalSect=BM3060   DesignSect=BM3060   MatProp=Default
+
+TABLE:  "FRAME RELEASE ASSIGNMENTS 1 - GENERAL"
+   Frame=3   PI=No   V2I=No   V3I=No   TI=No   M2I=Yes   M3I=No   PJ=No   V2J=No   V3J=No   TJ=No   M2J=Yes   M3J=No   PartialFix=No
+
+TABLE:  "CONNECTIVITY - AREA"
+   Area=1   NumJoints=4   Joint1=2   Joint2=4   Joint3=5   Joint4=6   Perimeter=22   AreaArea=30   Volume=6   CentroidX=3   CentroidY=2.5   CentroidZ=4
+
+TABLE:  "AREA SECTION ASSIGNMENTS"
+   Area=1   Section=SLAB20   MatProp=Default
+
+TABLE:  "LOAD PATTERN DEFINITIONS"
+   LoadPat=DEAD   DesignType=Dead   SelfWtMult=1
+   LoadPat=LIVE   DesignType=Live   SelfWtMult=0
+   LoadPat=WIND   DesignType=Wind   SelfWtMult=0   AutoLoad=None
+
+TABLE:  "JOINT LOADS - FORCE"
+   Joint=2   LoadPat=WIND   CoordSys=GLOBAL   F1=20   F2=0   F3=0   M1=0   M2=0   M3=0
+
+TABLE:  "FRAME LOADS - DISTRIBUTED"
+   Frame=3   LoadPat=LIVE   CoordSys=GLOBAL   Type=Force   Dir=Gravity   DistType=RelDist   RelDistA=0   RelDistB=1   AbsDistA=0   AbsDistB=6   FOverLA=10   FOverLB=10
+
+TABLE:  "FRAME LOADS - POINT"
+   Frame=3   LoadPat=LIVE   CoordSys=GLOBAL   Type=Force   Dir=Gravity   DistType=RelDist   RelDist=0.5   AbsDist=3   Force=30
+
+TABLE:  "AREA LOADS - UNIFORM"
+   Area=1   LoadPat=LIVE   CoordSys=GLOBAL   Dir=Gravity   UnifLoad=2
+
+TABLE:  "LOAD CASE DEFINITIONS"
+   Case=DEAD   Type=LinStatic   InitialCond=Zero   DesTypeOpt="Prog Det"   DesignType=Dead   DesActOpt="Prog Det"   DesignAct=Non-Composite   AutoType=None   RunCase=Yes   CaseStatus="Not Run"   GUID=
+   Case=MODAL   Type=LinModal   InitialCond=Zero   DesTypeOpt="Prog Det"   DesignType=Other   AutoType=None   RunCase=Yes
+   Case=LIVE   Type=LinStatic   InitialCond=Zero   DesTypeOpt="Prog Det"   DesignType=Live   AutoType=None   RunCase=Yes
+   Case=WIND   Type=LinStatic   InitialCond=Zero   DesTypeOpt="Prog Det"   DesignType=Wind   AutoType=None   RunCase=Yes
+   Case=RSX   Type=LinRespSpec   InitialCond=Zero   DesTypeOpt="Prog Det"   DesignType=Quake   AutoType=None   RunCase=Yes
+   Case=PDL   Type=NonStatic   InitialCond=Zero   DesTypeOpt="Prog Det"   DesignType=Dead   AutoType=None   RunCase=Yes
+
+TABLE:  "CASE - STATIC 1 - LOAD ASSIGNMENTS"
+   Case=DEAD   LoadType="Load pattern"   LoadName=DEAD   LoadSF=1
+   Case=LIVE   LoadType="Load pattern"   LoadName=LIVE   LoadSF=1
+   Case=WIND   LoadType="Load pattern"   LoadName=WIND   LoadSF=1
+   Case=PDL   LoadType="Load pattern"   LoadName=DEAD   LoadSF=1.2
+   Case=PDL   LoadType="Load pattern"   LoadName=LIVE   LoadSF=1.6
+
+TABLE:  "CASE - STATIC 2 - NONLINEAR LOAD APPLICATION"
+   Case=PDL   LoadApp="Full Load"   MonitorDOF=U1   MonitorJt=2
+
+TABLE:  "CASE - STATIC 4 - NONLINEAR PARAMETERS"
+   Case=PDL   Unloading="Unload Entire"   GeoNonLin=P-Delta   ResultsSave="Final State"   MaxTotal=200   MaxNull=50
+
+TABLE:  "CASE - MODAL 1 - GENERAL"
+   Case=MODAL   ModeType=Eigen   MaxNumModes=6   MinNumModes=1   EigenShift=0   EigenCutoff=0   EigenTol=1E-09   AutoShift=Yes
+
+TABLE:  "CASE - RESPONSE SPECTRUM 1 - GENERAL"
+   Case=RSX   ModalCombo=CQC   GMCf1=1   GMCf2=0   PerRigid=SRSS   DirCombo=SRSS   ModalCase=MODAL   DampingType=Constant   ConstDamp=0.05   EccenRatio=0
+
+TABLE:  "CASE - RESPONSE SPECTRUM 2 - LOAD ASSIGNMENTS"
+   Case=RSX   LoadType=Acceleration   LoadName=U1   CoordSys=GLOBAL   Function=FUNC1   Angle=0   TransAccSF=9.80665
+
+TABLE:  "FUNCTION - RESPONSE SPECTRUM - USER"
+   Name=FUNC1   Period=0   Accel=0.4   FuncDamp=0.05
+   Name=FUNC1   Period=0.5   Accel=1
+   Name=FUNC1   Period=1   Accel=0.6
+   Name=FUNC1   Period=4   Accel=0.15
+
+TABLE:  "COMBINATION DEFINITIONS"
+   ComboName=ULS1   ComboType="Linear Add"   AutoDesign=No   CaseType="Linear Static"   CaseName=DEAD   ScaleFactor=1.2   SteelDesign=Strength   ConcDesign=Strength
+   ComboName=ULS1   CaseType="Linear Static"   CaseName=LIVE   ScaleFactor=1.6
+   ComboName=ENV   ComboType=Envelope   AutoDesign=No   CaseType="Response Combo"   CaseName=ULS1   ScaleFactor=1
+   ComboName=ENV   CaseType="Linear Static"   CaseName=WIND   ScaleFactor=1
+
+TABLE:  "MASS SOURCE"
+   MassSource=MSSSRC1   Elements=Yes   Masses=Yes   Loads=Yes   IsDefault=Yes   LoadPat=LIVE   Multiplier=0.25
+
+TABLE:  "JOINT DISPLACEMENTS"
+   Joint=2   OutputCase=DEAD   CaseType=LinStatic   U1=0   U2=0   U3=0   R1=0   R2=0   R3=0
+
+END TABLE DATA

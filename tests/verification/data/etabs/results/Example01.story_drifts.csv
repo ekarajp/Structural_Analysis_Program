@@ -1,0 +1,5 @@
+"Story","Case","StepType","StepNum","Direction","Drift","Label","X","Y","Z"
+"1ST     ","I","Single Value","0","X","5.73263135340336E-19","C3","432","0","120"
+"1ST     ","II","Single Value","0","X","2.29139429237096E-18","C3","432","0","120"
+"1ST     ","COMB1","Single Value","0","X","5.73263135340336E-19","C3","432","0","120"
+"1ST     ","COMB2","Single Value","0","X","2.29139429237096E-18","C3","432","0","120"

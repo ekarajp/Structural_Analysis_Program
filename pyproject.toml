@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "structstudio"
+version = "0.1.0"
+description = "Structural Studio - object-based building analysis and design engine (Python-first, compiled-kernel-ready)"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+xcheck = ["openseespy>=3.5"]
+fast = ["pypardiso"]
+access = ["pyodbc>=5"]
+app = ["PySide6>=6.6", "vtk>=9.3", "openpyxl>=3.1"]
+
+[project.scripts]
+structstudio = "structstudio.cli:main"
+structstudio-app = "structstudio.app.main:main"
+
+[tool.setuptools.packages.find]
+include = ["structstudio*"]
+
+[tool.setuptools.package-data]
+"structstudio.io" = ["*.ps1"]
+"structstudio.catalog" = ["data/*.csv", "data/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

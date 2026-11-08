@@ -1,0 +1,236 @@
+"""Small geometry helpers used by the mesher and the engine."""
+from __future__ import annotations
+
+import math
+from typing import Optional, Tuple
+
+import numpy as np
+
+EZ = np.array([0.0, 0.0, 1.0])
+EX = np.array([1.0, 0.0, 0.0])
+VERTICAL_SINE = 1.0e-3  # CSI: element is vertical if sin(angle to Z) < 1e-3
+
+
+def unit(v: np.ndarray) -> np.ndarray:
+    n = np.linalg.norm(v)
+    if n == 0.0:
+        raise ValueError("zero-length vector")
+    return v / n
+
+
+def frame_axes(pi: np.ndarray, pj: np.ndarray, angle_deg: float = 0.0,
+               reference: Optional[np.ndarray] = None) -> np.ndarray:
+    """Local axes of a line element following the CSI default orientation.
+
+    * axis 1 from I to J;
+    * the 1-2 plane is vertical with axis 2 pointing upward (+Z sense);
+    * for vertical members axis 2 is +X (and 3 = +Y for a member pointing up);
+    * ``angle_deg`` rotates axes 2 and 3 about axis 1 (counter-clockwise when
+      +1 points toward the viewer).
+
+    Returns a (3, 3) array whose rows are the unit vectors of axes 1, 2, 3.
+    """
+    v1 = unit(np.asarray(pj, float) - np.asarray(pi, float))
+    if reference is not None:
+        ref = unit(np.asarray(reference, float))
+        v3 = np.cross(v1, ref)
+        if np.linalg.norm(v3) < 1e-9:
+            raise ValueError("reference vector parallel to the element")
+        v3 = unit(v3)
+        v2 = np.cross(v3, v1)
+    else:
+        sin_to_z = np.linalg.norm(np.cross(v1, EZ))
+        if sin_to_z < VERTICAL_SINE:
+            v2 = EX.copy()
+            v3 = unit(np.cross(v1, v2))
+            v2 = np.cross(v3, v1)
+        else:
+            v3 = unit(np.cross(v1, EZ))
+            v2 = np.cross(v3, v1)
+    if angle_deg:
+        a = math.radians(angle_deg)
+        c, s = math.cos(a), math.sin(a)
+        v2, v3 = c * v2 + s * v3, -s * v2 + c * v3
+    return np.vstack([v1, v2, v3])
+
+
+def transformed_axes(nominal: np.ndarray, new_v1: np.ndarray) -> np.ndarray:
+    """Re-derive local axes when the neutral axis direction changes due to
+    insertion points (CSI: v3~ = v1~ x v2, v2~ = v3~ x v1~)."""
+    v1 = unit(new_v1)
+    if np.allclose(v1, nominal[0], atol=1e-12):
+        return nominal
+    v3 = np.cross(v1, nominal[1])
+    if np.linalg.norm(v3) < 1e-9:
+        v3 = np.cross(v1, nominal[2])
+        v3 = unit(v3)
+        v2 = np.cross(v3, v1)
+        return np.vstack([v1, v2, v3])
+    v3 = unit(v3)
+    v2 = np.cross(v3, v1)
+    return np.vstack([v1, v2, v3])
+
+
+def point_on_segment(p: np.ndarray, a: np.ndarray, b: np.ndarray, tol: float) -> Optional[float]:
+    """Return the parameter t (0..1) if ``p`` lies on segment a-b (strictly
+    inside, away from the ends), otherwise ``None``."""
+    ab = b - a
+    L2 = float(ab @ ab)
+    if L2 == 0.0:
+        return None
+    t = float((p - a) @ ab) / L2
+    L = math.sqrt(L2)
+    if t * L <= tol or (1.0 - t) * L <= tol:
+        return None
+    closest = a + t * ab
+    if np.linalg.norm(p - closest) <= tol:
+        return t
+    return None
+
+
+def segment_intersection(a: np.ndarray, b: np.ndarray, c: np.ndarray, d: np.ndarray,
+                         tol: float) -> Optional[Tuple[float, float]]:
+    """Parameters (t, s) where segments a-b and c-d intersect in 3D (within
+    ``tol``), strictly inside both segments; ``None`` otherwise."""
+    u = b - a
+    v = d - c
+    w = a - c
+    uu, uv, vv = u @ u, u @ v, v @ v
+    uw, vw = u @ w, v @ w
+    den = uu * vv - uv * uv
+    if abs(den) <= 1e-12 * max(uu * vv, 1e-30):
+        return None  # parallel
+    t = (uv * vw - vv * uw) / den
+    s = (uu * vw - uv * uw) / den
+    Lu, Lv = math.sqrt(uu), math.sqrt(vv)
+    if t * Lu <= tol or (1 - t) * Lu <= tol or s * Lv <= tol or (1 - s) * Lv <= tol:
+        return None
+    gap = np.linalg.norm((a + t * u) - (c + s * v))
+    if gap > tol:
+        return None
+    return t, s
+
+
+def polygon_normal(pts: np.ndarray) -> np.ndarray:
+    """Newell's method normal of a planar polygon (rows = points)."""
+    n = np.zeros(3)
+    k = len(pts)
+    for i in range(k):
+        p, q = pts[i], pts[(i + 1) % k]
+        n[0] += (p[1] - q[1]) * (p[2] + q[2])
+        n[1] += (p[2] - q[2]) * (p[0] + q[0])
+        n[2] += (p[0] - q[0]) * (p[1] + q[1])
+    return unit(n)
+
+
+def polygon_area(pts: np.ndarray) -> float:
+    n = np.zeros(3)
+    k = len(pts)
+    for i in range(k):
+        n += np.cross(pts[i], pts[(i + 1) % k])
+    return 0.5 * float(np.linalg.norm(n))
+
+
+def polygon_centroid(pts: np.ndarray) -> np.ndarray:
+    """Area centroid of a planar polygon."""
+    normal = polygon_normal(pts)
+    # build in-plane 2D coordinates
+    e1 = unit(pts[1] - pts[0])
+    e2 = np.cross(normal, e1)
+    origin = pts[0]
+    uv = np.array([[(p - origin) @ e1, (p - origin) @ e2] for p in pts])
+    a = 0.0
+    cx = cy = 0.0
+    k = len(uv)
+    for i in range(k):
+        x0, y0 = uv[i]
+        x1, y1 = uv[(i + 1) % k]
+        cross = x0 * y1 - x1 * y0
+        a += cross
+        cx += (x0 + x1) * cross
+        cy += (y0 + y1) * cross
+    if abs(a) < 1e-30:
+        return pts.mean(axis=0)
+    a *= 0.5
+    cx /= 6.0 * a
+    cy /= 6.0 * a
+    return origin + cx * e1 + cy * e2
+
+
+def shell_axes(pts: np.ndarray, angle_deg: float = 0.0) -> np.ndarray:
+    """Default local axes for an area element (CSI convention).
+
+    Axis 3 is the outward normal from the node ordering.  Axis 1 is the
+    projection of global +X onto the element plane unless the element is
+    vertical... CSI rule: local 1 is horizontal (in the X-Y plane) and the 1-2
+    plane contains the normal; for horizontal elements local 1 = +X.
+    """
+    v3 = polygon_normal(pts)
+    if abs(v3 @ EZ) > 1.0 - 1e-6:  # horizontal element
+        v1 = EX.copy()
+        v2 = np.cross(v3, v1)
+    else:
+        v2 = unit(np.cross(v3, np.cross(EZ, v3)))  # in plane, projection of Z
+        if v2 @ EZ < 0:
+            v2 = -v2
+        v1 = np.cross(v2, v3)
+    if angle_deg:
+        a = math.radians(angle_deg)
+        c, s = math.cos(a), math.sin(a)
+        v1, v2 = c * v1 + s * v2, -s * v1 + c * v2
+    return np.vstack([v1, v2, v3])
+
+
+def skew(v: np.ndarray) -> np.ndarray:
+    return np.array([[0.0, -v[2], v[1]], [v[2], 0.0, -v[0]], [-v[1], v[0], 0.0]])
+
+
+def polygon_polar_inertia(pts: np.ndarray, about: np.ndarray) -> float:
+    """Polar second moment of area (per unit thickness) of a planar polygon
+    about the axis normal to its plane through point ``about``."""
+    normal = polygon_normal(pts)
+    e1 = unit(pts[1] - pts[0])
+    e2 = np.cross(normal, e1)
+    uv = np.array([[(p - about) @ e1, (p - about) @ e2] for p in pts])
+    k = len(uv)
+    ixx = iyy = 0.0
+    for i in range(k):
+        x0, y0 = uv[i]
+        x1, y1 = uv[(i + 1) % k]
+        cross = x0 * y1 - x1 * y0
+        ixx += (y0 * y0 + y0 * y1 + y1 * y1) * cross
+        iyy += (x0 * x0 + x0 * x1 + x1 * x1) * cross
+    return abs(ixx + iyy) / 12.0
+
+
+def quad_tributary_areas(quad: np.ndarray) -> np.ndarray:
+    """Consistent (shape-function integrated) tributary areas of the four
+    nodes of a planar quadrilateral."""
+    normal = polygon_normal(quad)
+    e1 = unit(quad[1] - quad[0])
+    e2 = np.cross(normal, e1)
+    xy = np.array([[(p - quad[0]) @ e1, (p - quad[0]) @ e2] for p in quad])
+    g = 1.0 / math.sqrt(3.0)
+    trib = np.zeros(4)
+    for xi in (-g, g):
+        for eta in (-g, g):
+            N = 0.25 * np.array([(1 - xi) * (1 - eta), (1 + xi) * (1 - eta), (1 + xi) * (1 + eta), (1 - xi) * (1 + eta)])
+            dN = 0.25 * np.array([[-(1 - eta), 1 - eta, 1 + eta, -(1 + eta)], [-(1 - xi), -(1 + xi), 1 + xi, 1 - xi]])
+            det = abs(np.linalg.det(dN @ xy))
+            trib += N * det
+    return trib
+
+
+def joint_axes(a_deg: float = 0.0, b_deg: float = 0.0, c_deg: float = 0.0) -> np.ndarray:
+    """Joint local axes from the CSI joint angles (rows = local 1, 2, 3 in global):
+    starting from the global axes, rotate by ``a`` about +3, then by ``b`` about the
+    resulting +2, then by ``c`` about the resulting +1 (right-hand rule)."""
+    e1, e2, e3 = np.eye(3)
+    a, b, c = (math.radians(v or 0.0) for v in (a_deg, b_deg, c_deg))
+    if a:
+        e1, e2 = math.cos(a) * e1 + math.sin(a) * e2, -math.sin(a) * e1 + math.cos(a) * e2
+    if b:
+        e3, e1 = math.cos(b) * e3 + math.sin(b) * e1, -math.sin(b) * e3 + math.cos(b) * e1
+    if c:
+        e2, e3 = math.cos(c) * e2 + math.sin(c) * e3, -math.sin(c) * e2 + math.cos(c) * e3
+    return np.vstack([e1, e2, e3])

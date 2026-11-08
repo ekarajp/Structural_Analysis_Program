@@ -1,0 +1,421 @@
+File E:\REA ETABS\studio\tests\verification\data\safe\S06a-Thick.$sf was saved on 6/11/2569 at 1:35:13
+ 
+TABLE:  "ANALYSIS MODELING OPTIONS"
+   "Two Dimensional Only"="Yes"   "Rigid Diaphragm At Top"="No"   "Ignore Vertical Offsets"="Yes"
+ 
+TABLE:  "ANALYSIS OPTIONS - AUTOMATIC MESH SETTINGS FOR FLOORS"
+   "Mesh Option"="Rectangular"   "Use Localized Meshing"="Yes"   "Merge Joints"="Yes"   "Maximum Mesh Size"="48"
+ 
+TABLE:  "ANALYSIS OPTIONS - AUTOMATIC RECTANGULAR MESH OPTIONS FOR WALLS"
+   "Maximum Mesh Size"="48"
+ 
+TABLE:  "ANALYSIS OPTIONS - CRACKING ANALYSIS OPTIONS"
+   "Reinforcement Source"="User and Designed"   "Minimum Tension Ratio"="0.0018"   "Minimum Compression Ratio"="0"
+ 
+TABLE:  "ANALYSIS OPTIONS - DESIGN AND RESPONSE RECOVERY OPTIONS"
+   "Number Design Threads"="0"   "Number Recovery Threads"="0"   "Use Memory Mapped Files"="Program Determined"   "Allow Model Differences"="No"
+ 
+TABLE:  "ANALYSIS OPTIONS - SAPFIRE OPTIONS"
+   "Solver Option"="Advanced"   "Analysis Process"="Auto"   "Number Analysis Threads"="0"   "Max File Size"="0"
+ 
+TABLE:  "AREA ASSIGNMENTS - AREA SPRINGS"
+   UniqueName="2"   "Spring Property"="1"
+   UniqueName="3"   "Spring Property"="1"
+   UniqueName="4"   "Spring Property"="1"
+   UniqueName="5"   "Spring Property"="1"
+   UniqueName="6"   "Spring Property"="1"
+   UniqueName="7"   "Spring Property"="1"
+   UniqueName="8"   "Spring Property"="1"
+   UniqueName="9"   "Spring Property"="1"
+   UniqueName="10"   "Spring Property"="1"
+   UniqueName="11"   "Spring Property"="1"
+   UniqueName="12"   "Spring Property"="1"
+   UniqueName="13"   "Spring Property"="1"
+   UniqueName="14"   "Spring Property"="1"
+   UniqueName="15"   "Spring Property"="1"
+   UniqueName="16"   "Spring Property"="1"
+   UniqueName="17"   "Spring Property"="1"
+ 
+TABLE:  "AREA ASSIGNMENTS - AUTO EDGE CONSTRAINTS"
+   UniqueName="2"   Constraint="Yes"
+   UniqueName="3"   Constraint="Yes"
+   UniqueName="4"   Constraint="Yes"
+   UniqueName="5"   Constraint="Yes"
+   UniqueName="6"   Constraint="Yes"
+   UniqueName="7"   Constraint="Yes"
+   UniqueName="8"   Constraint="Yes"
+   UniqueName="9"   Constraint="Yes"
+   UniqueName="10"   Constraint="Yes"
+   UniqueName="11"   Constraint="Yes"
+   UniqueName="12"   Constraint="Yes"
+   UniqueName="13"   Constraint="Yes"
+   UniqueName="14"   Constraint="Yes"
+   UniqueName="15"   Constraint="Yes"
+   UniqueName="16"   Constraint="Yes"
+   UniqueName="17"   Constraint="Yes"
+ 
+TABLE:  "AREA ASSIGNMENTS - FLOOR AUTO MESH OPTIONS"
+   UniqueName="2"   "Mesh Option"="Default"   "Add Restraints"="No"
+   UniqueName="3"   "Mesh Option"="Default"   "Add Restraints"="No"
+   UniqueName="4"   "Mesh Option"="Default"   "Add Restraints"="No"
+   UniqueName="5"   "Mesh Option"="Default"   "Add Restraints"="No"
+   UniqueName="6"   "Mesh Option"="Default"   "Add Restraints"="No"
+   UniqueName="7"   "Mesh Option"="Default"   "Add Restraints"="No"
+   UniqueName="8"   "Mesh Option"="Default"   "Add Restraints"="No"
+   UniqueName="9"   "Mesh Option"="Default"   "Add Restraints"="No"
+   UniqueName="10"   "Mesh Option"="Default"   "Add Restraints"="No"
+   UniqueName="11"   "Mesh Option"="Default"   "Add Restraints"="No"
+   UniqueName="12"   "Mesh Option"="Default"   "Add Restraints"="No"
+   UniqueName="13"   "Mesh Option"="Default"   "Add Restraints"="No"
+   UniqueName="14"   "Mesh Option"="Default"   "Add Restraints"="No"
+   UniqueName="15"   "Mesh Option"="Default"   "Add Restraints"="No"
+   UniqueName="16"   "Mesh Option"="Default"   "Add Restraints"="No"
+   UniqueName="17"   "Mesh Option"="Default"   "Add Restraints"="No"
+ 
+TABLE:  "AREA ASSIGNMENTS - INSERTION POINT"
+   UniqueName="2"   "Cardinal Point"="Top"   Transform="No"
+   UniqueName="3"   "Cardinal Point"="Top"   Transform="No"
+   UniqueName="4"   "Cardinal Point"="Top"   Transform="No"
+   UniqueName="5"   "Cardinal Point"="Top"   Transform="No"
+   UniqueName="6"   "Cardinal Point"="Top"   Transform="No"
+   UniqueName="7"   "Cardinal Point"="Top"   Transform="No"
+   UniqueName="8"   "Cardinal Point"="Top"   Transform="No"
+   UniqueName="9"   "Cardinal Point"="Top"   Transform="No"
+   UniqueName="10"   "Cardinal Point"="Top"   Transform="No"
+   UniqueName="11"   "Cardinal Point"="Top"   Transform="No"
+   UniqueName="12"   "Cardinal Point"="Top"   Transform="No"
+   UniqueName="13"   "Cardinal Point"="Top"   Transform="No"
+   UniqueName="14"   "Cardinal Point"="Top"   Transform="No"
+   UniqueName="15"   "Cardinal Point"="Top"   Transform="No"
+   UniqueName="16"   "Cardinal Point"="Top"   Transform="No"
+   UniqueName="17"   "Cardinal Point"="Top"   Transform="No"
+ 
+TABLE:  "AREA ASSIGNMENTS - SECTION PROPERTIES"
+   UniqueName="2"   "Section Property"="SLAB"   "Property Type"="Slab"
+   UniqueName="3"   "Section Property"="SLAB"   "Property Type"="Slab"
+   UniqueName="4"   "Section Property"="SLAB"   "Property Type"="Slab"
+   UniqueName="5"   "Section Property"="SLAB"   "Property Type"="Slab"
+   UniqueName="6"   "Section Property"="SLAB"   "Property Type"="Slab"
+   UniqueName="7"   "Section Property"="SLAB"   "Property Type"="Slab"
+   UniqueName="8"   "Section Property"="SLAB"   "Property Type"="Slab"
+   UniqueName="9"   "Section Property"="SLAB"   "Property Type"="Slab"
+   UniqueName="10"   "Section Property"="SLAB"   "Property Type"="Slab"
+   UniqueName="11"   "Section Property"="SLAB"   "Property Type"="Slab"
+   UniqueName="12"   "Section Property"="SLAB"   "Property Type"="Slab"
+   UniqueName="13"   "Section Property"="SLAB"   "Property Type"="Slab"
+   UniqueName="14"   "Section Property"="SLAB"   "Property Type"="Slab"
+   UniqueName="15"   "Section Property"="SLAB"   "Property Type"="Slab"
+   UniqueName="16"   "Section Property"="SLAB"   "Property Type"="Slab"
+   UniqueName="17"   "Section Property"="SLAB"   "Property Type"="Slab"
+ 
+TABLE:  "COMPOSITE BEAM DESIGN PREFERENCES - AISC 360-16"
+   Shored?="No"   "Middle Range"="7"   "Pattern Live Load Factor"="0.75"   "D/C Ratio Limit"="1"   "Consider Axial Force?"="No"   "Minimum PCC"="25"   "Maximum PCC"="1"   "Single Segment?"="No"   "Min. Long. Spacing"="4.5" _
+        "Max. Long. Spacing"="36"   "Min. Trans. Spacing"="3"   "Max. Studs Per Row"="3"   "Position of Studs"="Middle of the Ribs"   Camber?="Yes"   "Camber DL"="8"   "Min. Beam Depth"="13.5"   "Min. Web Thick."="0.25" _
+        "Min. Beam Span"="288"   "Min. Camber, abs"="0.75"   "Minimum Camber, L/"="9"   "Camber Abs. Max Limit"="6"   "Camber Max Ratio"="18"   "Camber Interval"="0.25"   "Round Camber Down?"="Yes"   "Pre-Comp DL Ratio"="0" _
+        "SDL+LL Ratio"="24"   "LL Ratio"="36"   "Net Ratio"="24"   "Ieff reduction Factor"="1"   "Vibration Criterion"="Walking"   "Occupancy Category"="Paper Office"   "Walking Acceleration Limit, a0/g"="0.005" _
+        "Damping Ratio - Walking"="0.025"   "Optimize Price?"="Yes"   "Steel Price ($)"="1"   "Stud Price ($)"="2"   "Camber Price ($)"="1"   phi-b="0.9"   phi-bcpp="0.9"   phi-v="0.9"   "Reaction Factor"="1"
+ 
+TABLE:  "CONCRETE DESIGN PREFERENCES - ACI 318-08"
+   PhiTen="0.9"   PhiComp="0.65"   PhiShear="0.75"   "Ignore Pu?"="No"   "Pattern Live Load Factor"="0.75"   CoverTop="0.75"   CoverBot="0.75"   BarSize="#6"   InnerLayer="Layer B"   PTCGSTop="1"   PTCGSBotExt="1.75"   PTCGSBotInt="1" _
+        SlabType="Two Way"   "Cover Beam Top"="1.5"   "Cover Beam Bottom"="1.5"   "Bar Size Beam Flexure"="#9"   "Bar Size Beam Shear"="#4"   "PTCGS Beam Top"="2"   "PTCGS Beam Bottom"="2"   UserStress="Yes"   InitConcRat="0.8" _
+        InitTopTen="3"   InitBotTen="3"   InitExComp="0.6"   FinTopTen="6"   FinBotTen="6"   FinExComp="0.6"   SusExComp="0.45"   LLFraction="0.5"
+ 
+TABLE:  "CONCRETE SLAB DESIGN LOAD COMBINATION DATA"
+   "Combo Type"="Strength"   "Combo Name"="DCON1"
+   "Combo Type"="Strength"   "Combo Name"="DCON2"
+ 
+TABLE:  "CONCRETE SLAB DESIGN OVERWRITES - FINITE ELEMENT BASED"
+   "Unique Name"="2"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"   Design?="Yes"   "Ignote PT?"="No"
+   "Unique Name"="3"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"   Design?="Yes"   "Ignote PT?"="No"
+   "Unique Name"="4"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"   Design?="Yes"   "Ignote PT?"="No"
+   "Unique Name"="5"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"   Design?="Yes"   "Ignote PT?"="No"
+   "Unique Name"="6"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"   Design?="Yes"   "Ignote PT?"="No"
+   "Unique Name"="7"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"   Design?="Yes"   "Ignote PT?"="No"
+   "Unique Name"="8"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"   Design?="Yes"   "Ignote PT?"="No"
+   "Unique Name"="9"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"   Design?="Yes"   "Ignote PT?"="No"
+   "Unique Name"="10"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"   Design?="Yes"   "Ignote PT?"="No"
+   "Unique Name"="11"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"   Design?="Yes"   "Ignote PT?"="No"
+   "Unique Name"="12"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"   Design?="Yes"   "Ignote PT?"="No"
+   "Unique Name"="13"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"   Design?="Yes"   "Ignote PT?"="No"
+   "Unique Name"="14"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"   Design?="Yes"   "Ignote PT?"="No"
+   "Unique Name"="15"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"   Design?="Yes"   "Ignote PT?"="No"
+   "Unique Name"="16"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"   Design?="Yes"   "Ignote PT?"="No"
+   "Unique Name"="17"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"   Design?="Yes"   "Ignote PT?"="No"
+ 
+TABLE:  "CONCRETE SLAB DESIGN OVERWRITES - STRIP BASED"
+   "Strip Name"="CSA1"   "Strip Layer"="A"   "Strip Design Type"="Column Strip"   Design?="Yes"   "Ignote PT?"="No"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"
+   "Strip Name"="CSA2"   "Strip Layer"="A"   "Strip Design Type"="Column Strip"   Design?="Yes"   "Ignote PT?"="No"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"
+   "Strip Name"="CSB1"   "Strip Layer"="B"   "Strip Design Type"="Column Strip"   Design?="Yes"   "Ignote PT?"="No"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"
+   "Strip Name"="CSB2"   "Strip Layer"="B"   "Strip Design Type"="Column Strip"   Design?="Yes"   "Ignote PT?"="No"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"
+   "Strip Name"="MSA1"   "Strip Layer"="A"   "Strip Design Type"="Column Strip"   Design?="Yes"   "Ignote PT?"="No"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"
+   "Strip Name"="MSB1"   "Strip Layer"="B"   "Strip Design Type"="Column Strip"   Design?="Yes"   "Ignote PT?"="No"   "Rebar Material"="A615Gr60"   "Cover Specification Type"="From Preferences"   LLRF="1"
+ 
+TABLE:  "FLOOR OBJECT CONNECTIVITY"
+   "Unique Name"="2"   UniquePt1="1"   UniquePt2="17"   UniquePt3="18"   UniquePt4="19"   GUID="ce742a0b-7edc-4bb9-8566-81bc21725d6d"
+   "Unique Name"="3"   UniquePt1="19"   UniquePt2="18"   UniquePt3="20"   UniquePt4="7"   GUID="c8f8be8b-1a03-45cd-a912-22701d883891"
+   "Unique Name"="4"   UniquePt1="7"   UniquePt2="20"   UniquePt3="21"   UniquePt4="22"   GUID="9242c3e2-28b5-4479-868c-147e605e6867"
+   "Unique Name"="5"   UniquePt1="22"   UniquePt2="21"   UniquePt3="23"   UniquePt4="4"   GUID="f3fff86f-15c3-4d97-9289-a6d551465799"
+   "Unique Name"="6"   UniquePt1="17"   UniquePt2="13"   UniquePt3="24"   UniquePt4="18"   GUID="32b1813e-f59a-4c5b-8b63-1a914fd1e3db"
+   "Unique Name"="7"   UniquePt1="18"   UniquePt2="24"   UniquePt3="25"   UniquePt4="20"   GUID="019a5f5f-30df-4d19-bf7b-d66b2797b221"
+   "Unique Name"="8"   UniquePt1="20"   UniquePt2="25"   UniquePt3="26"   UniquePt4="21"   GUID="088bb25b-633d-4250-a0f0-b75db77dec7f"
+   "Unique Name"="9"   UniquePt1="21"   UniquePt2="26"   UniquePt3="14"   UniquePt4="23"   GUID="118c7aed-65fe-4443-b851-a16b9e6dca16"
+   "Unique Name"="10"   UniquePt1="13"   UniquePt2="27"   UniquePt3="28"   UniquePt4="24"   GUID="397e346e-fa5a-486f-8507-1dabcf4b4b03"
+   "Unique Name"="11"   UniquePt1="24"   UniquePt2="28"   UniquePt3="29"   UniquePt4="25"   GUID="4cf79527-99a6-411a-8277-52aa351dc0c1"
+   "Unique Name"="12"   UniquePt1="25"   UniquePt2="29"   UniquePt3="30"   UniquePt4="26"   GUID="3c213611-fa00-42e5-89f1-d1d9f110c0e0"
+   "Unique Name"="13"   UniquePt1="26"   UniquePt2="30"   UniquePt3="31"   UniquePt4="14"   GUID="d1ad8997-0f63-4ccd-8717-25b3de88fc06"
+   "Unique Name"="14"   UniquePt1="27"   UniquePt2="2"   UniquePt3="32"   UniquePt4="28"   GUID="c3eeab79-34c4-495e-ac72-c8c7cddc2de8"
+   "Unique Name"="15"   UniquePt1="28"   UniquePt2="32"   UniquePt3="8"   UniquePt4="29"   GUID="3cd75a9e-39ab-4997-b3f6-c9e5f8b4da62"
+   "Unique Name"="16"   UniquePt1="29"   UniquePt2="8"   UniquePt3="33"   UniquePt4="30"   GUID="afc048d9-47cd-4e76-921a-bdc495dca770"
+   "Unique Name"="17"   UniquePt1="30"   UniquePt2="33"   UniquePt3="3"   UniquePt4="31"   GUID="812bd6d4-d9ee-4d81-8fab-951688733242"
+ 
+TABLE:  "FRAME ASSIGNMENTS - END LENGTH OFFSETS"
+   UniqueName="1"   "Offset Option"="User"   "Offset I"="0"   "Offset J"="0"   "Rigid Factor"="0"   "Self Weight Option"="Auto"
+   UniqueName="2"   "Offset Option"="User"   "Offset I"="0"   "Offset J"="0"   "Rigid Factor"="0"   "Self Weight Option"="Auto"
+   UniqueName="3"   "Offset Option"="User"   "Offset I"="0"   "Offset J"="0"   "Rigid Factor"="0"   "Self Weight Option"="Auto"
+   UniqueName="4"   "Offset Option"="User"   "Offset I"="0"   "Offset J"="0"   "Rigid Factor"="0"   "Self Weight Option"="Auto"
+ 
+TABLE:  "FRAME ASSIGNMENTS - FRAME AUTO MESH OPTIONS"
+   UniqueName="1"   "Auto Mesh"="Yes"   "At Intermediate Joints"="Yes"   "At Intersections"="Yes"   "Min Number?"="No"   "Max Length?"="Yes"   "Segment Length"="48"
+   UniqueName="2"   "Auto Mesh"="Yes"   "At Intermediate Joints"="Yes"   "At Intersections"="Yes"   "Min Number?"="No"   "Max Length?"="Yes"   "Segment Length"="48"
+   UniqueName="3"   "Auto Mesh"="Yes"   "At Intermediate Joints"="Yes"   "At Intersections"="Yes"   "Min Number?"="No"   "Max Length?"="Yes"   "Segment Length"="48"
+   UniqueName="4"   "Auto Mesh"="Yes"   "At Intermediate Joints"="Yes"   "At Intersections"="Yes"   "Min Number?"="No"   "Max Length?"="Yes"   "Segment Length"="48"
+ 
+TABLE:  "FRAME ASSIGNMENTS - INSERTION POINT"
+   UniqueName="1"   "Cardinal Point"="8 (Top Center)"   Mirror2="No"   Mirror3="No"   "No Transform Stiffness"="No"
+   UniqueName="2"   "Cardinal Point"="8 (Top Center)"   Mirror2="No"   Mirror3="No"   "No Transform Stiffness"="No"
+   UniqueName="3"   "Cardinal Point"="8 (Top Center)"   Mirror2="No"   Mirror3="No"   "No Transform Stiffness"="No"
+   UniqueName="4"   "Cardinal Point"="8 (Top Center)"   Mirror2="No"   Mirror3="No"   "No Transform Stiffness"="No"
+ 
+TABLE:  "FRAME ASSIGNMENTS - LINE SPRINGS"
+   UniqueName="1"   "Spring Property"="2"
+   UniqueName="2"   "Spring Property"="2"
+   UniqueName="3"   "Spring Property"="2"
+   UniqueName="4"   "Spring Property"="2"
+ 
+TABLE:  "FRAME ASSIGNMENTS - OUTPUT STATIONS"
+   UniqueName="1"   "Station Option"="Min Stations"   "Min Stations"="3"
+   UniqueName="2"   "Station Option"="Min Stations"   "Min Stations"="3"
+   UniqueName="3"   "Station Option"="Min Stations"   "Min Stations"="3"
+   UniqueName="4"   "Station Option"="Min Stations"   "Min Stations"="3"
+ 
+TABLE:  "FRAME ASSIGNMENTS - SECTION PROPERTIES"
+   UniqueName="1"   "Auto Select List"="N.A."   "Section Property"="None"
+   UniqueName="2"   "Auto Select List"="N.A."   "Section Property"="None"
+   UniqueName="3"   "Auto Select List"="N.A."   "Section Property"="None"
+   UniqueName="4"   "Auto Select List"="N.A."   "Section Property"="None"
+ 
+TABLE:  "FRAME SECTION PROPERTY DEFINITIONS - CONCRETE RECTANGULAR"
+   Name="BEAM1"   Material="4000Psi"   "From File?"="No"   Depth="24"   Width="6"   "Rigid Zone?"="No"   "Column Drop Panel?"="No"   "Automatic Drop Panel Column 2-Axis"="0"   "Automatic Drop Panel Column 3-Axis"="0" _
+        "Column Drop Panel Slab Property"="0"   "Notional Size Type"="User"   "Notional User Size"="3.937007874015748"   "Section Type"="Beam"   "Longitudinal Rebar Material"="A615Gr60"   "Shear Rebar Material"="A615Gr60" _
+        "Flange Dimension Option"="Slab Property"   "Cover Top"="2.5"   "Cover Bottom"="2.5"   "Area Modifier"="1"   "As2 Modifier"="1"   "As3 Modifier"="1"   "J Modifier"="1"   "I22 Modifier"="1"   "I33 Modifier"="1"   "Mass Modifier"="1" _
+        "Weight Modifier"="1"   Color="Cyan"   GUID="19db5e49-a21e-4687-83db-dd8496342031"
+   Name="COL1"   Material="4000Psi"   "From File?"="No"   Depth="24"   Width="12"   "Rigid Zone?"="No"   "Column Drop Panel?"="No"   "Automatic Drop Panel Column 2-Axis"="48"   "Automatic Drop Panel Column 3-Axis"="48" _
+        "Column Drop Panel Slab Property"="0"   "Notional Size Type"="User"   "Notional User Size"="3.937007874015748"   "Section Type"="Column"   "Area Modifier"="1"   "As2 Modifier"="1"   "As3 Modifier"="1"   "J Modifier"="1" _
+        "I22 Modifier"="1"   "I33 Modifier"="1"   "Mass Modifier"="1"   "Weight Modifier"="1"   Color="Cyan"   GUID="8d272531-2de4-43ce-b487-ea1721c37e15"
+ 
+TABLE:  "GRID DEFINITIONS - GENERAL"
+   Name="GLOBAL"   Type="Cartesian"   Ux="0"   Uy="0"   Rz="0"   "Datum Name"="Story1"   "Story Name Above"="Story2"   "Story Name Below"="Base"   "Model Datum"="0"   "Story Height Above"="144"   "Story Height Below"="144" _
+        "Bubble Size"="6"   Color="10461087"   GUID="b7c3c391-36c1-40a7-9614-446a132939e3"
+ 
+TABLE:  "GRID DEFINITIONS - GRID LINES"
+   Name="GLOBAL"   "Grid Line Type"="X (Cartesian)"   ID="A"   Ordinate="0"   "Bubble Location"="End"   Visible="Yes"
+   Name="GLOBAL"   "Grid Line Type"="X (Cartesian)"   Ordinate="6"   "Bubble Location"="End"   Visible="Yes"
+   Name="GLOBAL"   "Grid Line Type"="X (Cartesian)"   Ordinate="18"   "Bubble Location"="End"   Visible="Yes"
+   Name="GLOBAL"   "Grid Line Type"="X (Cartesian)"   Ordinate="3"   "Bubble Location"="End"   Visible="Yes"
+   Name="GLOBAL"   "Grid Line Type"="X (Cartesian)"   ID="B"   Ordinate="36"   "Bubble Location"="End"   Visible="Yes"
+   Name="GLOBAL"   "Grid Line Type"="Y (Cartesian)"   ID="1"   Ordinate="0"   "Bubble Location"="End"   Visible="Yes"
+   Name="GLOBAL"   "Grid Line Type"="Y (Cartesian)"   Ordinate="6"   "Bubble Location"="End"   Visible="Yes"
+   Name="GLOBAL"   "Grid Line Type"="Y (Cartesian)"   Ordinate="12"   "Bubble Location"="End"   Visible="Yes"
+   Name="GLOBAL"   "Grid Line Type"="Y (Cartesian)"   Ordinate="18"   "Bubble Location"="End"   Visible="Yes"
+   Name="GLOBAL"   "Grid Line Type"="Y (Cartesian)"   ID="2"   Ordinate="24"   "Bubble Location"="End"   Visible="Yes"
+ 
+TABLE:  "GROUP DEFINITIONS"
+   Name="All"   Color="Red"   "Steel Design?"="No"   "Concrete Design?"="No"   "Composite Design?"="No"   GUID="1a6780ce-afa3-46d3-bdc3-343d8098b575"
+ 
+TABLE:  "JOINT LOADS ASSIGNMENTS - FORCE"
+   UniqueName="1"   "Load Pattern"="POINT"   FX="0"   FY="0"   FZ="-1"   MX="0"   MY="0"   MZ="0"   "X Dimension"="0"   "Y Dimension"="0"   GUID="2b8476b5-5899-4f45-8e89-08d4b1d884b8"
+   UniqueName="2"   "Load Pattern"="POINT"   FX="0"   FY="0"   FZ="-1"   MX="0"   MY="0"   MZ="0"   "X Dimension"="0"   "Y Dimension"="0"   GUID="b2428876-028d-49eb-a266-057630864b07"
+   UniqueName="3"   "Load Pattern"="POINT"   FX="0"   FY="0"   FZ="-1"   MX="0"   MY="0"   MZ="0"   "X Dimension"="0"   "Y Dimension"="0"   GUID="630c9e3c-b776-440c-93a3-3ca233dc5457"
+   UniqueName="4"   "Load Pattern"="POINT"   FX="0"   FY="0"   FZ="-1"   MX="0"   MY="0"   MZ="0"   "X Dimension"="0"   "Y Dimension"="0"   GUID="4a5f9e63-a7e4-49a0-880b-2b99c8844af5"
+ 
+TABLE:  "LOAD CASE DEFINITIONS - LINEAR STATIC"
+   Name="POINT"   "Exclude Group"="None"   "Initial Condition"="Nonlinear Case"   "Nonlinear Case"="None"   "Load Type"="Load"   "Load Name"="POINT"   "Load SF"="1"   "Design Type"="Program Determined"   GUID="88388c92-6a3c-41ac-8340-e936c6a728ea"
+ 
+TABLE:  "LOAD COMBINATION DEFINITIONS"
+   Name="DCON1"   Type="Linear Add"   "Is Auto"="No"   "Load Name"="POINT"   SF="1.4"   GUID="1039f88b-4686-4812-9e7c-b2cdd538f972"   Notes="DCON1"
+   Name="DCON2"   Type="Linear Add"   "Is Auto"="No"   "Load Name"="POINT"   SF="1.4"   GUID="0d03ef4a-5a08-45dd-a127-7dbd90802c3c"   Notes="DCON2"
+ 
+TABLE:  "LOAD PATTERN DEFINITIONS"
+   Name="~LLRF"   "Is Auto Load"="No"   Type="Other"   "Self Weight Multiplier"="0"   GUID="ced3c4d6-fd90-4fda-b4e0-277682964841"
+   Name="POINT"   "Is Auto Load"="No"   Type="Dead"   "Self Weight Multiplier"="0"   GUID="808c05de-cfdb-437e-8b6a-1154d4442851"
+ 
+TABLE:  "MASS SOURCE DEFINITION"
+   Name="MsSrc1"   "Is Default"="Yes"   "Include Lateral Mass?"="No"   "Include Vertical Mass?"="Yes"   "Lump Mass?"="Yes"   "Source Self Mass?"="Yes"   "Source Added Mass?"="Yes"   "Source Load Patterns?"="No"   "Move Mass Centroid?"="No"   GUID="6867ac66-f22b-4a79-8924-4274d0f04d88"
+ 
+TABLE:  "MATERIAL PROPERTIES - BASIC MECHANICAL PROPERTIES"
+   Material="4000Psi"   DensityType="Mass"   UnitWeight="8.68055555555556E-05"   UnitMass="2.2483325766015185E-07"   E1="3604.99653259195"   G12="1502.0818885799792"   U12="0.2"   A1="5.5E-06"
+   Material="A416Gr270"   DensityType="Mass"   UnitWeight="0.000283564814814815"   UnitMass="7.34455308356496E-07"   E1="285"   A1="6.5E-06"
+   Material="A615Gr60"   DensityType="Mass"   UnitWeight="0.000283564814814815"   UnitMass="7.34455308356496E-07"   E1="29"   A1="6.5E-06"
+   Material="A992Fy50"   DensityType="Weight"   UnitWeight="0.000283564814814815"   UnitMass="7.34455290352564E-07"   E1="29"   G12="11153.846153846154"   U12="0.3"   A1="6.5E-06"
+   Material="MAT1"   DensityType="Mass"   UnitWeight="0"   UnitMass="0"   E1="3"   G12="125"   U12="0.2"   A1="5.5E-06"
+ 
+TABLE:  "MATERIAL PROPERTIES - CONCRETE DATA"
+   Material="4000Psi"   Fc="4"   LtWtConc="No"   IsUserFr="No"   SSCurveOpt="Simple"   SSHysType="Kinematic"   SFc="0.0022191422176620207"   SCap="0.005"   FinalSlope="-0.1"   FAngle="0"   DAngle="0"
+   Material="MAT1"   Fc="4"   LtWtConc="No"   IsUserFr="No"   SSCurveOpt="Simple"   SSHysType="Kinematic"   SFc="0.0022191422176620207"   SCap="0.005"   FinalSlope="-0.1"   FAngle="0"   DAngle="0"
+ 
+TABLE:  "MATERIAL PROPERTIES - GENERAL"
+   Material="4000Psi"   Type="Concrete"   SymType="Isotropic"   Grade="Unknown"   Color="Blue"   GUID="457bbe0d-5089-4635-be4f-527a2ea7da11"   Notes="Normalweight f'c = 4 ksi added 11/17/2008 4:46:48 PM"
+   Material="A416Gr270"   Type="Tendon"   SymType="Uniaxial"   Grade="Unknown"   Color="Magenta"   GUID="a8382eae-62ac-47e7-bf10-4e65fed4fff5"   Notes="ASTM A416 Grade 270 added 11/17/2008 4:46:48 PM"
+   Material="A615Gr60"   Type="Rebar"   SymType="Uniaxial"   Grade="Unknown"   Color="Cyan"   GUID="7b8dcd20-c8e7-457f-8613-4016f63e5a8d"   Notes="ASTM A615 Grade 60 added 11/17/2008 4:46:48 PM"
+   Material="A992Fy50"   Type="Steel"   SymType="Isotropic"   Grade="Grade 50"   Color="Gray8Dark"   GUID="1d2bc121-b49d-4426-ba5e-1c38bddbaa23"
+   Material="MAT1"   Type="Concrete"   SymType="Isotropic"   Grade="Unknown"   Color="Blue"   GUID="91e3a7bc-89b9-4ba5-b65f-226e291f5b90"   Notes="Normalweight f'c = 4 ksi added 11/17/2008 4:46:48 PM"
+ 
+TABLE:  "MATERIAL PROPERTIES - REBAR DATA"
+   Material="A615Gr60"   Fy="6"   Fu="9"   Fye="66"   Fue="99.00000000000001"   SSCurveOpt="Simple"   SSHysType="Kinematic"   SHard="0.01"   SCap="0.09"   FinalSlope="-0.1"
+ 
+TABLE:  "MATERIAL PROPERTIES - STEEL DATA"
+   Material="A992Fy50"   Fy="5"   Fu="65"   Fye="55"   Fue="71.5"   SSCurveOpt="Simple"   SSHysType="Kinematic"   SHard="0.015"   SMax="0.11"   SRup="0.17"   FinalSlope="-0.1"
+ 
+TABLE:  "MATERIAL PROPERTIES - TENDON DATA"
+   Material="A416Gr270"   Fy="245.1"   Fu="27"   SSCurveOpt="270 ksi"   SSHysType="Kinematic"   FinalSlope="-0.1"
+ 
+TABLE:  "MISCELLANEOUS OPTIONS"
+   "Start Page"="Yes"   "Value at Cursor"="Yes"   "Frame Info"="Yes"   "Bounding Plane"="No"   "Architectural Dimensioning"="No"   "Moments on Tension Side"="Yes"   "Animation Sound"="Yes"   "Auto Save"="No"   Crosshairs="No"   "Model Explorer"="Yes"
+ 
+TABLE:  "NULL LINE OBJECT CONNECTIVITY"
+   "Unique Name"="1"   UniquePtI="4"   UniquePtJ="3"   GUID="b0b84582-8a4b-4c0f-9d63-1bee527d4fdc"
+   "Unique Name"="2"   UniquePtI="2"   UniquePtJ="3"   GUID="0972bfe6-8e8a-4937-ba39-a4c3727dfb45"
+   "Unique Name"="3"   UniquePtI="1"   UniquePtJ="4"   GUID="1a5c6e8a-5f5d-4112-993b-a6d88f595bdf"
+   "Unique Name"="4"   UniquePtI="1"   UniquePtJ="2"   GUID="f38fb342-679d-4fe3-b2cb-5985d31700ac"
+ 
+TABLE:  "OPTIONS - COLORS - DISPLAY"
+   "Device Type"="Screen"   ColorColumns="10507331"   ColorBeams="10507331"   ColorBraces="10507331"   ColorLinks="10507331"   ColorSprings="Black"   ColorTendons="DarkCyan"   ColorSlabPanels="Green"   ColorWalls="Red"   ColorFloors="Gray4" _
+        ColorNullObjects="Gray8Dark"   ColorOpenings="Black"   ColorColStripA="Red"   ColorColStripB="Blue"   ColorMidStripA="Yellow"   ColorMidStripB="Cyan"   ColorStripEdge="16744703"   ColorOtherStripFill="Green" _
+        ColorSupportLines="13816320"   ColorDimLines="10461087"   ColorText="2105376"   ColorGridLines="Gray6"   ColorBackground="White"   ColorUserMeshEdge="5065984"   ColorStlDesign="DarkCyan"   ColorCompDesign="Cyan" _
+        ColorConcDesign="4227327"   ColorNoDesign="4227327"   TransColumns="0.5"   TransBeams="0.5"   TransBraces="0.5"   TransFloors="0.5"   TransWalls="0.4"   TransLinks="0.5"   Darkness="0.3"
+   "Device Type"="Printer"   ColorColumns="Black"   ColorBeams="Black"   ColorBraces="Black"   ColorLinks="Gray8Dark"   ColorSprings="Gray8Dark"   ColorTendons="Black"   ColorSlabPanels="Green"   ColorWalls="Gray4"   ColorFloors="Gray4" _
+        ColorNullObjects="Gray4"   ColorOpenings="Gray8Dark"   ColorColStripA="Black"   ColorColStripB="Black"   ColorMidStripA="Black"   ColorMidStripB="Black"   ColorStripEdge="Black"   ColorOtherStripFill="Black" _
+        ColorSupportLines="Black"   ColorDimLines="Gray4"   ColorText="Black"   ColorGridLines="Gray4"   ColorBackground="White"   ColorUserMeshEdge="Gray4"   ColorStlDesign="Black"   ColorCompDesign="Gray4"   ColorConcDesign="Gray8Dark" _
+        ColorNoDesign="Gray4"   TransColumns="0.5"   TransBeams="0.5"   TransBraces="0.5"   TransFloors="0.5"   TransWalls="0.4"   TransLinks="0.5"   Darkness="0.5"
+   "Device Type"="Color Printer"   ColorColumns="Blue"   ColorBeams="Blue"   ColorBraces="Blue"   ColorLinks="10516060"   ColorSprings="DarkCyan"   ColorTendons="DarkCyan"   ColorSlabPanels="Green"   ColorWalls="14865869" _
+        ColorFloors="Gray4"   ColorNullObjects="Gray8Dark"   ColorOpenings="Black"   ColorColStripA="DarkCyan"   ColorColStripB="DarkCyan"   ColorMidStripA="DarkCyan"   ColorMidStripB="DarkCyan"   ColorStripEdge="DarkCyan" _
+        ColorOtherStripFill="DarkCyan"   ColorSupportLines="DarkCyan"   ColorDimLines="10461087"   ColorText="Black"   ColorGridLines="Gray8Dark"   ColorBackground="White"   ColorUserMeshEdge="5065984"   ColorStlDesign="DarkCyan" _
+        ColorCompDesign="Cyan"   ColorConcDesign="4227327"   ColorNoDesign="4227327"   TransColumns="0.5"   TransBeams="0.5"   TransBraces="0.5"   TransFloors="0.5"   TransWalls="0.4"   TransLinks="0.5"   Darkness="0.3"
+ 
+TABLE:  "OPTIONS - COLORS - OUTPUT"
+   "Device Type"="Screen Classic"   Contour1="13107400"   Contour2="6553828"   Contour3="Red"   Contour4="16639"   Contour5="Orange"   Contour6="43775"   Contour7="54527"   Contour8="Yellow"   Contour9="65408"   Contour10="Green" _
+        Contour11="8453888"   Contour12="Cyan"   Contour13="16755200"   Contour14="16733440"   Contour15="Blue"   TransContours="0"   Ratio1="Cyan"   Ratio2="Green"   Ratio3="Yellow"   Ratio4="Magenta"   Ratio5="Red"   RatioNotD="Gray4" _
+        RatioVal1="0.5"   RatioVal2="0.7"   RatioVal3="0.9"   RatioVal4="1"   HState1="Gray2"   HState2="Green"   HState3="Yellow"   HState4="Cyan"   HState5="Blue"   HStatus1="Gray2"   HStatus2="Green"   HStatus3="Cyan"   HStatus4="Red" _
+        DFillPos="Yellow"   DFillNeg="Red"   DFillRange="Blue"   TransDiag="0.2"
+   "Device Type"="Screen GrayScale"   Contour1="Black"   Contour2="3158064"   Contour3="4210752"   Contour4="5263440"   Contour5="6316128"   Contour6="7368816"   Contour7="Gray8Dark"   Contour8="Gray7"   Contour9="Gray6"   Contour10="Gray5" _
+        Contour11="Gray4"   Contour12="Gray3"   Contour13="Gray2"   Contour14="Gray1Light"   Contour15="White"   TransContours="0"   Ratio1="Gray2"   Ratio2="Gray4"   Ratio3="Gray8Dark"   Ratio4="4210752"   Ratio5="Black" _
+        RatioNotD="Gray4"   RatioVal1="0.5"   RatioVal2="0.7"   RatioVal3="0.9"   RatioVal4="1"   HState1="Gray3"   HState2="Gray5"   HState3="Gray7"   HState4="7368816"   HState5="5263440"   HStatus1="Gray2"   HStatus2="Gray4" _
+        HStatus3="Gray8Dark"   HStatus4="4210752"   DFillPos="Gray8Dark"   DFillNeg="Gray4"   DFillRange="Gray8Dark"   TransDiag="0.2"
+   "Device Type"="Printer"   Contour1="Black"   Contour2="3158064"   Contour3="4210752"   Contour4="5263440"   Contour5="6316128"   Contour6="7368816"   Contour7="Gray8Dark"   Contour8="Gray7"   Contour9="Gray6"   Contour10="Gray5" _
+        Contour11="Gray4"   Contour12="Gray3"   Contour13="Gray2"   Contour14="Gray1Light"   Contour15="White"   TransContours="0"   Ratio1="Gray2"   Ratio2="Gray4"   Ratio3="Gray8Dark"   Ratio4="4210752"   Ratio5="Black" _
+        RatioNotD="Gray4"   RatioVal1="0.5"   RatioVal2="0.7"   RatioVal3="0.9"   RatioVal4="1"   HState1="Gray3"   HState2="Gray5"   HState3="Gray7"   HState4="7368816"   HState5="5263440"   HStatus1="Gray2"   HStatus2="Gray4" _
+        HStatus3="Gray8Dark"   HStatus4="4210752"   DFillPos="Gray8Dark"   DFillNeg="Gray8Dark"   DFillRange="4210752"   TransDiag="0.2"
+   "Device Type"="Color Printer"   Contour1="13107400"   Contour2="6553828"   Contour3="Red"   Contour4="16639"   Contour5="Orange"   Contour6="43775"   Contour7="54527"   Contour8="Yellow"   Contour9="65408"   Contour10="Green" _
+        Contour11="8453888"   Contour12="Cyan"   Contour13="16755200"   Contour14="16733440"   Contour15="Blue"   TransContours="0"   Ratio1="Cyan"   Ratio2="Green"   Ratio3="Yellow"   Ratio4="Magenta"   Ratio5="Red"   RatioNotD="Gray4" _
+        RatioVal1="0.5"   RatioVal2="0.7"   RatioVal3="0.9"   RatioVal4="1"   HState1="Gray2"   HState2="Green"   HState3="Yellow"   HState4="Cyan"   HState5="Blue"   HStatus1="Gray2"   HStatus2="Green"   HStatus3="Cyan"   HStatus4="Red" _
+        DFillPos="Yellow"   DFillNeg="Red"   DFillRange="Blue"   TransDiag="0.2"
+ 
+TABLE:  "POINT OBJECT CONNECTIVITY"
+   UniqueName="1"   "Is Auto Point"="No"   IsSpecial="Yes"   X="0"   Y="0"   Z="0"   GUID="25c6762d-2f02-4703-9665-a846b2aa6fea"
+   UniqueName="2"   "Is Auto Point"="No"   IsSpecial="Yes"   X="36"   Y="0"   Z="0"   GUID="9cc4181d-c1ef-4a74-bf3a-03243bc88a19"
+   UniqueName="3"   "Is Auto Point"="No"   IsSpecial="Yes"   X="36"   Y="24"   Z="0"   GUID="46c69e41-22b7-45d3-a282-933a6bee4aa0"
+   UniqueName="4"   "Is Auto Point"="No"   IsSpecial="Yes"   X="0"   Y="24"   Z="0"   GUID="2f5bc7d0-a973-4646-ab81-a05ee8bfd065"
+   UniqueName="5"   "Is Auto Point"="No"   IsSpecial="No"   X="0"   Y="21"   Z="0"   GUID="23642611-81dd-40bb-b6f6-d9a6ce95b3f1"
+   UniqueName="6"   "Is Auto Point"="No"   IsSpecial="No"   X="36"   Y="21"   Z="0"   GUID="a80dcd53-2d6f-4677-9353-4c5dca4994a1"
+   UniqueName="7"   "Is Auto Point"="No"   IsSpecial="No"   X="0"   Y="12"   Z="0"   GUID="ffa3372c-a8f3-4659-829b-d75979cbaf51"
+   UniqueName="8"   "Is Auto Point"="No"   IsSpecial="No"   X="36"   Y="12"   Z="0"   GUID="7bdd5a97-b705-4ac2-8cb4-b21c8c71b20d"
+   UniqueName="9"   "Is Auto Point"="No"   IsSpecial="No"   X="0"   Y="3"   Z="0"   GUID="899b099f-bdc5-41af-9fe5-6f14134dbd48"
+   UniqueName="10"   "Is Auto Point"="No"   IsSpecial="No"   X="36"   Y="3"   Z="0"   GUID="d5adc50e-ac5b-4e86-aa40-fee27d9a634b"
+   UniqueName="11"   "Is Auto Point"="No"   IsSpecial="No"   X="3"   Y="0"   Z="0"   GUID="ba6e8734-7d35-4a48-8e96-90f44bf9fc4f"
+   UniqueName="12"   "Is Auto Point"="No"   IsSpecial="No"   X="3"   Y="24"   Z="0"   GUID="82295ac9-234d-4084-9a7a-ab91d92c3c93"
+   UniqueName="13"   "Is Auto Point"="No"   IsSpecial="No"   X="18"   Y="0"   Z="0"   GUID="16ae9459-cf96-4a65-abe5-60d749970be0"
+   UniqueName="14"   "Is Auto Point"="No"   IsSpecial="No"   X="18"   Y="24"   Z="0"   GUID="bcedc0ed-54f0-4a0d-9ea3-6314238df0c3"
+   UniqueName="15"   "Is Auto Point"="No"   IsSpecial="No"   X="33"   Y="0"   Z="0"   GUID="6dbc13e9-b96b-4705-bf8e-172320cbb439"
+   UniqueName="16"   "Is Auto Point"="No"   IsSpecial="No"   X="33"   Y="24"   Z="0"   GUID="72f75a92-6aa6-4109-bf1d-0c09c3a817d0"
+   UniqueName="17"   "Is Auto Point"="No"   IsSpecial="No"   X="6"   Y="0"   Z="0"   GUID="d7ead3fd-4e37-44bc-b0f7-43cdf419e531"
+   UniqueName="18"   "Is Auto Point"="No"   IsSpecial="No"   X="6"   Y="6"   Z="0"   GUID="c631bbc6-7ddd-4f55-932e-19617e6097de"
+   UniqueName="19"   "Is Auto Point"="No"   IsSpecial="No"   X="0"   Y="6"   Z="0"   GUID="086200a7-2ac3-48ef-a23e-f8e94a24572f"
+   UniqueName="20"   "Is Auto Point"="No"   IsSpecial="No"   X="6"   Y="12"   Z="0"   GUID="85d42423-6109-48c1-ad4e-834b7c84aeec"
+   UniqueName="21"   "Is Auto Point"="No"   IsSpecial="No"   X="6"   Y="18"   Z="0"   GUID="8c8521fc-dc1b-424a-94aa-620711fdbcee"
+   UniqueName="22"   "Is Auto Point"="No"   IsSpecial="No"   X="0"   Y="18"   Z="0"   GUID="9d85c5fa-cc86-4326-a864-f176faffa76e"
+   UniqueName="23"   "Is Auto Point"="No"   IsSpecial="No"   X="6"   Y="24"   Z="0"   GUID="9f473e42-aa5a-434a-85fb-83378c2dd352"
+   UniqueName="24"   "Is Auto Point"="No"   IsSpecial="No"   X="18"   Y="6"   Z="0"   GUID="371934f7-d02c-4878-8ada-cc6e4732d55e"
+   UniqueName="25"   "Is Auto Point"="No"   IsSpecial="No"   X="18"   Y="12"   Z="0"   GUID="843c5479-6a0c-41e9-928f-048ec0971a28"
+   UniqueName="26"   "Is Auto Point"="No"   IsSpecial="No"   X="18"   Y="18"   Z="0"   GUID="0e8186f3-329d-4c76-92f0-195f8f067659"
+   UniqueName="27"   "Is Auto Point"="No"   IsSpecial="No"   X="3"   Y="0"   Z="0"   GUID="bbb9175b-98d1-4952-bc1b-e45663ed0b41"
+   UniqueName="28"   "Is Auto Point"="No"   IsSpecial="No"   X="3"   Y="6"   Z="0"   GUID="ddd64e0f-45ac-4b90-989f-05b3ff4a2a14"
+   UniqueName="29"   "Is Auto Point"="No"   IsSpecial="No"   X="3"   Y="12"   Z="0"   GUID="fa6e6716-e270-455d-bbad-9fb82035da87"
+   UniqueName="30"   "Is Auto Point"="No"   IsSpecial="No"   X="3"   Y="18"   Z="0"   GUID="c0bc51d3-ec76-4917-a706-9c4038301a9e"
+   UniqueName="31"   "Is Auto Point"="No"   IsSpecial="No"   X="3"   Y="24"   Z="0"   GUID="18ba0798-e88a-4547-a3b5-89c7bfe6bd75"
+   UniqueName="32"   "Is Auto Point"="No"   IsSpecial="No"   X="36"   Y="6"   Z="0"   GUID="900bb107-9382-4de1-ad0f-f83f2c487bff"
+   UniqueName="33"   "Is Auto Point"="No"   IsSpecial="No"   X="36"   Y="18"   Z="0"   GUID="0d5e32c9-efdf-4071-9885-b1358b7c2ebc"
+   UniqueName="34"   "Is Auto Point"="No"   IsSpecial="Yes"   X="1"   Y="1"   Z="0"   GUID="f108e9cc-e064-4696-858a-c182b22d6c1d"
+   UniqueName="35"   "Is Auto Point"="No"   IsSpecial="Yes"   X="1"   Y="5"   Z="0"   GUID="df7943c9-a429-40e6-b7a5-a5a5b55ffc5d"
+   UniqueName="36"   "Is Auto Point"="No"   IsSpecial="Yes"   X="1"   Y="11"   Z="0"   GUID="7eef426d-078a-4174-9b3a-a88fb152471f"
+   UniqueName="37"   "Is Auto Point"="No"   IsSpecial="Yes"   X="8"   Y="11"   Z="0"   GUID="611a60fa-48a5-4cb6-a20c-6e6cfd68aee3"
+   UniqueName="38"   "Is Auto Point"="No"   IsSpecial="Yes"   X="8"   Y="5"   Z="0"   GUID="3d24d083-3548-498c-9e99-9eacc576ac0d"
+   UniqueName="39"   "Is Auto Point"="No"   IsSpecial="Yes"   X="8"   Y="1"   Z="0"   GUID="cfe64289-89cb-4414-aaa8-9e42db93adac"
+ 
+TABLE:  "PREFERENCES - GRAPHICS"
+   MaxFontSize="6"   MinFontSize="3"   MinSLineThick="1"   MinPLineThick="4"   AntiAliasing?="Yes"   ConstantLineThick?="Yes"   ShadingWithinElement?="No"   AutoZoomStep="10"   ShrinkFactor="70"
+ 
+TABLE:  "PREFERENCES - TOLERANCE"
+   MergeTol="0.1"   MaxInclVertCol="1"   MaxInclHorzBmFlr="2"
+ 
+TABLE:  "PROGRAM CONTROL"
+   ProgramName="SAFE"   Version="22.3.0"   CurrUnits="kip, in, F"   CompBmCode="AISC 360-16"   ConcFrmCode="ACI 318-08"   ConcSlbCode="ACI 318-08"
+ 
+TABLE:  "PROJECT INFORMATION"
+   "Client Name"="Example 6 -20'X 30'Interior Panel of a Flat Plate on Elastic Subgrade"   "Project Name"="Carrying Rows of Equidistant Cols.[SAFE analysis]-12x12 mesh Units:kip"
+ 
+TABLE:  "REINFORCING BAR SIZES"
+   Name="#2"   Diameter="0.25"   Area="0.05"   GUID="f333524b-5a5b-4043-ba9b-b544f562dd01"
+   Name="#3"   Diameter="0.375"   Area="0.109999999403954"   GUID="5497e483-44cb-418b-881a-2e0211ffcd2c"
+   Name="#4"   Diameter="0.5"   Area="0.200000002980232"   GUID="0f2569e9-6255-4cbf-adf8-9529d4841f76"
+   Name="#5"   Diameter="0.625"   Area="0.310000002384186"   GUID="8db357d4-a0be-4294-9534-3e17a7bf83f8"
+   Name="#6"   Diameter="0.75"   Area="0.439999997615814"   GUID="0915ea50-6b99-4391-80f7-62f6ac9b761f"
+   Name="#7"   Diameter="0.875"   Area="0.600000023841858"   GUID="9914b513-4961-4884-aed3-e53ae6cb1ea1"
+   Name="#8"   Diameter="1"   Area="0.790000021457672"   GUID="578abc16-ddae-47c2-a969-dcfd68ffc8d9"
+   Name="#9"   Diameter="1.12800002098083"   Area="1"   GUID="5d7253b5-ed2b-41f4-8e15-bfb608fc7196"
+   Name="#10"   Diameter="1.26999998092651"   Area="1.26999998092651"   GUID="a95725d3-6b2a-46af-bd0d-b794ff0c6d89"
+   Name="#11"   Diameter="1.4099999666214"   Area="1.55999994277954"   GUID="9bfd7d11-662c-4338-bec9-71e9db22013f"
+   Name="#14"   Diameter="1.692999958992"   Area="2.25"   GUID="6a8e0a37-e484-456d-8dd0-70c57cdbda22"
+   Name="#18"   Diameter="2.25699996948242"   Area="4"   GUID="6439a434-f821-4be5-8dbc-3b88b16caf3d"
+ 
+TABLE:  "SLAB PROPERTY DEFINITIONS"
+   Name="SLAB"   "Modeling Type"="Shell-Thick"   "Property Type"="Slab"   Material="MAT1"   "Slab Thickness"="15"   "Notional Size Type"="User"   "Notional User Size"="3.937007874015748"   "f11 Modifier"="1"   "f22 Modifier"="1" _
+        "f12 Modifier"="1"   "m11 Modifier"="1"   "m22 Modifier"="1"   "m12 Modifier"="1"   "v13 Modifier"="1"   "v23 Modifier"="1"   "Mass Modifier"="1"   "Weight Modifier"="1"   Color="4227327" _
+        GUID="091e8403-bf9d-4e3d-b784-eeb39ebee4ec"   Orthotropic?="No"
+ 
+TABLE:  "SPRING PROPERTY DEFINITIONS - AREA SPRINGS"
+   Name="1"   "Stiffness Option"="User"   "Subgrade Modulus"="1"   "Nonlinear Option"="Compression Only"   Color="Green"   GUID="af377b95-b56f-4aa9-a09f-d1c0f16bcebc"
+   Name="SOIL1"   "Stiffness Option"="User"   "Subgrade Modulus"="0.1"   "Nonlinear Option"="Compression Only"   Color="Cyan"   GUID="baf1e14e-c0c0-41d0-b133-fb488712a05e"
+ 
+TABLE:  "SPRING PROPERTY DEFINITIONS - LINE SPRINGS"
+   Name="2"   "Stiffness Option"="User"   "Vertical Stffness"="0"   "Rotational Stffness"="1"   "Nonlinear Option"="None (Linear)"   Color="Blue"   GUID="43c6dabd-bcd5-4f02-8d8c-96e13abcf4b4"
+   Name="LSPR1"   "Stiffness Option"="User"   "Vertical Stffness"="1"   "Rotational Stffness"="1"   "Nonlinear Option"="None (Linear)"   Color="Yellow"   GUID="8e009fb0-c8b5-4563-b0a6-77c6bfc38702"
+ 
+TABLE:  "SPRING PROPERTY DEFINITIONS - POINT SPRINGS"
+   Name="PSPR1"   "Stiffness UX"="0"   "Stiffness UY"="0"   "Stiffness UZ"="1"   "Stiffness RX"="0"   "Stiffness RY"="0"   "Stiffness RZ"="0"   "Nonlinearity Specification"="Quick"   "Nonlinear Option"="None (Linear)"   Color="Blue"   GUID="cdf95d1c-cb99-43d9-85d8-bbf5cffa04e8"
+ 
+TABLE:  "STRIP OBJECT CONNECTIVITY"
+   Name="CSA1"   "Strip Start Point"="9"   "Segment End Point"="10"   "Start Width Left"="3"   "Start Width Right"="3"   "End Width Left"="3"   "End Width Right"="3"   "Auto Widen"="No"   Layer="A"   GUID="cee2db86-82f2-4489-9753-2c32e9b10d10"
+   Name="CSA2"   "Strip Start Point"="5"   "Segment End Point"="6"   "Start Width Left"="3"   "Start Width Right"="3"   "End Width Left"="3"   "End Width Right"="3"   "Auto Widen"="No"   Layer="A"   GUID="1d8f1660-20b5-4239-bb3c-9a617fb12b55"
+   Name="CSB1"   "Strip Start Point"="11"   "Segment End Point"="12"   "Start Width Left"="3"   "Start Width Right"="3"   "End Width Left"="3"   "End Width Right"="3"   "Auto Widen"="No"   Layer="B"   GUID="f9f39616-bca7-4b44-8b89-64419376b7d0"
+   Name="CSB2"   "Strip Start Point"="15"   "Segment End Point"="16"   "Start Width Left"="3"   "Start Width Right"="3"   "End Width Left"="3"   "End Width Right"="3"   "Auto Widen"="No"   Layer="B"   GUID="17385cbf-efa5-45dc-8e36-4e20850481c4"
+   Name="MSA1"   "Strip Start Point"="7"   "Segment End Point"="8"   "Start Width Left"="6"   "Start Width Right"="6"   "End Width Left"="6"   "End Width Right"="6"   "Auto Widen"="No"   Layer="A"   GUID="d0cc134b-8863-4dd0-8f61-42568df0df16"
+   Name="MSB1"   "Strip Start Point"="13"   "Segment End Point"="14"   "Start Width Left"="12"   "Start Width Right"="12"   "End Width Left"="12"   "End Width Right"="12"   "Auto Widen"="No"   Layer="B"   GUID="f9975773-9e36-41c9-bded-375d5bdb03bc"
+ 
+TABLE:  "TENDON SECTION PROPERTIES"
+   Name="Tendon1"   Material="A416Gr270"   StrandArea="0.153"   Color="Blue"   GUID="bb6e03e1-cc30-462e-8143-8463827cc8f3"
+ 
+TABLE:  "WALL PROPERTY DEFINITIONS - SPECIFIED"
+   Name="WALL1"   "Modeling Type"="Shell-Thin"   Material="4000Psi"   "Wall Thickness"="12"   "Include Auto Rigid Zone?"="No"   "Notional Size Type"="User"   "Notional User Size"="3.937007874015748"   "f11 Modifier"="1"   "f22 Modifier"="1" _
+        "f12 Modifier"="1"   "m11 Modifier"="1"   "m22 Modifier"="1"   "m12 Modifier"="1"   "v13 Modifier"="1"   "v23 Modifier"="1"   "Mass Modifier"="1"   "Weight Modifier"="1"   Color="Magenta"   GUID="dcccadbf-a971-4a06-ab4d-c541b10e041e"
+ 
+END TABLE DATA

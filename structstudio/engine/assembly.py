@@ -1,0 +1,468 @@
+"""Global assembly: DOF numbering, constraint transformation, stiffness,
+mass and load vectors.
+
+DOF layout: every node (including virtual constraint masters) owns 6
+consecutive *full* DOFs ``6*node + d``.  Rigid diaphragm constraints are
+applied with a master-slave transformation ``u_full = T u_red`` where the
+reduced vector omits the constrained slave DOFs.  Inactive and restrained
+DOFs are removed afterwards to obtain the *free* equation set.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
+
+import numpy as np
+from scipy import sparse
+
+from ..mesh.analysis_model import AnalysisModel
+from ..model.base import ModelError
+from .elements.frame import FrameFormulation
+from .elements.shell import ShellFormulation
+
+
+def node_transform(node) -> np.ndarray:
+    """6x6 global -> joint-local transformation of a node (identity without local axes)."""
+    if node.local_axes is None:
+        return np.eye(6)
+    R = np.asarray(node.local_axes, float)
+    T = np.zeros((6, 6))
+    T[:3, :3] = R
+    T[3:, 3:] = R
+    return T
+
+
+@dataclass
+class DofMap:
+    n_nodes: int
+    n_full: int
+    T: sparse.csr_matrix  # full x reduced
+    reduced_of_full: np.ndarray  # full dof -> reduced index (-1 for slaves)
+    free_of_reduced: np.ndarray  # reduced dof -> free equation index (-1 if fixed/inactive)
+    free: np.ndarray  # reduced indices that are free
+    fixed: np.ndarray  # reduced indices that are restrained (active)
+    restrained_full: np.ndarray  # full dof indices that carry restraints
+
+    @property
+    def n_free(self) -> int:
+        return len(self.free)
+
+
+class Assembler:
+    """Builds and caches global matrices for an :class:`AnalysisModel`."""
+
+    def __init__(self, am: AnalysisModel):
+        self.am = am
+        coords = am.coords()
+        self.frames = [FrameFormulation(e, coords[e.node_i], coords[e.node_j]) for e in am.frames]
+        self.shells = [ShellFormulation(e, coords[list(e.nodes)]) for e in am.shells]
+        self._K_full: Optional[sparse.csr_matrix] = None
+        self._M_full: Optional[np.ndarray] = None
+        self._place_masters_at_center_of_mass()
+        self.dofs = self._number_dofs()
+
+    def _place_masters_at_center_of_mass(self):
+        """Move each rigid-diaphragm master to the centre of lateral mass of
+        its constrained nodes (CSI automatic master joint).  With the master
+        at the centre of mass the reduced mass matrix has no translation-
+        rotation coupling, which keeps lumped-mass eigensolutions exact."""
+        am = self.am
+        if not am.constraints:
+            return
+        # node masses without the diaphragm corrections (they depend on the master position only
+        # through the inertia term, which is invariant to the master location when applied at the CM)
+        M = self._node_lateral_mass()
+        for c in am.constraints:
+            if not c.rigid:
+                continue
+            ids = list(c.nodes)
+            masses = np.array([M[n] for n in ids])
+            if masses.sum() <= 0:
+                continue
+            xy = np.array([am.nodes[n].xyz for n in ids])
+            cm = (masses[:, None] * xy).sum(axis=0) / masses.sum()
+            master = am.nodes[c.master]
+            new_xyz = master.xyz.copy()
+            for a in range(3):
+                if a != c.normal:
+                    new_xyz[a] = cm[a]
+            master.xyz = new_xyz
+
+    def _node_lateral_mass(self) -> np.ndarray:
+        am = self.am
+        M = np.zeros(am.n_nodes)
+        if am.mass_include_elements:
+            for fe in self.frames:
+                mi, mj = fe.lumped_mass()
+                M[fe.el.node_i] += mi
+                M[fe.el.node_j] += mj
+            for se in self.shells:
+                for nid, m in zip(se.el.nodes, se.lumped_mass()):
+                    M[nid] += m
+        if am.mass_include_added:
+            for node in am.nodes:
+                M[node.id] += node.mass[0]
+        if am.mass_from_loads:
+            for pattern, mult in am.mass_from_loads.items():
+                F = self._raw_load_vector(pattern)
+                M += -F[2::6] * mult / am.gravity
+        return M
+
+    def _raw_load_vector(self, pattern: str) -> np.ndarray:
+        """Load vector without constraint transformation (used before DOF numbering)."""
+        am = self.am
+        F = np.zeros(6 * am.n_nodes)
+        sw = am.self_weight.get(pattern, 0.0)
+        for fe in self.frames:
+            loads = fe.element_loads(pattern, sw, am.gravity)
+            if loads:
+                f, _ = fe.load_vector_global(loads)
+                F[self._element_dofs(fe.el.nodes)] += f
+        for se in self.shells:
+            f = se.load_vector_global(pattern, sw)
+            if np.any(f):
+                F[self._element_dofs(se.el.nodes)] += f
+        for nid, vec in am.nodal_loads.get(pattern, {}).items():
+            F[6 * nid:6 * nid + 6] += vec
+        return F
+
+    # -------------------------------------------------------------- numbering
+    def _number_dofs(self) -> DofMap:
+        am = self.am
+        n = am.n_nodes
+        n_full = 6 * n
+        active = np.tile(am.active_dofs, n)
+        # virtual master nodes only own the constrained DOFs of their plane
+        for c in am.constraints:
+            if c.rigid:
+                for a in range(6):
+                    if a not in (0, 1, 2, 3, 4, 5) or a == c.normal or (a >= 3 and a != 3 + c.normal):
+                        active[6 * c.master + a] = False
+        # slave DOFs: rigid diaphragms and ties (auto edge constraints); each slave
+        # full DOF is defined as a combination of other full DOFs, resolved below
+        slave = np.zeros(n_full, dtype=bool)
+        defs: Dict[int, List] = {}
+        restrained_nodes = {node.id for node in am.nodes if np.any(node.restraints[:3])}
+        for c in am.constraints:
+            if not c.rigid:
+                continue
+            # a restrained joint cannot also follow the diaphragm: drop it (CSI gives restraints precedence)
+            dropped = [n for n in c.nodes if n in restrained_nodes]
+            if dropped:
+                c.nodes = [n for n in c.nodes if n not in restrained_nodes]
+                am.warnings.append(f"Diaphragm {c.name}: {len(dropped)} restrained joint(s) removed from the constraint")
+            master = am.nodes[c.master]
+            xm = master.xyz
+            axes = [a for a in range(3) if a != c.normal]
+            a1, a2 = axes  # e.g. X, Y for a horizontal diaphragm
+            rn = c.normal  # rotation about the normal
+            m6 = 6 * c.master
+            for nid in c.nodes:
+                d = am.nodes[nid].xyz - xm
+                # u_a1 = u_a1,m - r_n,m * d_a2 ; u_a2 = u_a2,m + r_n,m * d_a1 ; r_n = r_n,m
+                defs[6 * nid + a1] = [(m6 + a1, 1.0), (m6 + 3 + rn, -d[a2])]
+                defs[6 * nid + a2] = [(m6 + a2, 1.0), (m6 + 3 + rn, d[a1])]
+                defs[6 * nid + 3 + rn] = [(m6 + 3 + rn, 1.0)]
+        for tie in getattr(am, "ties", []):
+            node = am.nodes[tie.node]
+            if node.local_axes is not None or any(am.nodes[m].local_axes is not None for m, _ in tie.masters):
+                am.warnings.append(f"Tie of node {node.point or node.id}: joint local axes - not tied")
+                continue
+            for k in range(6):
+                dof = 6 * tie.node + k
+                if dof in defs or node.restraints[k]:
+                    continue  # already constrained (diaphragm) / a support wins
+                defs[dof] = [(6 * m + k, float(w)) for m, w in tie.masters]
+        for body in getattr(am, "bodies", []):
+            xm = am.nodes[body.master].xyz
+            m6 = 6 * body.master
+            for nid in body.nodes:
+                node = am.nodes[nid]
+                d = node.xyz - xm
+                for k, terms in ((2, [(m6 + 2, 1.0), (m6 + 3, d[1]), (m6 + 4, -d[0])]),
+                                 (3, [(m6 + 3, 1.0)]), (4, [(m6 + 4, 1.0)])):
+                    dof = 6 * nid + k
+                    if dof in defs or node.restraints[k]:
+                        continue
+                    defs[dof] = terms
+        memo: Dict[int, Dict[int, float]] = {}
+
+        def expand(dof: int, depth: int = 0) -> Dict[int, float]:
+            if dof not in defs:
+                return {dof: 1.0}
+            if dof in memo:
+                return memo[dof]
+            if depth > 50:
+                raise ModelError("CONSTRAINT_LOOP", f"Constraint loop at node {am.nodes[dof // 6].point or dof // 6}")
+            out: Dict[int, float] = {}
+            for md, w in defs[dof]:
+                for k, v in expand(md, depth + 1).items():
+                    out[k] = out.get(k, 0.0) + w * v
+            memo[dof] = out
+            return out
+        rows, cols, vals = [], [], []
+        for dof in defs:
+            slave[dof] = True
+        for dof in defs:
+            for k, v in expand(dof).items():
+                if v != 0.0:
+                    rows.append(dof)
+                    cols.append(k)
+                    vals.append(v)
+        reduced_of_full = -np.ones(n_full, dtype=int)
+        keep = np.where(~slave)[0]
+        reduced_of_full[keep] = np.arange(len(keep))
+        # joint local axes: the reduced DOFs of such a node are its local components,
+        # u_global = R^T u_local (restraints and springs then act in the local axes)
+        local_nodes = set()
+        for node in am.nodes:
+            if node.local_axes is None:
+                continue
+            if slave[6 * node.id:6 * node.id + 6].any():
+                am.warnings.append(f"Joint {node.point or node.id}: local axes ignored on a diaphragm joint")
+                node.local_axes = None
+                continue
+            local_nodes.add(node.id)
+            Rt = np.asarray(node.local_axes, float).T
+            for blk in (0, 3):
+                for i in range(3):
+                    for j in range(3):
+                        if Rt[i, j] != 0.0:
+                            rows.append(6 * node.id + blk + i)
+                            cols.append(6 * node.id + blk + j)
+                            vals.append(float(Rt[i, j]))
+        plain = [int(k) for k in keep if (k // 6) not in local_nodes]
+        rows += plain
+        cols += plain
+        vals += [1.0] * len(plain)
+        # map master columns (full index) to reduced index
+        cols_red = reduced_of_full[np.array(cols, dtype=int)]
+        if np.any(cols_red < 0):
+            raise ModelError("CONSTRAINT", "A constraint refers to a constrained DOF")
+        T = sparse.csr_matrix((vals, (rows, cols_red)), shape=(n_full, len(keep)))
+
+        # restraints & activity on the reduced set
+        restrained = np.zeros(n_full, dtype=bool)
+        for node in am.nodes:
+            restrained[6 * node.id:6 * node.id + 6] = node.restraints
+        # a restrained slave DOF: allowed only if the DOF is inactive, otherwise error
+        bad = np.where(restrained & slave & active)[0]
+        if bad.size:
+            nid = int(bad[0] // 6)
+            raise ModelError("RESTRAINED_CONSTRAINED_DOF",
+                             f"Node {am.nodes[nid].point or nid} has a restraint on a DOF constrained by a "
+                             f"rigid diaphragm; remove the restraint or the diaphragm assignment")
+        # masters: inactive DOFs of masters follow the global active flags; masters are never restrained
+        red_restrained = restrained[keep]
+        red_active = active[keep]
+        free_mask = red_active & ~red_restrained
+        free = np.where(free_mask)[0]
+        fixed = np.where(red_active & red_restrained)[0]
+        free_of_reduced = -np.ones(len(keep), dtype=int)
+        free_of_reduced[free] = np.arange(len(free))
+        return DofMap(n, n_full, T, reduced_of_full, free_of_reduced, free, fixed, np.where(restrained)[0])
+
+    # --------------------------------------------------------------- matrices
+    def _element_dofs(self, nodes) -> np.ndarray:
+        return np.concatenate([np.arange(6 * n, 6 * n + 6) for n in nodes])
+
+    def stiffness_full(self) -> sparse.csr_matrix:
+        if self._K_full is not None:
+            return self._K_full
+        am = self.am
+        n_full = self.dofs.n_full
+        rows, cols, vals = [], [], []
+        for fe in self.frames:
+            K = fe.stiffness_global()
+            d = self._element_dofs(fe.el.nodes)
+            r, c = np.meshgrid(d, d, indexing="ij")
+            rows.append(r.ravel())
+            cols.append(c.ravel())
+            vals.append(K.ravel())
+        for se in self.shells:
+            K = se.stiffness_global()
+            d = self._element_dofs(se.el.nodes)
+            r, c = np.meshgrid(d, d, indexing="ij")
+            rows.append(r.ravel())
+            cols.append(c.ravel())
+            vals.append(K.ravel())
+        # nodal springs (in the joint local axes when the joint has them)
+        sp_rows, sp_cols, sp_vals = [], [], []
+        for node in am.nodes:
+            if not np.any(node.springs):
+                continue
+            Tn = node_transform(node)
+            Kn = Tn.T @ np.diag(node.springs) @ Tn
+            r, c = np.nonzero(Kn)
+            sp_rows += (6 * node.id + r).tolist()
+            sp_cols += (6 * node.id + c).tolist()
+            sp_vals += Kn[r, c].tolist()
+        if sp_rows:
+            rows.append(np.array(sp_rows))
+            cols.append(np.array(sp_cols))
+            vals.append(np.array(sp_vals))
+        if rows:
+            K = sparse.coo_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))),
+                                  shape=(n_full, n_full)).tocsr()
+        else:
+            K = sparse.csr_matrix((n_full, n_full))
+        self._K_full = K
+        return K
+
+    def stiffness_reduced(self) -> sparse.csr_matrix:
+        T = self.dofs.T
+        K = (T.T @ self.stiffness_full() @ T).tocsr()
+        self._restrain_null_dofs(K)
+        return K
+
+    def _restrain_null_dofs(self, K_red: sparse.csr_matrix):
+        """Free DOFs with no stiffness at all (e.g. the rotation of a joint
+        where every connected member is released) would make the system
+        singular.  Like SAP2000/ETABS they are automatically restrained and
+        reported as warnings."""
+        d = np.asarray(K_red.diagonal()).ravel()
+        null = [i for i in self.dofs.free if d[i] == 0.0]
+        if not null:
+            return
+        dofs = self.dofs
+        keep = np.where(dofs.reduced_of_full >= 0)[0]
+        for i in null:
+            full = int(keep[i])
+            node, comp = divmod(full, 6)
+            label = self.am.nodes[node].point or f"node {node}"
+            self.am.warnings.append(f"Null DOF {('UX','UY','UZ','RX','RY','RZ')[comp]} at {label} has no stiffness; "
+                                    f"automatically restrained")
+        null_set = set(null)
+        dofs.free = np.array([i for i in dofs.free if i not in null_set], dtype=int)
+        dofs.free_of_reduced[:] = -1
+        dofs.free_of_reduced[dofs.free] = np.arange(len(dofs.free))
+
+    def mass_full(self) -> np.ndarray:
+        """Diagonal lumped mass over the full DOF set (kg, kg·m²)."""
+        if self._M_full is not None:
+            return self._M_full
+        am = self.am
+        M = np.zeros(self.dofs.n_full)
+        if am.mass_include_elements:
+            for fe in self.frames:
+                mi, mj = fe.lumped_mass()
+                for nid, m in ((fe.el.node_i, mi), (fe.el.node_j, mj)):
+                    M[6 * nid:6 * nid + 3] += m
+            for se in self.shells:
+                ms = se.lumped_mass()
+                for nid, m in zip(se.el.nodes, ms):
+                    M[6 * nid:6 * nid + 3] += m
+        if am.mass_include_added:
+            for node in am.nodes:
+                M[6 * node.id:6 * node.id + 6] += node.mass
+        if am.mass_from_loads:
+            # gravity loads (global -Z) of the given patterns / g -> translational mass
+            for pattern, mult in am.mass_from_loads.items():
+                F = self.load_vector_full(pattern)
+                fz = F[2::6]
+                m_add = -fz * mult / am.gravity
+                for nid in range(am.n_nodes):
+                    M[6 * nid:6 * nid + 3] += m_add[nid]
+        # analytical inertia corrections for area objects lumped into rigid diaphragms
+        for c in am.constraints:
+            if not c.rigid:
+                continue
+            extra = c.inertia_correction_self if am.mass_include_elements else 0.0
+            for pattern, mult in am.mass_from_loads.items():
+                extra += mult * c.inertia_correction_loads.get(pattern, 0.0)
+                sw = am.self_weight.get(pattern, 0.0)
+                if sw:
+                    extra += mult * sw * c.inertia_correction_loads.get("__self_weight__", 0.0)
+            if am.mass_lateral:
+                M[6 * c.master + 3 + c.normal] += extra
+        if not am.mass_lateral:
+            M[0::6] = 0.0
+            M[1::6] = 0.0
+        if not am.mass_vertical:
+            M[2::6] = 0.0
+        self._M_full = M
+        return M
+
+    def mass_reduced(self) -> sparse.csr_matrix:
+        T = self.dofs.T
+        Mf = sparse.diags(self.mass_full())
+        return (T.T @ Mf @ T).tocsr()
+
+    # ------------------------------------------------------------------ loads
+    def load_vector_full(self, pattern: str) -> np.ndarray:
+        am = self.am
+        F = np.zeros(self.dofs.n_full)
+        sw = am.self_weight.get(pattern, 0.0)
+        for fe in self.frames:
+            loads = fe.element_loads(pattern, sw, am.gravity)
+            if not loads:
+                continue
+            f, _ = fe.load_vector_global(loads)
+            F[self._element_dofs(fe.el.nodes)] += f
+        for se in self.shells:
+            f = se.load_vector_global(pattern, sw)
+            if np.any(f):
+                F[self._element_dofs(se.el.nodes)] += f
+        for nid, vec in am.nodal_loads.get(pattern, {}).items():
+            F[6 * nid:6 * nid + 6] += vec
+        # ground displacement through springs: the ground end of a spring moves by dg,
+        # which loads the joint with k * dg (local axes)
+        for node in am.nodes:
+            dg = node.ground_disp.get(pattern)
+            if dg is not None and np.any(node.springs):
+                F[6 * node.id:6 * node.id + 6] += node_transform(node).T @ (node.springs * dg)
+        return F
+
+    def prescribed_reduced(self, loads: Dict[str, float]) -> Optional[np.ndarray]:
+        """Reduced displacement vector holding the ground displacements of the
+        restrained DOFs for a combination of load patterns (None when there are none)."""
+        dofs = self.dofs
+        u = np.zeros(dofs.T.shape[1])
+        any_ = False
+        for node in self.am.nodes:
+            if not node.ground_disp or not np.any(node.restraints):
+                continue
+            for pat, sf in loads.items():
+                dg = node.ground_disp.get(pat)
+                if dg is None:
+                    continue
+                for d in range(6):
+                    if node.restraints[d] and dg[d]:
+                        r = dofs.reduced_of_full[6 * node.id + d]
+                        if r >= 0:
+                            u[r] += sf * dg[d]
+                            any_ = True
+        return u if any_ else None
+
+    def load_vector_reduced(self, pattern: str) -> np.ndarray:
+        return self.dofs.T.T @ self.load_vector_full(pattern)
+
+    # -------------------------------------------------------------- influence
+    def influence_vector_full(self, direction: str, center: Optional[np.ndarray] = None) -> np.ndarray:
+        """Rigid-body displacement pattern for unit ground motion.
+
+        ``direction``: "UX", "UY", "UZ" or "RX", "RY", "RZ" (rotation about
+        the global axis through ``center``)."""
+        am = self.am
+        r = np.zeros(self.dofs.n_full)
+        coords = am.coords()
+        if direction in ("UX", "UY", "UZ"):
+            d = ("UX", "UY", "UZ").index(direction)
+            r[d::6] = 1.0
+            return r
+        axis = ("RX", "RY", "RZ").index(direction)
+        c = np.zeros(3) if center is None else center
+        e = np.zeros(3)
+        e[axis] = 1.0
+        for nid in range(am.n_nodes):
+            disp = np.cross(e, coords[nid] - c)
+            r[6 * nid:6 * nid + 3] = disp
+            r[6 * nid + 3 + axis] = 1.0
+        return r
+
+    def influence_vector_reduced(self, direction: str, center: Optional[np.ndarray] = None) -> np.ndarray:
+        """Influence vector expressed in reduced coordinates (slaves follow
+        masters automatically)."""
+        r_full = self.influence_vector_full(direction, center)
+        keep = np.where(self.dofs.reduced_of_full >= 0)[0]
+        return r_full[keep]

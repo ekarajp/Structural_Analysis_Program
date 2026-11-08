@@ -1,0 +1,1264 @@
+TABLE:  "PROGRAM CONTROL"
+   ProgramName=ETABS   Version=21.1.0   CurrUnits=kip_in_F   ConvertedBy="Structural Studio / ETABS 21"
+
+TABLE:  "Analysis Options - Active Degrees of Freedom"
+   UX=Yes   UY=Yes   UZ=Yes   RX=Yes   RY=Yes   RZ=Yes
+
+TABLE:  "Analysis Options - Analysis Model for Nonlinear Hinges"
+   ModelOpt=WithinElements
+
+TABLE:  "Analysis Options - Automatic Mesh Settings for Floors"
+   MeshOpt=Rectangular   Localized=Yes   MergeJoints=Yes   MaxMeshSize=48
+
+TABLE:  "Analysis Options - Automatic Rectangular Mesh Options for Walls"
+   MaxMeshSize=48
+
+TABLE:  "Analysis Options - Cracking Analysis Options"
+   ReinfSource="User and Designed"   MinTenRat=0.0018   MinCompRat=0
+
+TABLE:  "Analysis Options - Design and Response Recovery Options"
+   NumDThreads=0   NumRThreads=0   UseMMFiles="Program Determined"   AllowDiff=No
+
+TABLE:  "Analysis Options - SAPFire Options"
+   SolverOpt=Advanced   AnalysisPro=Auto   NumAThreads=0   MaxFileSize=0
+
+TABLE:  "Beam Object Connectivity"
+   UniqueName=43   UniquePtI=21   UniquePtJ=24   GUID={B2B17D13-F67C-49B7-913B-ACC8A07E00FA}
+   UniqueName=44   UniquePtI=24   UniquePtJ=27   GUID={4F8D3BD5-98A9-4A3D-9149-7B3616725263}
+   UniqueName=45   UniquePtI=27   UniquePtJ=36   GUID={8190BB89-4E9A-499E-80B0-A151D5E0D981}
+   UniqueName=46   UniquePtI=36   UniquePtJ=45   GUID={1BA23D03-AF51-43F9-B58F-FA3CFB9C579E}
+   UniqueName=47   UniquePtI=42   UniquePtJ=45   GUID={9EAC62AF-2369-42F2-8503-E65AD0D1B052}
+   UniqueName=48   UniquePtI=39   UniquePtJ=42   GUID={10D5FD79-FD0C-4FC7-908D-051FA8B9752E}
+   UniqueName=51   UniquePtI=30   UniquePtJ=33   GUID={91E022F6-3CB0-43EB-B974-98E84F2F9585}
+   UniqueName=52   UniquePtI=33   UniquePtJ=36   GUID={68085CF5-A326-44BB-A86D-20FA5FE24E28}
+   UniqueName=53   UniquePtI=24   UniquePtJ=33   GUID={2E9699A3-AD9A-4083-9DEF-284EB91CE73E}
+   UniqueName=54   UniquePtI=33   UniquePtJ=42   GUID={C647EA8B-CDA8-4579-97D9-7A898E7525B7}
+   UniqueName=49   UniquePtI=30   UniquePtJ=39   GUID={CB036418-5A97-4739-95B8-9E9E816BD74A}
+   UniqueName=50   UniquePtI=21   UniquePtJ=30   GUID={7E8602AC-8E17-4712-97FA-2B2665409FB3}
+   UniqueName=31   UniquePtI=20   UniquePtJ=23   GUID={6FC385ED-E1A7-4610-A640-46C47BE84294}
+   UniqueName=32   UniquePtI=23   UniquePtJ=26   GUID={D8EBE9DC-71AB-403F-A7B8-AF56F6769126}
+   UniqueName=33   UniquePtI=26   UniquePtJ=35   GUID={16415DA9-A2D4-483E-B85A-1D09806A60F3}
+   UniqueName=34   UniquePtI=35   UniquePtJ=44   GUID={709C62C1-825F-4A60-839A-532C18BCDA45}
+   UniqueName=35   UniquePtI=41   UniquePtJ=44   GUID={C8AE1FC4-123D-44C1-923C-7DE9DC350BB7}
+   UniqueName=36   UniquePtI=38   UniquePtJ=41   GUID={CF70AC26-9C5B-4032-ACBC-9DB1CCA879D4}
+   UniqueName=39   UniquePtI=29   UniquePtJ=32   GUID={3BB3212A-C521-456D-9213-8341668D9DF9}
+   UniqueName=40   UniquePtI=32   UniquePtJ=35   GUID={4D5B3617-B27F-458E-8895-D0F56DBB81AF}
+   UniqueName=42   UniquePtI=23   UniquePtJ=32   GUID={7F93F825-CCF7-40C1-84F0-DC40F3B69256}
+   UniqueName=41   UniquePtI=32   UniquePtJ=41   GUID={C930F15D-4362-4AE1-A4E4-CFAF98AB944E}
+   UniqueName=37   UniquePtI=29   UniquePtJ=38   GUID={FE195430-92DA-44EF-ADFF-1D26B483157E}
+   UniqueName=38   UniquePtI=20   UniquePtJ=29   GUID={D575591E-296B-4752-9305-151C202D0600}
+
+TABLE:  "Column Object Connectivity"
+   UniqueName=14   UniquePtI=20   UniquePtJ=21   GUID={2EF7AD8B-3EE8-4A32-9E2A-48021F06F627}
+   UniqueName=16   UniquePtI=23   UniquePtJ=24   GUID={177EEB31-6ACB-4069-A28B-EB92DDF0A8D4}
+   UniqueName=18   UniquePtI=26   UniquePtJ=27   GUID={FDCCE5E3-4E67-40B6-8FB8-42232F241083}
+   UniqueName=20   UniquePtI=29   UniquePtJ=30   GUID={02CCAB42-5A48-43AA-884B-0CC3E976BC6F}
+   UniqueName=22   UniquePtI=32   UniquePtJ=33   GUID={59381E72-113A-458D-87FF-E4EEE9AFB3F1}
+   UniqueName=24   UniquePtI=35   UniquePtJ=36   GUID={B25C1079-DC04-4946-918C-BED1D947D590}
+   UniqueName=26   UniquePtI=38   UniquePtJ=39   GUID={DB71D0A3-9139-4014-88D8-C4BF7EA731BE}
+   UniqueName=28   UniquePtI=41   UniquePtJ=42   GUID={7B0BD17C-2692-42D3-95D7-1C0502CC8EF4}
+   UniqueName=30   UniquePtI=44   UniquePtJ=45   GUID={1006035C-D645-4F3A-876C-07E93A77256A}
+   UniqueName=13   UniquePtI=19   UniquePtJ=20   GUID={E7993CC3-6299-4C8A-A6F4-CADBEAA4FF38}
+   UniqueName=15   UniquePtI=22   UniquePtJ=23   GUID={B13B3C7D-C050-48BA-B234-1DA957040E65}
+   UniqueName=17   UniquePtI=25   UniquePtJ=26   GUID={4644F3EB-EFA4-411A-9044-8A2A5A86B358}
+   UniqueName=19   UniquePtI=28   UniquePtJ=29   GUID={331C5F0B-777B-4ED6-9F08-358141AB61A5}
+   UniqueName=21   UniquePtI=31   UniquePtJ=32   GUID={AE202AC2-B046-43EA-9823-FA7EC9FDBE28}
+   UniqueName=23   UniquePtI=34   UniquePtJ=35   GUID={1539622E-4579-4E31-B540-3BFF7B13CDF0}
+   UniqueName=25   UniquePtI=37   UniquePtJ=38   GUID={10431FF1-C6DB-4BEB-B6B1-0814507B1D0A}
+   UniqueName=27   UniquePtI=40   UniquePtJ=41   GUID={5BC5BB2B-08B2-4BC6-9297-832AABCF658A}
+   UniqueName=29   UniquePtI=43   UniquePtJ=44   GUID={7519730D-BA8C-4C11-BC32-316F21F3B64B}
+
+TABLE:  "Composite Beam Design Preferences - AISC 360-05"
+   Shored=No   MidRange=70   PatLLF=0.75   DCLimit=1   MinPCC=25   MaxPCC=100   SingleSeg=No   MinLngSpc=4.5   MaxLngSpc=36   MinTrnSpc=3   MaxStudPRow=3   StudPos="Middle of the Ribs"   Camber=Yes   CamberDL=100   MinBmDepth=13.5   MinWebTick=0.25   MinBmSpan=288   MinCamber=0.75   MinCamOSpan=900   CamAbsMax=4   CamMaxRat=180   CamInt=0.25   CamRndDown=Yes   PCDLRat=0   SDLAndLLRat=240   LLRat=360   NetRat=240   IeffRed=0.75   Criteria=Walking   Occupancy="Paper Office"   WalkAccel=0.005   Damp1=0.03   OptPrice=No   SteelPrice=1   StudPrice=0   CamberPrice=0   phib=0.9   phibcpp=0.85   phiv=0.9   ReacFact=1
+
+TABLE:  "Composite Column Design Preferences - AISC 360-10"
+   MultiMethod=Step-by-Step   DesProv=LRFD   AnalMethod="Direct Analysis"   SOM="General 2nd Order"   SRedMethod="Tau-b Fixed"   PhiBend=0.9   PhiComp=0.9   PhiTY=0.9   PhiTF=0.75   PhiShear=0.9   PhiShSWRI=1   PhiTors=0.9   SeismicCode=No   SpSeisLoad=No   PlugWelded=Yes   WeldingType=ERW   RHSSSThick=No   PatLLF=0.75   DCLimit=0.95   MaxIter=1
+
+TABLE:  "Concrete Frame Design Preferences - ACI 318-08"
+   MultiMethod=Step-by-Step   NumCurves=24   NumPoints=11   MinEcc=Yes   Design4BCCR=Yes   IgnorePu=No   SDC=D   Rho=0   Sds=0   PhiTen=0.9   PhiCompTied=0.65   PhiCompSpir=0.75   PhiShrTor=0.75   PhiShrSeis=0.6   PhiShrJnt=0.85   PatLLF=0.75   DCLimit=0.95
+
+TABLE:  "Concrete Slab Design Overwrites - Punching Shear - General"
+   UniqueName=21   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=24   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=36   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=27   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=30   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=33   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=39   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=42   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=45   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=20   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=23   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=35   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=26   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=29   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=32   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=38   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=41   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=44   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=19   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=22   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=34   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=25   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=28   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=31   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=37   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=40   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+   UniqueName=43   CheckPunchingShear="Program Determined"   LocationType=Auto   Perimeter=Auto   EffDepthType=Auto   OpeningDef=Auto   RebarType=None
+
+TABLE:  "Concrete Slab Design Preferences - ACI 318-14"
+   PhiTen=0.9   PhiComp=0.65   PhiShear=0.75   IgnorePu=No   PatLLF=0.75   CoverTop=0.75   CoverBot=0.75   BarSize=#6   InnerLayer="Layer B"   PTCGSTop=1   PTCGSBotExt=1.75   PTCGSBotInt=1   SlabType="Two Way"   UserStress=No   InitConcRat=0.8   LLFraction=0.5
+
+TABLE:  "Database Table Named Set Definitions"
+   Name=Test   TableKey="Joint Displacements"   LoadPattern=DEAD   LoadCase=DEAD   BaseReacOpt="Program Determined"   ModeOpt=All   BuckModeOpt=All   Multistep=Envelopes   NLStatic=Envelopes   ModalHist=Envelopes   DirectHist=Envelopes   LoadCombo=Envelopes   Unformatted=No   ExposeAll=Yes   GUID=c799fee3-b245-422a-b361-430beb991083
+   Name=Test   TableKey="Modal Periods And Frequencies"   LoadPattern=LIVE   LoadCase=LIVE
+   Name=Test   TableKey="Program Control"   LoadCase=RSCQC
+   Name=Test   LoadCase=RSSRSS
+   Name=Test   LoadCase=RSABS
+   Name=Test   LoadCase=RS10PCT
+
+TABLE:  "Deck Property Definitions"
+   Name=DECK1   DeckType=Filled   MaterialSlb=CONC   MaterialDck=STEEL   SlabDepth=3.5   RibDepth=3   RibWidthTop=6   RibWidthBot=6   RibSpacing=12   DeckShrThk=0.035   DeckUnitWt=1.59722222222222E-05   StudDiam=0.75   StudHeight=6   StudFu=65   f11Mod=1   f22Mod=1   f12Mod=1   m11Mod=1   m22Mod=1   m12Mod=1   v13Mod=1   v23Mod=1   MMod=1   WMod=1   Color=Blue   GUID=dfa40175-9fd3-471c-b7c7-a3d1f47cb4ba
+
+TABLE:  "Diaphragm Definitions"
+   Name=D1   Rigidity=Rigid   GUID=d1eeb438-898e-43e3-b4a0-46736df0695e
+   Name=D2   Rigidity=Rigid   GUID=a9223bc0-8e73-4840-8a6f-f918e5d3bdb9
+
+TABLE:  "Frame Assignments - End Length Offsets"
+   UniqueName=43   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=44   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=45   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=46   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=47   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=48   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=51   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=52   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=53   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=54   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=49   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=50   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=14   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=16   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=18   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=20   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=22   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=24   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=26   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=28   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=30   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=31   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=32   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=33   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=34   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=35   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=36   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=39   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=40   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=42   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=41   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=37   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=38   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=13   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=15   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=17   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=19   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=21   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=23   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=25   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=27   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+   UniqueName=29   OffsetOpt=User   OffsetI=0   OffsetJ=0   RigidFact=0   SelfWtOpt=Auto
+
+TABLE:  "Frame Assignments - Frame Auto Mesh Options"
+   UniqueName=43   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=44   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=45   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=46   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=47   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=48   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=51   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=52   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=53   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=54   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=49   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=50   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=14   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=16   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=18   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=20   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=22   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=24   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=26   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=28   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=30   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=31   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=32   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=33   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=34   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=35   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=36   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=39   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=40   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=42   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=41   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=37   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=38   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=13   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=15   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=17   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=19   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=21   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=23   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=25   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=27   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+   UniqueName=29   AutoMesh=Yes   AtIntJoints=Yes   AtIntersect=Yes   MinNumber=No   MaxLength=No
+
+TABLE:  "Frame Assignments - Frame Floor Meshing Option"
+   UniqueName=43   MeshOption="Include in Mesh"
+   UniqueName=44   MeshOption="Include in Mesh"
+   UniqueName=45   MeshOption="Include in Mesh"
+   UniqueName=46   MeshOption="Include in Mesh"
+   UniqueName=47   MeshOption="Include in Mesh"
+   UniqueName=48   MeshOption="Include in Mesh"
+   UniqueName=51   MeshOption="Include in Mesh"
+   UniqueName=52   MeshOption="Include in Mesh"
+   UniqueName=53   MeshOption="Include in Mesh"
+   UniqueName=54   MeshOption="Include in Mesh"
+   UniqueName=49   MeshOption="Include in Mesh"
+   UniqueName=50   MeshOption="Include in Mesh"
+   UniqueName=14   MeshOption="Include in Mesh"
+   UniqueName=16   MeshOption="Include in Mesh"
+   UniqueName=18   MeshOption="Include in Mesh"
+   UniqueName=20   MeshOption="Include in Mesh"
+   UniqueName=22   MeshOption="Include in Mesh"
+   UniqueName=24   MeshOption="Include in Mesh"
+   UniqueName=26   MeshOption="Include in Mesh"
+   UniqueName=28   MeshOption="Include in Mesh"
+   UniqueName=30   MeshOption="Include in Mesh"
+   UniqueName=31   MeshOption="Include in Mesh"
+   UniqueName=32   MeshOption="Include in Mesh"
+   UniqueName=33   MeshOption="Include in Mesh"
+   UniqueName=34   MeshOption="Include in Mesh"
+   UniqueName=35   MeshOption="Include in Mesh"
+   UniqueName=36   MeshOption="Include in Mesh"
+   UniqueName=39   MeshOption="Include in Mesh"
+   UniqueName=40   MeshOption="Include in Mesh"
+   UniqueName=42   MeshOption="Include in Mesh"
+   UniqueName=41   MeshOption="Include in Mesh"
+   UniqueName=37   MeshOption="Include in Mesh"
+   UniqueName=38   MeshOption="Include in Mesh"
+   UniqueName=13   MeshOption="Include in Mesh"
+   UniqueName=15   MeshOption="Include in Mesh"
+   UniqueName=17   MeshOption="Include in Mesh"
+   UniqueName=19   MeshOption="Include in Mesh"
+   UniqueName=21   MeshOption="Include in Mesh"
+   UniqueName=23   MeshOption="Include in Mesh"
+   UniqueName=25   MeshOption="Include in Mesh"
+   UniqueName=27   MeshOption="Include in Mesh"
+   UniqueName=29   MeshOption="Include in Mesh"
+
+TABLE:  "Frame Assignments - Insertion Point"
+   UniqueName=43   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=44   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=45   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=46   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=47   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=48   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=51   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=52   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=53   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=54   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=49   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=50   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=14   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=16   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=18   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=20   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=22   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=24   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=26   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=28   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=30   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=31   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=32   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=33   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=34   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=35   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=36   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=39   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=40   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=42   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=41   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=37   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=38   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=13   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=15   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=17   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=19   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=21   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=23   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=25   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=27   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+   UniqueName=29   CardinalPt="10 (Centroid)"   Mirror2=No   Mirror3=No   NoTransform=Yes
+
+TABLE:  "Frame Assignments - Output Stations"
+   UniqueName=43   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=44   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=45   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=46   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=47   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=48   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=51   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=52   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=53   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=54   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=49   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=50   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=14   StationOpt="Min Stations"   MinStations=3
+   UniqueName=16   StationOpt="Min Stations"   MinStations=3
+   UniqueName=18   StationOpt="Min Stations"   MinStations=3
+   UniqueName=20   StationOpt="Min Stations"   MinStations=3
+   UniqueName=22   StationOpt="Min Stations"   MinStations=3
+   UniqueName=24   StationOpt="Min Stations"   MinStations=3
+   UniqueName=26   StationOpt="Min Stations"   MinStations=3
+   UniqueName=28   StationOpt="Min Stations"   MinStations=3
+   UniqueName=30   StationOpt="Min Stations"   MinStations=3
+   UniqueName=31   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=32   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=33   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=34   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=35   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=36   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=39   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=40   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=42   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=41   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=37   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=38   StationOpt="Max Spacing"   MaxSpacing=24
+   UniqueName=13   StationOpt="Min Stations"   MinStations=3
+   UniqueName=15   StationOpt="Min Stations"   MinStations=3
+   UniqueName=17   StationOpt="Min Stations"   MinStations=3
+   UniqueName=19   StationOpt="Min Stations"   MinStations=3
+   UniqueName=21   StationOpt="Min Stations"   MinStations=3
+   UniqueName=23   StationOpt="Min Stations"   MinStations=3
+   UniqueName=25   StationOpt="Min Stations"   MinStations=3
+   UniqueName=27   StationOpt="Min Stations"   MinStations=3
+   UniqueName=29   StationOpt="Min Stations"   MinStations=3
+
+TABLE:  "Frame Assignments - Section Properties"
+   UniqueName=43   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=44   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=45   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=46   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=47   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=48   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=51   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=52   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=53   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=54   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=49   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=50   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=14   AutoSelect=N.A.   SectProp=COLUMN
+   UniqueName=16   AutoSelect=N.A.   SectProp=COLUMN
+   UniqueName=18   AutoSelect=N.A.   SectProp=COLUMN
+   UniqueName=20   AutoSelect=N.A.   SectProp=COLUMN
+   UniqueName=22   AutoSelect=N.A.   SectProp=COLUMN
+   UniqueName=24   AutoSelect=N.A.   SectProp=COLUMN
+   UniqueName=26   AutoSelect=N.A.   SectProp=COLUMN
+   UniqueName=28   AutoSelect=N.A.   SectProp=COLUMN
+   UniqueName=30   AutoSelect=N.A.   SectProp=COLUMN
+   UniqueName=31   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=32   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=33   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=34   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=35   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=36   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=39   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=40   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=42   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=41   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=37   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=38   AutoSelect=N.A.   SectProp=BEAM
+   UniqueName=13   AutoSelect=N.A.   SectProp=COLUMN
+   UniqueName=15   AutoSelect=N.A.   SectProp=COLUMN
+   UniqueName=17   AutoSelect=N.A.   SectProp=COLUMN
+   UniqueName=19   AutoSelect=N.A.   SectProp=COLUMN
+   UniqueName=21   AutoSelect=N.A.   SectProp=COLUMN
+   UniqueName=23   AutoSelect=N.A.   SectProp=COLUMN
+   UniqueName=25   AutoSelect=N.A.   SectProp=COLUMN
+   UniqueName=27   AutoSelect=N.A.   SectProp=COLUMN
+   UniqueName=29   AutoSelect=N.A.   SectProp=COLUMN
+
+TABLE:  "Frame Loads Assignments - Open Structure Wind Parameters"
+   UniqueName=43   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=44   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=45   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=46   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=47   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=48   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=51   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=52   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=53   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=54   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=49   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=50   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=14   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=16   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=18   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=20   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=22   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=24   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=26   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=28   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=30   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=31   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=32   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=33   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=34   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=35   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=36   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=39   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=40   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=42   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=41   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=37   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=38   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=13   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=15   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=17   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=19   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=21   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=23   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=25   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=27   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+   UniqueName=29   IsLoaded=Yes   IceThick=0   CoeffType="Program Calculated"
+
+TABLE:  "Frame Section Property Definitions - Auto Select List"
+   Name=A-CompBm   DesignType=Steel   FromFile=No   StartSect=W14X30   IncludedSec=W10X12   GUID=df29cacd-d6da-41a2-be02-d3ade3b1ec82
+   Name=A-CompBm   IncludedSec=W10X15
+   Name=A-CompBm   IncludedSec=W10X17
+   Name=A-CompBm   IncludedSec=W10X19
+   Name=A-CompBm   IncludedSec=W12X14
+   Name=A-CompBm   IncludedSec=W12X16
+   Name=A-CompBm   IncludedSec=W12X19
+   Name=A-CompBm   IncludedSec=W12X22
+   Name=A-CompBm   IncludedSec=W12X26
+   Name=A-CompBm   IncludedSec=W14X22
+   Name=A-CompBm   IncludedSec=W14X26
+   Name=A-CompBm   IncludedSec=W14X30
+   Name=A-CompBm   IncludedSec=W16X26
+   Name=A-CompBm   IncludedSec=W16X31
+   Name=A-CompBm   IncludedSec=W18X35
+   Name=A-CompBm   IncludedSec=W18X40
+   Name=A-CompBm   IncludedSec=W18X50
+   Name=A-CompBm   IncludedSec=W21X44
+   Name=A-CompBm   IncludedSec=W21X55
+   Name=A-CompBm   IncludedSec=W21X57
+   Name=A-CompBm   IncludedSec=W21X62
+   Name=A-CompBm   IncludedSec=W24X55
+   Name=A-CompBm   IncludedSec=W24X62
+   Name=A-CompBm   IncludedSec=W24X68
+   Name=A-CompBm   IncludedSec=W24X76
+   Name=A-CompBm   IncludedSec=W27X84
+   Name=A-GravBm   DesignType=Steel   FromFile=No   StartSect=W21X50   IncludedSec=W12X26   GUID=b167b7d8-ef5f-4671-b6df-9e0955b8b865
+   Name=A-GravBm   IncludedSec=W12X30
+   Name=A-GravBm   IncludedSec=W14X30
+   Name=A-GravBm   IncludedSec=W14X34
+   Name=A-GravBm   IncludedSec=W14X38
+   Name=A-GravBm   IncludedSec=W16X26
+   Name=A-GravBm   IncludedSec=W16X31
+   Name=A-GravBm   IncludedSec=W16X36
+   Name=A-GravBm   IncludedSec=W18X35
+   Name=A-GravBm   IncludedSec=W18X40
+   Name=A-GravBm   IncludedSec=W18X46
+   Name=A-GravBm   IncludedSec=W21X44
+   Name=A-GravBm   IncludedSec=W21X50
+   Name=A-GravBm   IncludedSec=W21X57
+   Name=A-GravBm   IncludedSec=W24X55
+   Name=A-GravBm   IncludedSec=W24X62
+   Name=A-GravBm   IncludedSec=W24X68
+   Name=A-GravBm   IncludedSec=W24X76
+   Name=A-GravBm   IncludedSec=W27X84
+   Name=A-GravBm   IncludedSec=W27X94
+   Name=A-GravBm   IncludedSec=W30X90
+   Name=A-GravBm   IncludedSec=W30X99
+   Name=A-GravBm   IncludedSec=W30X108
+   Name=A-GravBm   IncludedSec=W30X116
+   Name=A-GravBm   IncludedSec=W33X118
+   Name=A-GravCol   DesignType=Steel   FromFile=No   StartSect=W14X82   IncludedSec=W10X33   GUID=a02796e5-a300-4ea9-926f-520979a427b7
+   Name=A-GravCol   IncludedSec=W10X39
+   Name=A-GravCol   IncludedSec=W10X45
+   Name=A-GravCol   IncludedSec=W10X60
+   Name=A-GravCol   IncludedSec=W12X53
+   Name=A-GravCol   IncludedSec=W12X58
+   Name=A-GravCol   IncludedSec=W12X72
+   Name=A-GravCol   IncludedSec=W12X79
+   Name=A-GravCol   IncludedSec=W12X87
+   Name=A-GravCol   IncludedSec=W12X96
+   Name=A-GravCol   IncludedSec=W12X106
+   Name=A-GravCol   IncludedSec=W12X120
+   Name=A-GravCol   IncludedSec=W14X61
+   Name=A-GravCol   IncludedSec=W14X68
+   Name=A-GravCol   IncludedSec=W14X74
+   Name=A-GravCol   IncludedSec=W14X82
+   Name=A-GravCol   IncludedSec=W14X109
+   Name=A-GravCol   IncludedSec=W14X120
+   Name=A-GravCol   IncludedSec=W14X132
+   Name=A-GravCol   IncludedSec=W14X145
+   Name=A-GravCol   IncludedSec=W14X159
+   Name=A-GravCol   IncludedSec=W14X176
+   Name=A-GravCol   IncludedSec=W14X193
+   Name=A-GravCol   IncludedSec=W14X211
+   Name=A-LatBm   DesignType=Steel   FromFile=No   StartSect=W27X102   IncludedSec=W18X50   GUID=a5e3d9c6-062e-4e5e-af38-aa9df723d189
+   Name=A-LatBm   IncludedSec=W18X55
+   Name=A-LatBm   IncludedSec=W18X60
+   Name=A-LatBm   IncludedSec=W21X55
+   Name=A-LatBm   IncludedSec=W21X57
+   Name=A-LatBm   IncludedSec=W21X62
+   Name=A-LatBm   IncludedSec=W21X68
+   Name=A-LatBm   IncludedSec=W24X62
+   Name=A-LatBm   IncludedSec=W24X76
+   Name=A-LatBm   IncludedSec=W24X84
+   Name=A-LatBm   IncludedSec=W24X94
+   Name=A-LatBm   IncludedSec=W27X94
+   Name=A-LatBm   IncludedSec=W27X102
+   Name=A-LatBm   IncludedSec=W27X114
+   Name=A-LatBm   IncludedSec=W27X129
+   Name=A-LatBm   IncludedSec=W30X108
+   Name=A-LatBm   IncludedSec=W30X116
+   Name=A-LatBm   IncludedSec=W30X124
+   Name=A-LatBm   IncludedSec=W30X132
+   Name=A-LatBm   IncludedSec=W33X130
+   Name=A-LatBm   IncludedSec=W33X141
+   Name=A-LatBm   IncludedSec=W33X152
+   Name=A-LatBm   IncludedSec=W36X150
+   Name=A-LatBm   IncludedSec=W36X160
+   Name=A-LatBm   IncludedSec=W36X170
+   Name=A-LatBm   IncludedSec=W36X182
+   Name=A-LatCol   DesignType=Steel   FromFile=No   StartSect=W14X193   IncludedSec=W12X96   GUID=5ed64362-5e26-4509-b3f2-e39350008ce7
+   Name=A-LatCol   IncludedSec=W12X106
+   Name=A-LatCol   IncludedSec=W12X120
+   Name=A-LatCol   IncludedSec=W12X136
+   Name=A-LatCol   IncludedSec=W12X152
+   Name=A-LatCol   IncludedSec=W12X170
+   Name=A-LatCol   IncludedSec=W12X190
+   Name=A-LatCol   IncludedSec=W12X210
+   Name=A-LatCol   IncludedSec=W14X132
+   Name=A-LatCol   IncludedSec=W14X145
+   Name=A-LatCol   IncludedSec=W14X159
+   Name=A-LatCol   IncludedSec=W14X176
+   Name=A-LatCol   IncludedSec=W14X193
+   Name=A-LatCol   IncludedSec=W14X211
+   Name=A-LatCol   IncludedSec=W14X233
+   Name=A-LatCol   IncludedSec=W14X257
+   Name=A-LatCol   IncludedSec=W14X283
+   Name=A-LatCol   IncludedSec=W14X311
+   Name=A-LatCol   IncludedSec=W14X342
+   Name=A-LatCol   IncludedSec=W14X370
+   Name=A-LatCol   IncludedSec=W14X398
+   Name=A-LatCol   IncludedSec=W14X426
+   Name=A-LatCol   IncludedSec=W14X455
+   Name=A-LatCol   IncludedSec=W14X500
+   Name=A-TrChdW10   DesignType=Steel   FromFile=No   StartSect=W10X60   IncludedSec=W10X33   GUID=6cf5526f-5306-4177-95d9-bfec9f919b46
+   Name=A-TrChdW10   IncludedSec=W10X39
+   Name=A-TrChdW10   IncludedSec=W10X45
+   Name=A-TrChdW10   IncludedSec=W10X49
+   Name=A-TrChdW10   IncludedSec=W10X54
+   Name=A-TrChdW10   IncludedSec=W10X60
+   Name=A-TrChdW10   IncludedSec=W10X68
+   Name=A-TrChdW10   IncludedSec=W10X77
+   Name=A-TrChdW10   IncludedSec=W10X88
+   Name=A-TrChdW10   IncludedSec=W10X100
+   Name=A-TrChdW10   IncludedSec=W10X112
+   Name=A-TrChdW12   DesignType=Steel   FromFile=No   StartSect=W12X106   IncludedSec=W12X40   GUID=c0d3c865-64bc-482d-99a2-7c94f87c9eeb
+   Name=A-TrChdW12   IncludedSec=W12X45
+   Name=A-TrChdW12   IncludedSec=W12X50
+   Name=A-TrChdW12   IncludedSec=W12X53
+   Name=A-TrChdW12   IncludedSec=W12X58
+   Name=A-TrChdW12   IncludedSec=W12X65
+   Name=A-TrChdW12   IncludedSec=W12X72
+   Name=A-TrChdW12   IncludedSec=W12X79
+   Name=A-TrChdW12   IncludedSec=W12X87
+   Name=A-TrChdW12   IncludedSec=W12X96
+   Name=A-TrChdW12   IncludedSec=W12X106
+   Name=A-TrChdW12   IncludedSec=W12X120
+   Name=A-TrChdW12   IncludedSec=W12X136
+   Name=A-TrChdW12   IncludedSec=W12X152
+   Name=A-TrChdW12   IncludedSec=W12X170
+   Name=A-TrChdW12   IncludedSec=W12X190
+   Name=A-TrChdW12   IncludedSec=W12X210
+   Name=A-TrChdW12   IncludedSec=W12X230
+   Name=A-TrChdW12   IncludedSec=W12X252
+   Name=A-TrChdW12   IncludedSec=W12X279
+   Name=A-TrChdW12   IncludedSec=W12X305
+   Name=A-TrChdW12   IncludedSec=W12X336
+   Name=A-TrChdW14   DesignType=Steel   FromFile=No   StartSect=W14X120   IncludedSec=W14X43   GUID=db800f42-9326-45c9-b9cd-8afc06a2a457
+   Name=A-TrChdW14   IncludedSec=W14X48
+   Name=A-TrChdW14   IncludedSec=W14X53
+   Name=A-TrChdW14   IncludedSec=W14X61
+   Name=A-TrChdW14   IncludedSec=W14X68
+   Name=A-TrChdW14   IncludedSec=W14X74
+   Name=A-TrChdW14   IncludedSec=W14X82
+   Name=A-TrChdW14   IncludedSec=W14X90
+   Name=A-TrChdW14   IncludedSec=W14X99
+   Name=A-TrChdW14   IncludedSec=W14X109
+   Name=A-TrChdW14   IncludedSec=W14X120
+   Name=A-TrChdW14   IncludedSec=W14X132
+   Name=A-TrChdW14   IncludedSec=W14X145
+   Name=A-TrChdW14   IncludedSec=W14X159
+   Name=A-TrChdW14   IncludedSec=W14X176
+   Name=A-TrChdW14   IncludedSec=W14X193
+   Name=A-TrChdW14   IncludedSec=W14X211
+   Name=A-TrChdW14   IncludedSec=W14X233
+   Name=A-TrChdW14   IncludedSec=W14X257
+   Name=A-TrChdW14   IncludedSec=W14X283
+   Name=A-TrChdW14   IncludedSec=W14X311
+   Name=A-TrWeb10   DesignType=Steel   FromFile=No   StartSect=W10X60   IncludedSec=W10X33   GUID=7d88c4be-5fa5-4e27-aa89-e1112fbfdecd
+   Name=A-TrWeb10   IncludedSec=W10X39
+   Name=A-TrWeb10   IncludedSec=W10X45
+   Name=A-TrWeb10   IncludedSec=W10X49
+   Name=A-TrWeb10   IncludedSec=W10X54
+   Name=A-TrWeb10   IncludedSec=W10X60
+   Name=A-TrWeb10   IncludedSec=W10X68
+   Name=A-TrWeb10   IncludedSec=W10X77
+   Name=A-TrWeb10   IncludedSec=W10X88
+   Name=A-TrWeb10   IncludedSec=W10X100
+   Name=A-TrWeb10   IncludedSec=W10X112
+   Name=A-TrWeb12   DesignType=Steel   FromFile=No   StartSect=W12X87   IncludedSec=W12X40   GUID=5a9ea0fe-a29e-448b-8a6a-ab931c9a31c1
+   Name=A-TrWeb12   IncludedSec=W12X45
+   Name=A-TrWeb12   IncludedSec=W12X50
+   Name=A-TrWeb12   IncludedSec=W12X53
+   Name=A-TrWeb12   IncludedSec=W12X58
+   Name=A-TrWeb12   IncludedSec=W12X65
+   Name=A-TrWeb12   IncludedSec=W12X72
+   Name=A-TrWeb12   IncludedSec=W12X79
+   Name=A-TrWeb12   IncludedSec=W12X87
+   Name=A-TrWeb12   IncludedSec=W12X96
+   Name=A-TrWeb12   IncludedSec=W12X106
+   Name=A-TrWeb12   IncludedSec=W12X120
+   Name=A-TrWeb12   IncludedSec=W12X136
+   Name=A-TrWeb12   IncludedSec=W12X152
+   Name=A-TrWeb12   IncludedSec=W12X170
+   Name=A-TrWeb12   IncludedSec=W12X190
+   Name=A-TrWeb12   IncludedSec=W12X210
+   Name=A-TrWeb12   IncludedSec=W12X230
+   Name=A-TrWeb8   DesignType=Steel   FromFile=No   StartSect=W8X40   IncludedSec=W8X31   GUID=2dee615c-a96e-4164-b504-b6b93f262f09
+   Name=A-TrWeb8   IncludedSec=W8X35
+   Name=A-TrWeb8   IncludedSec=W8X40
+   Name=A-TrWeb8   IncludedSec=W8X48
+   Name=A-TrWeb8   IncludedSec=W8X58
+   Name=A-TrWeb8   IncludedSec=W8X67
+   Name=A-TrWebHSSO   DesignType=Steel   FromFile=No   StartSect=HSS7X.250   IncludedSec=HSS4X.237   GUID=7b7c77a3-64cc-42f8-a0ef-94454f3bedd8
+   Name=A-TrWebHSSO   IncludedSec=HSS4X.250
+   Name=A-TrWebHSSO   IncludedSec=HSS5X.250
+   Name=A-TrWebHSSO   IncludedSec=HSS5X.258
+   Name=A-TrWebHSSO   IncludedSec=HSS5X.312
+   Name=A-TrWebHSSO   IncludedSec=HSS5X.375
+   Name=A-TrWebHSSO   IncludedSec=HSS5X.500
+   Name=A-TrWebHSSO   IncludedSec=HSS6X.250
+   Name=A-TrWebHSSO   IncludedSec=HSS6X.280
+   Name=A-TrWebHSSO   IncludedSec=HSS6X.312
+   Name=A-TrWebHSSO   IncludedSec=HSS6X.375
+   Name=A-TrWebHSSO   IncludedSec=HSS7X.250
+   Name=A-TrWebHSSO   IncludedSec=HSS7X.312
+   Name=A-TrWebHSSO   IncludedSec=HSS7X.375
+   Name=A-TrWebHSSO   IncludedSec=HSS7X.500
+   Name=A-TrWebHSSr   DesignType=Steel   FromFile=No   GUID=41bae978-c622-4fb6-9150-ff7248b6b019
+   Name=A-TrWebPIPE   DesignType=Steel   FromFile=No   StartSect=PIPE6SCH80   IncludedSec=PIPE4SCH40   GUID=e96ad883-ee9d-4584-9e21-f500fd1a9d15
+   Name=A-TrWebPIPE   IncludedSec=PIPE5SCH40
+   Name=A-TrWebPIPE   IncludedSec=PIPE6SCH40
+   Name=A-TrWebPIPE   IncludedSec=PIPE8SCH40
+   Name=A-TrWebPIPE   IncludedSec=PIPE10SCH40
+   Name=A-TrWebPIPE   IncludedSec=PIPE12STD
+   Name=A-TrWebPIPE   IncludedSec=PIPE4SCH80
+   Name=A-TrWebPIPE   IncludedSec=PIPE5SCH80
+   Name=A-TrWebPIPE   IncludedSec=PIPE6SCH80
+   Name=A-TrWebPIPE   IncludedSec=PIPE8SCH80
+   Name=A-TrWebPIPE   IncludedSec=PIPE12XS
+   Name=A-TrWebPIPE   IncludedSec=PIPE4XXS
+   Name=A-TrWebPIPE   IncludedSec=PIPE5XXS
+   Name=A-TrWebPIPE   IncludedSec=PIPE6XXS
+   Name=A-TrWebPIPE   IncludedSec=PIPE8XXS
+
+TABLE:  "Frame Section Property Definitions - Concrete Beam Reinforcing"
+   Name=ConcBm   RebarMatL=A615Gr60   RebarMatC=A615Gr60   TopCover=1.8   BotCover=1.8   TopIEndArea=0   TopJEndArea=0   BotIEndArea=0   BotJEndArea=0
+
+TABLE:  "Frame Section Property Definitions - Concrete Column Reinforcing"
+   Name=ConcCol   RebarMatL=A615Gr60   RebarMatC=A615Gr60   ReinfConfig=Rectangular   IsDesigned=Yes   Cover=0.73137348134579   NumBars3Dir=3   NumBars2Dir=3   BarSizeLong=#9   BarSizeCorn=#9   BarSizeConf=#4   SpacingConf=6   NumCBars3=3   NumCBars2=3
+
+TABLE:  "Frame Section Property Definitions - Concrete Rectangular"
+   Name=ConcBm   Material=CONC   FromFile=No   t3=18   t2=12   RigidZone=No   NotSizeType=User   NotUserSize=12   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=a4484221-d04f-410f-9caf-c72ef3cda973
+   Name=ConcCol   Material=CONC   FromFile=No   t3=18   t2=18   RigidZone=No   NotSizeType=User   NotUserSize=12   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=c9daedbe-8dfd-4a20-a8ca-9a3d305a0a72
+
+TABLE:  "Frame Section Property Definitions - General"
+   Name=BEAM   Material=MATBEAM   t3=12   t2=12   Area=720   As2=0   As3=0   I33=54120.96   I22=34629.12   I23=0   S33Pos=1728   S33Neg=1728   S22Pos=1728   S22Neg=1728   R33=12   R22=12   Z33=1728   Z22=1728   J=0   CGOffset3=0   CGOffset2=0   PNAOffset3=0   PNAOffset2=0   SCOffset3=0   SCOffset2=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=6bafdb64-d51c-42d4-a7d2-63c3dcdf729a
+   Name=COLUMN   Material=MATCOL   t3=12   t2=12   Area=576   As2=0   As3=0   I33=25920   I22=25920   I23=0   S33Pos=1728   S33Neg=1728   S22Pos=1728   S22Neg=1728   R33=12   R22=12   Z33=1728   Z22=1728   J=0   CGOffset3=0   CGOffset2=0   PNAOffset3=0   PNAOffset2=0   SCOffset3=0   SCOffset2=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=f7d064f7-bc77-493e-9753-af2cd90952d8
+
+TABLE:  "Frame Section Property Definitions - Steel I/Wide Flange"
+   Name=W10X100   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W10X100   t3=11.1000003814697   t2=10.3000001907349   tf=1.12000000476837   tw=0.680000007152557   t2b=10.3000001907349   tfb=1.12000000476837   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=8361a14e-0e72-4a69-8682-86e1004a6e6c
+   Name=W10X112   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W10X112   t3=11.3999996185303   t2=10.3999996185303   tf=1.25   tw=0.754999995231628   t2b=10.3999996185303   tfb=1.25   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=eee6dda1-19a8-433f-88d5-99e21350f864
+   Name=W10X12   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W10X12   t3=9.86999988555908   t2=3.96000003814697   tf=0.209999993443489   tw=0.189999997615814   t2b=3.96000003814697   tfb=0.209999993443489   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=4db3bfb5-14e7-4e46-92b9-6aa00c7ceefa
+   Name=W10X15   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W10X15   t3=10   t2=4   tf=0.270000010728836   tw=0.230000004172325   t2b=4   tfb=0.270000010728836   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=206acc32-5d1d-41c8-a391-41c6d6a41cd3
+   Name=W10X17   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W10X17   t3=10.1000003814697   t2=4.01000022888184   tf=0.330000013113022   tw=0.239999994635582   t2b=4.01000022888184   tfb=0.330000013113022   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=175589bb-d118-45c9-ab53-54730f7e82df
+   Name=W10X19   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W10X19   t3=10.1999998092651   t2=4.01999998092651   tf=0.395000010728836   tw=0.25   t2b=4.01999998092651   tfb=0.395000010728836   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=cf17247b-686d-4cbf-abb1-cf6c0162a169
+   Name=W10X22   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W10X22   t3=10.1999998092651   t2=5.75   tf=0.360000014305115   tw=0.239999994635582   t2b=5.75   tfb=0.360000014305115   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=a2f5d5b9-e6e9-4f16-aaf8-1c704646322a
+   Name=W10X26   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W10X26   t3=10.3000001907349   t2=5.76999998092651   tf=0.439999997615814   tw=0.259999990463257   t2b=5.76999998092651   tfb=0.439999997615814   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=2a897c12-620b-4dad-84af-bfb492a2f45f
+   Name=W10X30   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W10X30   t3=10.5   t2=5.80999994277954   tf=0.509999990463257   tw=0.300000011920929   t2b=5.80999994277954   tfb=0.509999990463257   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=63063bb4-556d-4f88-9329-26f480a7c5de
+   Name=W10X33   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W10X33   t3=9.72999954223633   t2=7.96000003814697   tf=0.435000002384186   tw=0.28999999165535   t2b=7.96000003814697   tfb=0.435000002384186   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=8cebf628-dc6d-4e8c-91ab-8fc5ca8a68b5
+   Name=W10X39   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W10X39   t3=9.92000007629395   t2=7.98999977111816   tf=0.529999971389771   tw=0.314999997615814   t2b=7.98999977111816   tfb=0.529999971389771   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=63549e04-79e9-4655-bde5-1c4482c4bf0d
+   Name=W10X45   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W10X45   t3=10.1000003814697   t2=8.02000045776367   tf=0.620000004768372   tw=0.349999994039536   t2b=8.02000045776367   tfb=0.620000004768372   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=eaa46aec-1b27-43e9-bd0b-4a2f12b35276
+   Name=W10X49   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W10X49   t3=10   t2=10   tf=0.560000002384186   tw=0.340000003576279   t2b=10   tfb=0.560000002384186   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=c87e3967-43f0-4e71-a1b0-2e7c22133cd3
+   Name=W10X54   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W10X54   t3=10.1000003814697   t2=10   tf=0.615000009536743   tw=0.370000004768372   t2b=10   tfb=0.615000009536743   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=21c23323-3ec2-48bd-84be-31cabeb3d942
+   Name=W10X60   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W10X60   t3=10.1999998092651   t2=10.1000003814697   tf=0.680000007152557   tw=0.419999986886978   t2b=10.1000003814697   tfb=0.680000007152557   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=a0860b2b-28b2-4533-b841-a7bc7f221ebe
+   Name=W10X68   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W10X68   t3=10.3999996185303   t2=10.1000003814697   tf=0.769999980926514   tw=0.469999998807907   t2b=10.1000003814697   tfb=0.769999980926514   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=01082e40-08e5-434f-b12f-531fce668a82
+   Name=W10X77   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W10X77   t3=10.6000003814697   t2=10.1999998092651   tf=0.870000004768371   tw=0.529999971389771   t2b=10.1999998092651   tfb=0.870000004768371   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=8e74cf83-62bc-4a04-91fa-81e6f7418107
+   Name=W10X88   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W10X88   t3=10.8000001907349   t2=10.3000001907349   tf=0.990000009536743   tw=0.605000019073486   t2b=10.3000001907349   tfb=0.990000009536743   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=3bf2b550-aeac-4f1f-a56d-48dd6f2a2dda
+   Name=W12X106   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X106   t3=12.8999996185303   t2=12.1999998092651   tf=0.990000009536743   tw=0.610000014305115   t2b=12.1999998092651   tfb=0.990000009536743   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=7b4e895c-e288-457c-b086-5ec00c9fa97d
+   Name=W12X120   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X120   t3=13.1000003814697   t2=12.3000001907349   tf=1.11000001430511   tw=0.709999978542328   t2b=12.3000001907349   tfb=1.11000001430511   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=0a00cf13-336c-4890-a2ef-9f30f7e40762
+   Name=W12X136   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X136   t3=13.3999996185303   t2=12.3999996185303   tf=1.25   tw=0.790000021457672   t2b=12.3999996185303   tfb=1.25   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=a2bce647-2785-46a1-a72d-81d51923b6f0
+   Name=W12X14   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X14   t3=11.8999996185303   t2=3.97000002861023   tf=0.224999994039535   tw=0.200000002980232   t2b=3.97000002861023   tfb=0.224999994039535   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=5ab5dda4-8549-49c8-80e4-5bea287f8825
+   Name=W12X152   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X152   t3=13.6999998092651   t2=12.5   tf=1.39999997615814   tw=0.870000004768371   t2b=12.5   tfb=1.39999997615814   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=32532cd8-14c4-4448-b88b-2c573a663af9
+   Name=W12X16   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X16   t3=12   t2=3.99000000953674   tf=0.264999985694885   tw=0.219999998807907   t2b=3.99000000953674   tfb=0.264999985694885   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=5bce0cb8-c141-493e-9967-ff98a2f7e621
+   Name=W12X170   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X170   t3=14   t2=12.6000003814697   tf=1.55999994277954   tw=0.959999978542328   t2b=12.6000003814697   tfb=1.55999994277954   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=71ca5200-aa07-4ec3-9706-74b001bfdde7
+   Name=W12X19   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X19   t3=12.1999998092651   t2=4.01000022888184   tf=0.349999994039536   tw=0.234999999403954   t2b=4.01000022888184   tfb=0.349999994039536   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=5917556c-0ac1-451d-85a5-18dc702e4e51
+   Name=W12X190   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X190   t3=14.3999996185303   t2=12.6999998092651   tf=1.74000000953674   tw=1.05999994277954   t2b=12.6999998092651   tfb=1.74000000953674   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=f95f4792-248f-4f01-88ab-c732ce70f658
+   Name=W12X210   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X210   t3=14.6999998092651   t2=12.8000001907349   tf=1.89999997615814   tw=1.17999994754791   t2b=12.8000001907349   tfb=1.89999997615814   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=7b21495c-05c5-4d58-9dd2-c255fa4dead1
+   Name=W12X22   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X22   t3=12.3000001907349   t2=4.03000020980835   tf=0.425000011920929   tw=0.259999990463257   t2b=4.03000020980835   tfb=0.425000011920929   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=17655093-cdf1-46d3-bac3-a3579b61914a
+   Name=W12X230   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X230   t3=15.1000003814697   t2=12.8999996185303   tf=2.0699999332428   tw=1.28999996185303   t2b=12.8999996185303   tfb=2.0699999332428   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=a1e181ca-799e-40be-9951-eb71cc064020
+   Name=W12X252   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X252   t3=15.3999996185303   t2=13   tf=2.25   tw=1.39999997615814   t2b=13   tfb=2.25   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=b1f8f36a-4325-4cd7-825f-1b44fff00d00
+   Name=W12X26   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X26   t3=12.1999998092651   t2=6.48999977111816   tf=0.379999995231628   tw=0.230000004172325   t2b=6.48999977111816   tfb=0.379999995231628   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=01b3f851-8406-435f-8f9e-85d8efd14e88
+   Name=W12X279   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X279   t3=15.8999996185303   t2=13.1000003814697   tf=2.47000002861023   tw=1.52999997138977   t2b=13.1000003814697   tfb=2.47000002861023   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=d1000ef3-2e9e-4d65-8da9-ac30c81a567b
+   Name=W12X30   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X30   t3=12.3000001907349   t2=6.51999998092651   tf=0.439999997615814   tw=0.259999990463257   t2b=6.51999998092651   tfb=0.439999997615814   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=f6b67b73-e4bc-40bb-9d53-9321659f446b
+   Name=W12X305   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X305   t3=16.2999992370605   t2=13.1999998092651   tf=2.71000003814697   tw=1.62999999523163   t2b=13.1999998092651   tfb=2.71000003814697   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=056ffc45-47fb-47cc-9370-fa9d4e1dd5ee
+   Name=W12X336   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X336   t3=16.7999992370605   t2=13.3999996185303   tf=2.96000003814697   tw=1.77999997138977   t2b=13.3999996185303   tfb=2.96000003814697   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=d873e578-96ed-4888-9728-ec25c9738196
+   Name=W12X35   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X35   t3=12.5   t2=6.55999994277954   tf=0.519999980926514   tw=0.300000011920929   t2b=6.55999994277954   tfb=0.519999980926514   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=9b7bb84f-1590-420f-abbd-4025c1716764
+   Name=W12X40   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X40   t3=11.8999996185303   t2=8.01000022888184   tf=0.514999985694885   tw=0.294999986886978   t2b=8.01000022888184   tfb=0.514999985694885   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=ffec9bb7-f298-45b3-a3a0-77c4ad1edd7e
+   Name=W12X45   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X45   t3=12.1000003814697   t2=8.05000019073486   tf=0.574999988079071   tw=0.33500000834465   t2b=8.05000019073486   tfb=0.574999988079071   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=4b18a4de-f6eb-4238-9587-ee053bfa9928
+   Name=W12X50   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X50   t3=12.1999998092651   t2=8.07999992370605   tf=0.639999985694885   tw=0.370000004768372   t2b=8.07999992370605   tfb=0.639999985694885   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=17ab64b3-bdae-4b59-a531-ec88b3e27b02
+   Name=W12X53   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X53   t3=12.1000003814697   t2=10   tf=0.574999988079071   tw=0.344999998807907   t2b=10   tfb=0.574999988079071   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=e3ad464b-06ba-4d52-989d-8176e056f4b3
+   Name=W12X58   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X58   t3=12.1999998092651   t2=10   tf=0.639999985694885   tw=0.360000014305115   t2b=10   tfb=0.639999985694885   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=9a23a140-a11f-4433-9c39-66e3b4183ea0
+   Name=W12X65   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X65   t3=12.1000003814697   t2=12   tf=0.605000019073486   tw=0.389999985694885   t2b=12   tfb=0.605000019073486   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=fd75349b-3d8a-458b-8674-35d6f24b9d7c
+   Name=W12X72   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X72   t3=12.3000001907349   t2=12   tf=0.670000016689301   tw=0.430000007152557   t2b=12   tfb=0.670000016689301   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=31b8db74-af32-474b-a113-4ecd61842f08
+   Name=W12X79   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X79   t3=12.3999996185303   t2=12.1000003814697   tf=0.735000014305115   tw=0.469999998807907   t2b=12.1000003814697   tfb=0.735000014305115   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=a7e05c86-9018-4fe3-b434-e3fc00f84a31
+   Name=W12X87   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X87   t3=12.5   t2=12.1000003814697   tf=0.810000002384186   tw=0.514999985694885   t2b=12.1000003814697   tfb=0.810000002384186   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=c15923af-c928-4484-b797-d9a48cdcecbe
+   Name=W12X96   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W12X96   t3=12.6999998092651   t2=12.1999998092651   tf=0.899999976158142   tw=0.550000011920929   t2b=12.1999998092651   tfb=0.899999976158142   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=6b8b6d2b-62b9-43fb-b056-fd53befdc939
+   Name=W14X109   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X109   t3=14.3000001907349   t2=14.6000003814697   tf=0.860000014305115   tw=0.524999976158142   t2b=14.6000003814697   tfb=0.860000014305115   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=78832e79-812b-4f51-8539-0b8239b2b9c1
+   Name=W14X120   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X120   t3=14.5   t2=14.6999998092651   tf=0.939999997615814   tw=0.589999973773956   t2b=14.6999998092651   tfb=0.939999997615814   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=0877e51b-3a77-4e57-a844-b0f72c7b1978
+   Name=W14X132   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X132   t3=14.6999998092651   t2=14.6999998092651   tf=1.02999997138977   tw=0.644999980926514   t2b=14.6999998092651   tfb=1.02999997138977   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=5fc5f612-6ab8-48cc-a2d2-809bde92be8f
+   Name=W14X145   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X145   t3=14.8000001907349   t2=15.5   tf=1.0900000333786   tw=0.680000007152557   t2b=15.5   tfb=1.0900000333786   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=e3c0dd68-9326-4baa-9e2f-bd797bd25f1a
+   Name=W14X159   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X159   t3=15   t2=15.6000003814697   tf=1.19000005722046   tw=0.745000004768372   t2b=15.6000003814697   tfb=1.19000005722046   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=6828143b-97e0-4f4c-84dd-d0bae6a020ab
+   Name=W14X176   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X176   t3=15.1999998092651   t2=15.6999998092651   tf=1.30999994277954   tw=0.829999983310699   t2b=15.6999998092651   tfb=1.30999994277954   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=adcfb8c3-eb60-4f43-9a81-fe8facbd4e2e
+   Name=W14X193   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X193   t3=15.5   t2=15.6999998092651   tf=1.44000005722046   tw=0.889999985694885   t2b=15.6999998092651   tfb=1.44000005722046   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=03e82dd7-d941-40a3-abb1-830ecb4184f3
+   Name=W14X211   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X211   t3=15.6999998092651   t2=15.8000001907349   tf=1.55999994277954   tw=0.980000019073486   t2b=15.8000001907349   tfb=1.55999994277954   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=9d96e455-d958-485d-9820-bf90cb6191ef
+   Name=W14X22   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X22   t3=13.6999998092651   t2=5   tf=0.33500000834465   tw=0.230000004172325   t2b=5   tfb=0.33500000834465   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=ccdb4bf2-c367-4cae-92d4-eccc6d5d7da2
+   Name=W14X233   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X233   t3=16   t2=15.8999996185303   tf=1.72000002861023   tw=1.07000005245209   t2b=15.8999996185303   tfb=1.72000002861023   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=16d47b86-063d-4b99-8aba-2bf657cee35b
+   Name=W14X257   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X257   t3=16.3999996185303   t2=16   tf=1.88999998569489   tw=1.17999994754791   t2b=16   tfb=1.88999998569489   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=afad7f69-b856-4b72-b6d3-7f4dbae8b403
+   Name=W14X26   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X26   t3=13.8999996185303   t2=5.03000020980835   tf=0.419999986886978   tw=0.254999995231628   t2b=5.03000020980835   tfb=0.419999986886978   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=e0b57e80-729c-4137-8281-f7fafada1d4e
+   Name=W14X283   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X283   t3=16.7000007629395   t2=16.1000003814697   tf=2.0699999332428   tw=1.28999996185303   t2b=16.1000003814697   tfb=2.0699999332428   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=d1081e91-b9e9-467d-bdee-53d2ccb05ca9
+   Name=W14X30   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X30   t3=13.8000001907349   t2=6.73000001907349   tf=0.384999990463257   tw=0.270000010728836   t2b=6.73000001907349   tfb=0.384999990463257   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=61c86198-2c17-421d-9061-415d3749d52f
+   Name=W14X311   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X311   t3=17.1000003814697   t2=16.2000007629395   tf=2.25999999046326   tw=1.4099999666214   t2b=16.2000007629395   tfb=2.25999999046326   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=0978113e-9585-45f7-bad2-34d3d5fbfc9a
+   Name=W14X34   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X34   t3=14   t2=6.75   tf=0.455000013113022   tw=0.284999996423721   t2b=6.75   tfb=0.455000013113022   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=9becf6b7-9cd0-47b4-8014-e17f5700d6c6
+   Name=W14X342   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X342   t3=17.5   t2=16.3999996185303   tf=2.47000002861023   tw=1.53999996185303   t2b=16.3999996185303   tfb=2.47000002861023   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=94cda7ba-e2c0-4284-9ece-5eb7471ae97b
+   Name=W14X370   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X370   t3=17.8999996185303   t2=16.5   tf=2.66000008583069   tw=1.6599999666214   t2b=16.5   tfb=2.66000008583069   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=79d85008-9d2c-4448-b309-808140ce4f4d
+   Name=W14X38   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X38   t3=14.1000003814697   t2=6.76999998092651   tf=0.514999985694885   tw=0.310000002384186   t2b=6.76999998092651   tfb=0.514999985694885   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=eb467907-7a3e-414e-9cdf-8c2a1f0ecca2
+   Name=W14X398   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X398   t3=18.2999992370605   t2=16.6000003814697   tf=2.84999990463257   tw=1.76999998092651   t2b=16.6000003814697   tfb=2.84999990463257   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=7c65309a-5ca9-43b0-a926-d2948ae880ef
+   Name=W14X426   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X426   t3=18.7000007629395   t2=16.7000007629395   tf=3.03999996185303   tw=1.87999999523163   t2b=16.7000007629395   tfb=3.03999996185303   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=cfca032a-26a5-43d0-9532-7f8a0666db0e
+   Name=W14X43   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X43   t3=13.6999998092651   t2=8   tf=0.529999971389771   tw=0.305000007152557   t2b=8   tfb=0.529999971389771   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=de5a8a9d-1caa-47b6-8fa9-1bb6261dadac
+   Name=W14X455   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X455   t3=19   t2=16.7999992370605   tf=3.21000003814697   tw=2.01999998092651   t2b=16.7999992370605   tfb=3.21000003814697   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=12e141b6-4585-471a-aa83-429bb449d7ff
+   Name=W14X48   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X48   t3=13.8000001907349   t2=8.02999973297119   tf=0.595000028610229   tw=0.340000003576279   t2b=8.02999973297119   tfb=0.595000028610229   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=8f83fd57-a337-49ec-ae49-28570abdc72d
+   Name=W14X500   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X500   t3=19.6000003814697   t2=17   tf=3.5   tw=2.19000005722046   t2b=17   tfb=3.5   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=6c109754-dda0-40d0-8661-c9f5aef4dc13
+   Name=W14X53   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X53   t3=13.8999996185303   t2=8.0600004196167   tf=0.660000026226044   tw=0.370000004768372   t2b=8.0600004196167   tfb=0.660000026226044   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=40b174b3-97c4-415d-b543-46f2fcbd900d
+   Name=W14X550   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X550   t3=20.2000007629395   t2=17.2000007629395   tf=3.8199999332428   tw=2.38000011444092   t2b=17.2000007629395   tfb=3.8199999332428   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=42cadc61-7247-4b1b-ab5d-0c60511c9dd6
+   Name=W14X605   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X605   t3=20.8999996185303   t2=17.3999996185303   tf=4.15999984741211   tw=2.59999990463257   t2b=17.3999996185303   tfb=4.15999984741211   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=ebc7781a-bc52-4003-9c9c-f9f090036826
+   Name=W14X61   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X61   t3=13.8999996185303   t2=10   tf=0.644999980926514   tw=0.375   t2b=10   tfb=0.644999980926514   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=6c280e06-5266-4201-b691-041d5c3ecd58
+   Name=W14X665   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X665   t3=21.6000003814697   t2=17.7000007629395   tf=4.51999998092651   tw=2.82999992370605   t2b=17.7000007629395   tfb=4.51999998092651   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=0ee3ed44-8ea2-4ce9-805f-ec06351ae0c3
+   Name=W14X68   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X68   t3=14   t2=10   tf=0.720000028610229   tw=0.41499999165535   t2b=10   tfb=0.720000028610229   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=507d1d87-da54-4772-a3ff-60044868eaaf
+   Name=W14X730   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X730   t3=22.3999996185303   t2=17.8999996185303   tf=4.90999984741211   tw=3.0699999332428   t2b=17.8999996185303   tfb=4.90999984741211   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=f7bca13d-2416-42b8-becb-547a614da342
+   Name=W14X74   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X74   t3=14.1999998092651   t2=10.1000003814697   tf=0.785000026226044   tw=0.449999988079071   t2b=10.1000003814697   tfb=0.785000026226044   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=7db75f2b-1124-4831-899c-6d840a927c72
+   Name=W14X82   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X82   t3=14.3000001907349   t2=10.1000003814697   tf=0.855000019073486   tw=0.509999990463257   t2b=10.1000003814697   tfb=0.855000019073486   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=6309c599-9345-49d8-ab22-2113cccd2730
+   Name=W14X90   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X90   t3=14   t2=14.5   tf=0.709999978542328   tw=0.439999997615814   t2b=14.5   tfb=0.709999978542328   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=1d3e341e-990e-4a9b-a233-e702c57e0aa8
+   Name=W14X99   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W14X99   t3=14.1999998092651   t2=14.6000003814697   tf=0.779999971389771   tw=0.485000014305115   t2b=14.6000003814697   tfb=0.779999971389771   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=930b93f1-f1a0-45fd-88aa-57a36cc14fdc
+   Name=W16X100   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W16X100   t3=17   t2=10.3999996185303   tf=0.985000014305115   tw=0.584999978542328   t2b=10.3999996185303   tfb=0.985000014305115   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=ccd9dbc2-fc73-4a80-927b-367b9c665438
+   Name=W16X26   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W16X26   t3=15.6999998092651   t2=5.5   tf=0.344999998807907   tw=0.25   t2b=5.5   tfb=0.344999998807907   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=af854454-1cca-4e4b-bee9-731e0fd430b0
+   Name=W16X31   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W16X31   t3=15.8999996185303   t2=5.53000020980835   tf=0.439999997615814   tw=0.275000005960464   t2b=5.53000020980835   tfb=0.439999997615814   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=fcfbaf51-0eac-46c5-9288-e8b2f245de40
+   Name=W16X36   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W16X36   t3=15.8999996185303   t2=6.98999977111816   tf=0.430000007152557   tw=0.294999986886978   t2b=6.98999977111816   tfb=0.430000007152557   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=6ab0783e-af5f-4b1a-8588-b00fe64c394f
+   Name=W16X40   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W16X40   t3=16   t2=7   tf=0.504999995231628   tw=0.305000007152557   t2b=7   tfb=0.504999995231628   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=b256f1ac-cfa1-4640-839d-643c32dcf8ca
+   Name=W16X45   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W16X45   t3=16.1000003814697   t2=7.03999996185303   tf=0.564999997615814   tw=0.344999998807907   t2b=7.03999996185303   tfb=0.564999997615814   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=4d064d33-881a-43bd-b3f3-102903ce0d65
+   Name=W16X50   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W16X50   t3=16.2999992370605   t2=7.07000017166138   tf=0.629999995231628   tw=0.379999995231628   t2b=7.07000017166138   tfb=0.629999995231628   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=96bb1ea1-0a51-42fd-9214-d0ec2e63477e
+   Name=W16X57   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W16X57   t3=16.3999996185303   t2=7.11999988555908   tf=0.714999973773956   tw=0.430000007152557   t2b=7.11999988555908   tfb=0.714999973773956   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=37911cd3-b3f6-43d7-851a-48e651369b47
+   Name=W16X67   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W16X67   t3=16.2999992370605   t2=10.1999998092651   tf=0.665000021457672   tw=0.395000010728836   t2b=10.1999998092651   tfb=0.665000021457672   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=877e0e16-f5dc-494b-9d85-6d202e9d3f2e
+   Name=W16X77   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W16X77   t3=16.5   t2=10.3000001907349   tf=0.759999990463257   tw=0.455000013113022   t2b=10.3000001907349   tfb=0.759999990463257   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=a277a5b3-0c9e-4503-abcd-9164c732be72
+   Name=W16X89   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W16X89   t3=16.7999992370605   t2=10.3999996185303   tf=0.875   tw=0.524999976158142   t2b=10.3999996185303   tfb=0.875   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=ddf44a93-8126-46dc-89fd-95540f54651a
+   Name=W18X106   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W18X106   t3=18.7000007629395   t2=11.1999998092651   tf=0.939999997615814   tw=0.589999973773956   t2b=11.1999998092651   tfb=0.939999997615814   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=0b3174d4-0fd5-4d1c-be68-72d53246bb3f
+   Name=W18X119   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W18X119   t3=19   t2=11.3000001907349   tf=1.05999994277954   tw=0.654999971389771   t2b=11.3000001907349   tfb=1.05999994277954   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=87c8a28f-577a-4ac2-9a1e-3b87d282f0da
+   Name=W18X130   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W18X130   t3=19.2999992370605   t2=11.1999998092651   tf=1.20000004768372   tw=0.670000016689301   t2b=11.1999998092651   tfb=1.20000004768372   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=d416d7c0-1703-4dc0-86b2-982d8cfaf47a
+   Name=W18X143   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W18X143   t3=19.5   t2=11.1999998092651   tf=1.32000005245209   tw=0.730000019073486   t2b=11.1999998092651   tfb=1.32000005245209   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=6700ccd4-6366-4dab-9365-37d4ae73a792
+   Name=W18X158   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W18X158   t3=19.7000007629395   t2=11.3000001907349   tf=1.44000005722046   tw=0.810000002384186   t2b=11.3000001907349   tfb=1.44000005722046   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=a506bf3c-3acb-4210-9404-a8611940fcd7
+   Name=W18X175   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W18X175   t3=20   t2=11.3999996185303   tf=1.5900000333786   tw=0.889999985694885   t2b=11.3999996185303   tfb=1.5900000333786   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=1bcb021a-c38a-4ef0-9f22-669ae10a4987
+   Name=W18X35   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W18X35   t3=17.7000007629395   t2=6   tf=0.425000011920929   tw=0.300000011920929   t2b=6   tfb=0.425000011920929   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=ebd00a11-fee8-489c-ae8c-1329d879f097
+   Name=W18X40   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W18X40   t3=17.8999996185303   t2=6.01999998092651   tf=0.524999976158142   tw=0.314999997615814   t2b=6.01999998092651   tfb=0.524999976158142   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=24766add-8831-414e-9a90-c733fa256a1f
+   Name=W18X46   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W18X46   t3=18.1000003814697   t2=6.05999994277954   tf=0.605000019073486   tw=0.360000014305115   t2b=6.05999994277954   tfb=0.605000019073486   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=30058fc2-65cf-4829-b612-c446cc95c047
+   Name=W18X50   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W18X50   t3=18   t2=7.5   tf=0.569999992847443   tw=0.354999989271164   t2b=7.5   tfb=0.569999992847443   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=ea86dc86-a2e0-461c-a55d-73d469f067f1
+   Name=W18X55   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W18X55   t3=18.1000003814697   t2=7.53000020980835   tf=0.629999995231628   tw=0.389999985694885   t2b=7.53000020980835   tfb=0.629999995231628   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=24332c07-1750-41f1-9436-a81a8376ea40
+   Name=W18X60   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W18X60   t3=18.2000007629395   t2=7.55999994277954   tf=0.694999992847443   tw=0.41499999165535   t2b=7.55999994277954   tfb=0.694999992847443   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=33e89334-9e60-4d67-b823-16de33b39c16
+   Name=W18X65   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W18X65   t3=18.3999996185303   t2=7.59000015258789   tf=0.75   tw=0.449999988079071   t2b=7.59000015258789   tfb=0.75   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=afeb48c2-bff6-4993-9b89-78bac29a0d81
+   Name=W18X71   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W18X71   t3=18.5   t2=7.6399998664856   tf=0.810000002384186   tw=0.495000004768372   t2b=7.6399998664856   tfb=0.810000002384186   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=ae7a15a3-0950-487b-a533-fa52c863ce4c
+   Name=W18X76   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W18X76   t3=18.2000007629395   t2=11   tf=0.680000007152557   tw=0.425000011920929   t2b=11   tfb=0.680000007152557   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=328b946a-e637-41b4-b3ab-f2fd4edf61f1
+   Name=W18X86   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W18X86   t3=18.3999996185303   t2=11.1000003814697   tf=0.769999980926514   tw=0.479999989271164   t2b=11.1000003814697   tfb=0.769999980926514   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=2de24f73-6fa4-4e4d-a634-3e07d36e010f
+   Name=W18X97   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W18X97   t3=18.6000003814697   t2=11.1000003814697   tf=0.870000004768371   tw=0.535000026226044   t2b=11.1000003814697   tfb=0.870000004768371   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=11d0cf3f-adcd-45f9-be28-90a875b5136f
+   Name=W21X101   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W21X101   t3=21.3999996185303   t2=12.3000001907349   tf=0.800000011920929   tw=0.5   t2b=12.3000001907349   tfb=0.800000011920929   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=11d0ad47-2b3b-4b50-8b63-5cf917ea0545
+   Name=W21X111   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W21X111   t3=21.5   t2=12.3000001907349   tf=0.875   tw=0.550000011920929   t2b=12.3000001907349   tfb=0.875   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=2ff33c5d-b1d5-4de1-b584-c3e9bf71103b
+   Name=W21X122   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W21X122   t3=21.7000007629395   t2=12.3999996185303   tf=0.959999978542328   tw=0.600000023841858   t2b=12.3999996185303   tfb=0.959999978542328   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=453f9437-4662-4621-886e-9ad1660d0e1d
+   Name=W21X132   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W21X132   t3=21.7999992370605   t2=12.3999996185303   tf=1.03999996185303   tw=0.649999976158142   t2b=12.3999996185303   tfb=1.03999996185303   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=62148b88-130c-45d4-a769-5e8fbb880874
+   Name=W21X147   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W21X147   t3=22.1000003814697   t2=12.5   tf=1.14999997615814   tw=0.720000028610229   t2b=12.5   tfb=1.14999997615814   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=25d8ec9f-b257-4269-9976-091cf1ff1b50
+   Name=W21X166   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W21X166   t3=22.5   t2=12.3999996185303   tf=1.36000001430511   tw=0.75   t2b=12.3999996185303   tfb=1.36000001430511   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=1359b052-169b-4c8e-b398-4745c1622c42
+   Name=W21X182   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W21X182   t3=22.7000007629395   t2=12.5   tf=1.48000001907349   tw=0.829999983310699   t2b=12.5   tfb=1.48000001907349   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=6d25cc34-6f04-4168-bd60-b5b12d47ec18
+   Name=W21X201   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W21X201   t3=23   t2=12.6000003814697   tf=1.62999999523163   tw=0.910000026226044   t2b=12.6000003814697   tfb=1.62999999523163   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=a3647203-762a-46d4-b87b-0d23624e8700
+   Name=W21X44   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W21X44   t3=20.7000007629395   t2=6.5   tf=0.449999988079071   tw=0.349999994039536   t2b=6.5   tfb=0.449999988079071   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=ce9f7b27-0f67-4e56-9218-de9aec984ae3
+   Name=W21X48   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W21X48   t3=20.6000003814697   t2=8.14000034332275   tf=0.430000007152557   tw=0.349999994039536   t2b=8.14000034332275   tfb=0.430000007152557   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=607ac851-4179-4341-8e8f-40c325948241
+   Name=W21X50   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W21X50   t3=20.7999992370605   t2=6.53000020980835   tf=0.535000026226044   tw=0.379999995231628   t2b=6.53000020980835   tfb=0.535000026226044   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=ab31a6c6-742b-4443-ad05-a39b0d7a779c
+   Name=W21X55   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W21X55   t3=20.7999992370605   t2=8.22000026702881   tf=0.522000014781952   tw=0.375   t2b=8.22000026702881   tfb=0.522000014781952   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=19b9873d-d4a5-413c-a6e9-26e3bb3b1b3f
+   Name=W21X57   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W21X57   t3=21.1000003814697   t2=6.55999994277954   tf=0.649999976158142   tw=0.405000001192093   t2b=6.55999994277954   tfb=0.649999976158142   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=691508e5-7363-4068-af6a-8f8ad3ab3e13
+   Name=W21X62   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W21X62   t3=21   t2=8.23999977111816   tf=0.615000009536743   tw=0.400000005960464   t2b=8.23999977111816   tfb=0.615000009536743   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=3f4df4b9-97e1-4443-9862-b09f94b0eb45
+   Name=W21X68   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W21X68   t3=21.1000003814697   t2=8.27000045776367   tf=0.685000002384186   tw=0.430000007152557   t2b=8.27000045776367   tfb=0.685000002384186   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=052d83d2-4dd6-4bc1-ba3d-baae9b556a94
+   Name=W21X73   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W21X73   t3=21.2000007629395   t2=8.30000019073486   tf=0.740000009536743   tw=0.455000013113022   t2b=8.30000019073486   tfb=0.740000009536743   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=c742b1e8-43ee-4f0f-b477-41d8bd66beec
+   Name=W21X83   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W21X83   t3=21.3999996185303   t2=8.35999965667725   tf=0.834999978542328   tw=0.514999985694885   t2b=8.35999965667725   tfb=0.834999978542328   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=70736227-008e-454d-ae97-8cfa484ec293
+   Name=W21X93   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W21X93   t3=21.6000003814697   t2=8.42000007629395   tf=0.930000007152557   tw=0.579999983310699   t2b=8.42000007629395   tfb=0.930000007152557   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=083d13d4-be3c-4789-852a-95336f908480
+   Name=W24X103   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X103   t3=24.5   t2=9   tf=0.980000019073486   tw=0.550000011920929   t2b=9   tfb=0.980000019073486   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=03be7b90-00b4-4c81-9321-f9e2722a82c7
+   Name=W24X104   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X104   t3=24.1000003814697   t2=12.8000001907349   tf=0.75   tw=0.5   t2b=12.8000001907349   tfb=0.75   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=e0a42b70-accc-426c-b97d-e8d9fab3e3a2
+   Name=W24X117   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X117   t3=24.2999992370605   t2=12.8000001907349   tf=0.850000023841858   tw=0.550000011920929   t2b=12.8000001907349   tfb=0.850000023841858   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=011bc455-02c5-470f-b94d-93febfdd923c
+   Name=W24X131   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X131   t3=24.5   t2=12.8999996185303   tf=0.959999978542328   tw=0.605000019073486   t2b=12.8999996185303   tfb=0.959999978542328   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=f7d3d25e-750e-4816-93aa-358c30f57c5f
+   Name=W24X146   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X146   t3=24.7000007629395   t2=12.8999996185303   tf=1.0900000333786   tw=0.649999976158142   t2b=12.8999996185303   tfb=1.0900000333786   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=e027de85-fcbb-4054-aeba-9b4ad3d29b77
+   Name=W24X162   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X162   t3=25   t2=13   tf=1.22000002861023   tw=0.704999983310699   t2b=13   tfb=1.22000002861023   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=35e5af17-0070-4f49-ac9e-5af61712143f
+   Name=W24X176   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X176   t3=25.2000007629395   t2=12.8999996185303   tf=1.3400000333786   tw=0.75   t2b=12.8999996185303   tfb=1.3400000333786   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=7b718855-abe7-4aaa-86da-b7a816549b53
+   Name=W24X192   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X192   t3=25.5   t2=13   tf=1.46000003814697   tw=0.810000002384186   t2b=13   tfb=1.46000003814697   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=7eecbdc1-951c-4b45-8f97-e849ae8be119
+   Name=W24X207   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X207   t3=25.7000007629394   t2=13   tf=1.57000005245209   tw=0.870000004768371   t2b=13   tfb=1.57000005245209   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=b47bea03-a1c3-4372-9f92-43b35ac47875
+   Name=W24X229   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X229   t3=26   t2=13.1000003814697   tf=1.73000001907349   tw=0.959999978542328   t2b=13.1000003814697   tfb=1.73000001907349   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=500a5578-2e36-4cbc-aa1e-65cd84c006a3
+   Name=W24X250   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X250   t3=26.2999992370605   t2=13.1999998092651   tf=1.88999998569489   tw=1.03999996185303   t2b=13.1999998092651   tfb=1.88999998569489   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=f07ecfdc-91ba-4ba9-bcea-ee95a96bb36f
+   Name=W24X279   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X279   t3=26.7000007629395   t2=13.3000001907349   tf=2.08999991416931   tw=1.1599999666214   t2b=13.3000001907349   tfb=2.08999991416931   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=6266e5af-cf60-426f-ab14-b7c7de6ec38b
+   Name=W24X306   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X306   t3=27.1000003814697   t2=13.3999996185303   tf=2.27999997138977   tw=1.25999999046326   t2b=13.3999996185303   tfb=2.27999997138977   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=e8f1e147-1b41-4188-90f3-cc68b0110d10
+   Name=W24X335   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X335   t3=27.5   t2=13.5   tf=2.48000001907349   tw=1.37999999523163   t2b=13.5   tfb=2.48000001907349   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=220670e2-a766-482b-b99a-aa9f736823ed
+   Name=W24X370   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X370   t3=28   t2=13.6999998092651   tf=2.72000002861023   tw=1.51999998092651   t2b=13.6999998092651   tfb=2.72000002861023   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=ad174ea1-071a-48b0-9e01-41b45abad22a
+   Name=W24X55   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X55   t3=23.6000003814697   t2=7.01000022888184   tf=0.504999995231628   tw=0.395000010728836   t2b=7.01000022888184   tfb=0.504999995231628   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=0bb6938a-7712-41a9-a745-ea0808ae1be5
+   Name=W24X62   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X62   t3=23.7000007629395   t2=7.03999996185303   tf=0.589999973773956   tw=0.430000007152557   t2b=7.03999996185303   tfb=0.589999973773956   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=64e26147-ba45-4184-8998-53071ddd5b02
+   Name=W24X68   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X68   t3=23.7000007629395   t2=8.97000026702881   tf=0.584999978542328   tw=0.41499999165535   t2b=8.97000026702881   tfb=0.584999978542328   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=1a87b691-d40f-425c-b2be-43fcbbc3ec18
+   Name=W24X76   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X76   t3=23.8999996185303   t2=8.98999977111816   tf=0.680000007152557   tw=0.439999997615814   t2b=8.98999977111816   tfb=0.680000007152557   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=3b3a6be9-1298-4953-9b44-19f2103aaa93
+   Name=W24X84   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X84   t3=24.1000003814697   t2=9.02000045776367   tf=0.769999980926514   tw=0.469999998807907   t2b=9.02000045776367   tfb=0.769999980926514   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=0b382234-1b77-4019-8180-c45aa7800e1e
+   Name=W24X94   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W24X94   t3=24.2999992370605   t2=9.06999969482422   tf=0.875   tw=0.514999985694885   t2b=9.06999969482422   tfb=0.875   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=fa05a5d4-d582-4e52-856a-04fc3fae9e48
+   Name=W27X102   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W27X102   t3=27.1000003814697   t2=10   tf=0.829999983310699   tw=0.514999985694885   t2b=10   tfb=0.829999983310699   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=64a60c29-ec04-44ea-ae5b-8de3c8ed42b9
+   Name=W27X114   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W27X114   t3=27.2999992370605   t2=10.1000003814697   tf=0.930000007152557   tw=0.569999992847443   t2b=10.1000003814697   tfb=0.930000007152557   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=1e03b027-b919-4491-832f-168af4c15e74
+   Name=W27X129   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W27X129   t3=27.6000003814697   t2=10   tf=1.10000002384186   tw=0.610000014305115   t2b=10   tfb=1.10000002384186   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=a44b70e9-6ee1-4491-8238-429bceaaa26b
+   Name=W27X146   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W27X146   t3=27.3999996185303   t2=14   tf=0.975000023841858   tw=0.605000019073486   t2b=14   tfb=0.975000023841858   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=31ba8e80-7da2-4e4b-80bb-9d286faaf3cf
+   Name=W27X161   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W27X161   t3=27.6000003814697   t2=14   tf=1.08000004291534   tw=0.660000026226044   t2b=14   tfb=1.08000004291534   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=fc800a8e-a005-4b2e-b30c-3238239fc7cf
+   Name=W27X178   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W27X178   t3=27.7999992370605   t2=14.1000003814697   tf=1.19000005722046   tw=0.725000023841858   t2b=14.1000003814697   tfb=1.19000005722046   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=3a84f1b9-60d6-45eb-94d9-b1c0625812fc
+   Name=W27X194   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W27X194   t3=28.1000003814697   t2=14   tf=1.3400000333786   tw=0.75   t2b=14   tfb=1.3400000333786   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=285af055-3d15-4cae-aa71-d554792646de
+   Name=W27X217   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W27X217   t3=28.3999996185303   t2=14.1000003814697   tf=1.5   tw=0.829999983310699   t2b=14.1000003814697   tfb=1.5   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=99d15048-1216-4353-b569-84c82cd30ad2
+   Name=W27X235   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W27X235   t3=28.7000007629394   t2=14.1999998092651   tf=1.61000001430511   tw=0.910000026226044   t2b=14.1999998092651   tfb=1.61000001430511   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=e4536ce7-5827-496f-8984-b175f0896468
+   Name=W27X258   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W27X258   t3=29   t2=14.3000001907349   tf=1.76999998092651   tw=0.980000019073486   t2b=14.3000001907349   tfb=1.76999998092651   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=94234cb0-418e-4242-8cb9-67215307d32c
+   Name=W27X281   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W27X281   t3=29.2999992370605   t2=14.3999996185303   tf=1.92999994754791   tw=1.05999994277954   t2b=14.3999996185303   tfb=1.92999994754791   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=90dc543a-044f-4636-90d8-bfe62bc5b822
+   Name=W27X307   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W27X307   t3=29.6000003814697   t2=14.3999996185303   tf=2.08999991416931   tw=1.1599999666214   t2b=14.3999996185303   tfb=2.08999991416931   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=36884711-06a3-4829-9dec-496a8b861777
+   Name=W27X336   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W27X336   t3=30   t2=14.6000003814697   tf=2.27999997138977   tw=1.25999999046326   t2b=14.6000003814697   tfb=2.27999997138977   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=d8a3efeb-d117-4fe2-9cab-16bcf8817239
+   Name=W27X368   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W27X368   t3=30.3999996185303   t2=14.6999998092651   tf=2.48000001907349   tw=1.37999999523163   t2b=14.6999998092651   tfb=2.48000001907349   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=9d4baa40-cea3-46d5-87aa-e2ebe3dfcde3
+   Name=W27X539   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W27X539   t3=32.5   t2=15.3000001907349   tf=3.53999996185303   tw=1.97000002861023   t2b=15.3000001907349   tfb=3.53999996185303   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=ea2ffb98-42c0-4958-ab35-deb0a7e34de5
+   Name=W27X84   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W27X84   t3=26.7000007629395   t2=10   tf=0.639999985694885   tw=0.46000000834465   t2b=10   tfb=0.639999985694885   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=e809c890-8113-4a05-9a9a-cb223fa24084
+   Name=W27X94   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W27X94   t3=26.8999996185303   t2=10   tf=0.745000004768372   tw=0.490000009536743   t2b=10   tfb=0.745000004768372   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=c7a196ca-c59c-4648-a357-089d68fa011f
+   Name=W30X108   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W30X108   t3=29.7999992370605   t2=10.5   tf=0.759999990463257   tw=0.545000016689301   t2b=10.5   tfb=0.759999990463257   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=7b64bb0d-74de-4ec0-bef9-c318ae0d364a
+   Name=W30X116   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W30X116   t3=30   t2=10.5   tf=0.850000023841858   tw=0.564999997615814   t2b=10.5   tfb=0.850000023841858   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=05be267e-e169-4ba1-a2f9-a198f1525c3b
+   Name=W30X124   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W30X124   t3=30.2000007629394   t2=10.5   tf=0.930000007152557   tw=0.584999978542328   t2b=10.5   tfb=0.930000007152557   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=21a2dcbb-19d2-42b6-bf9d-53f603863b68
+   Name=W30X132   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W30X132   t3=30.2999992370605   t2=10.5   tf=1   tw=0.615000009536743   t2b=10.5   tfb=1   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=6050193e-da80-44be-b0eb-b9a4dcd76a33
+   Name=W30X148   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W30X148   t3=30.7000007629395   t2=10.5   tf=1.17999994754791   tw=0.649999976158142   t2b=10.5   tfb=1.17999994754791   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=00ddc5e5-2f2b-4bce-a7ba-d7793a886c90
+   Name=W30X173   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W30X173   t3=30.3999996185303   t2=15   tf=1.07000005245209   tw=0.654999971389771   t2b=15   tfb=1.07000005245209   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=b56cf2e5-6aeb-4a92-9830-6a2065df72a6
+   Name=W30X191   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W30X191   t3=30.7000007629395   t2=15   tf=1.19000005722046   tw=0.709999978542328   t2b=15   tfb=1.19000005722046   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=febee638-9b51-4fcd-803f-4eeacb2dc46b
+   Name=W30X211   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W30X211   t3=30.8999996185303   t2=15.1000003814697   tf=1.32000005245209   tw=0.774999976158142   t2b=15.1000003814697   tfb=1.32000005245209   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=52a6107e-cb77-4588-b70a-8746d5f9a22e
+   Name=W30X235   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W30X235   t3=31.2999992370605   t2=15.1000003814697   tf=1.5   tw=0.829999983310699   t2b=15.1000003814697   tfb=1.5   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=2635af43-3af1-4a0a-8194-29c917b2bf7a
+   Name=W30X261   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W30X261   t3=31.6000003814697   t2=15.1999998092651   tf=1.64999997615814   tw=0.930000007152557   t2b=15.1999998092651   tfb=1.64999997615814   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=48b8629f-1310-42db-ac0c-0ed59d5c7f3a
+   Name=W30X292   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W30X292   t3=32   t2=15.3000001907349   tf=1.85000002384186   tw=1.01999998092651   t2b=15.3000001907349   tfb=1.85000002384186   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=807c94c9-3cb8-4ae0-862a-a41d6030872a
+   Name=W30X326   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W30X326   t3=32.4000015258789   t2=15.3999996185303   tf=2.04999995231628   tw=1.13999998569489   t2b=15.3999996185303   tfb=2.04999995231628   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=0da1eccf-1737-4e5f-91af-c224292594e8
+   Name=W30X357   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W30X357   t3=32.7999992370605   t2=15.5   tf=2.24000000953674   tw=1.24000000953674   t2b=15.5   tfb=2.24000000953674   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=b4f9f515-bd77-4f1c-a4e5-c4f0b0e1106c
+   Name=W30X391   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W30X391   t3=33.2000007629395   t2=15.6000003814697   tf=2.44000005722046   tw=1.36000001430511   t2b=15.6000003814697   tfb=2.44000005722046   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=fccce22c-0663-4c51-9a78-56c445d4ba53
+   Name=W30X90   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W30X90   t3=29.5   t2=10.3999996185303   tf=0.610000014305115   tw=0.469999998807907   t2b=10.3999996185303   tfb=0.610000014305115   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=da60b100-c782-4d06-8f1c-2e31206d0308
+   Name=W30X99   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W30X99   t3=29.7000007629395   t2=10.5   tf=0.670000016689301   tw=0.519999980926514   t2b=10.5   tfb=0.670000016689301   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=5308c1ce-9f8c-4755-a144-d700a93fd596
+   Name=W33X118   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W33X118   t3=32.9000015258789   t2=11.5   tf=0.740000009536743   tw=0.550000011920929   t2b=11.5   tfb=0.740000009536743   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=1a6890b2-1603-41d2-bcdc-cfafa23aaea8
+   Name=W33X130   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W33X130   t3=33.0999984741211   t2=11.5   tf=0.855000019073486   tw=0.579999983310699   t2b=11.5   tfb=0.855000019073486   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=e72e0375-7119-428d-b42d-a0d1a96ea2a7
+   Name=W33X141   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W33X141   t3=33.2999992370605   t2=11.5   tf=0.959999978542328   tw=0.605000019073486   t2b=11.5   tfb=0.959999978542328   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=7e43e8c6-5da3-4d27-8c61-cef3891db240
+   Name=W33X152   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W33X152   t3=33.5   t2=11.6000003814697   tf=1.05999994277954   tw=0.634999990463257   t2b=11.6000003814697   tfb=1.05999994277954   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=55c55138-cf77-4e09-bfd9-4e79fa393002
+   Name=W33X169   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W33X169   t3=33.7999992370605   t2=11.5   tf=1.22000002861023   tw=0.670000016689301   t2b=11.5   tfb=1.22000002861023   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=25a582de-4db6-48e2-8284-8152f63de853
+   Name=W33X201   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W33X201   t3=33.7000007629395   t2=15.6999998092651   tf=1.14999997615814   tw=0.714999973773956   t2b=15.6999998092651   tfb=1.14999997615814   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=2722baa9-e4db-4fbd-8f8a-028d9ac52055
+   Name=W33X221   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W33X221   t3=33.9000015258789   t2=15.8000001907349   tf=1.27999997138977   tw=0.774999976158142   t2b=15.8000001907349   tfb=1.27999997138977   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=8fe6ff44-644a-4b9f-ae57-daa5f254482e
+   Name=W33X241   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W33X241   t3=34.2000007629395   t2=15.8999996185303   tf=1.39999997615814   tw=0.829999983310699   t2b=15.8999996185303   tfb=1.39999997615814   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=0568353d-69cd-49ce-a3e4-4080fe5f0626
+   Name=W33X263   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W33X263   t3=34.5   t2=15.8000001907349   tf=1.57000005245209   tw=0.870000004768371   t2b=15.8000001907349   tfb=1.57000005245209   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=5c8f7707-0117-4e1c-b5e1-8e849ab42ecc
+   Name=W33X291   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W33X291   t3=34.7999992370605   t2=15.8999996185303   tf=1.73000001907349   tw=0.959999978542328   t2b=15.8999996185303   tfb=1.73000001907349   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=27924a9a-81b7-4c45-a829-665e2607fc28
+   Name=W33X318   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W33X318   t3=35.2000007629395   t2=16   tf=1.88999998569489   tw=1.03999996185303   t2b=16   tfb=1.88999998569489   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=86bda31c-a4f5-4c75-af3f-ae21fe641801
+   Name=W33X354   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W33X354   t3=35.5999984741211   t2=16.1000003814697   tf=2.08999991416931   tw=1.1599999666214   t2b=16.1000003814697   tfb=2.08999991416931   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=858982a8-7852-465e-b941-75156ce88230
+   Name=W33X387   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W33X387   t3=36   t2=16.2000007629395   tf=2.27999997138977   tw=1.25999999046326   t2b=16.2000007629395   tfb=2.27999997138977   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=fc1dc6db-5c64-451d-881b-78ac70a73979
+   Name=W36X135   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W36X135   t3=35.5999984741211   t2=12   tf=0.790000021457672   tw=0.600000023841858   t2b=12   tfb=0.790000021457672   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=80514867-cbe9-4c73-b30e-3f5ae0bed4d5
+   Name=W36X150   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W36X150   t3=35.9000015258789   t2=12   tf=0.939999997615814   tw=0.625   t2b=12   tfb=0.939999997615814   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=1135afb4-ba6a-4541-8ba4-ae8ae0bfbc2a
+   Name=W36X160   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W36X160   t3=36   t2=12   tf=1.01999998092651   tw=0.649999976158142   t2b=12   tfb=1.01999998092651   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=cd258776-d3a8-49d2-907d-cfcf3ebe72ee
+   Name=W36X170   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W36X170   t3=36.2000007629395   t2=12   tf=1.10000002384186   tw=0.680000007152557   t2b=12   tfb=1.10000002384186   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=4344701b-d921-4df2-b28b-f49b61b1bacf
+   Name=W36X182   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W36X182   t3=36.2999992370605   t2=12.1000003814697   tf=1.17999994754791   tw=0.725000023841858   t2b=12.1000003814697   tfb=1.17999994754791   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=d68c2b50-4851-4e82-803e-bc6002ae91c2
+   Name=W36X194   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W36X194   t3=36.5   t2=12.1000003814697   tf=1.25999999046326   tw=0.764999985694885   t2b=12.1000003814697   tfb=1.25999999046326   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=0ab412ec-09fd-4092-83ed-67b5591a5567
+   Name=W36X210   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W36X210   t3=36.7000007629395   t2=12.1999998092651   tf=1.36000001430511   tw=0.829999983310699   t2b=12.1999998092651   tfb=1.36000001430511   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=0cef9227-8700-4d5c-8dc2-56abd8171057
+   Name=W36X232   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W36X232   t3=37.0999984741211   t2=12.1000003814697   tf=1.57000005245209   tw=0.870000004768371   t2b=12.1000003814697   tfb=1.57000005245209   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=37973781-cf88-4828-8bd3-db780ed2afc2
+   Name=W36X256   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W36X256   t3=37.4000015258789   t2=12.1999998092651   tf=1.73000001907349   tw=0.959999978542328   t2b=12.1999998092651   tfb=1.73000001907349   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=90d9a9ac-62c9-4d21-bc6f-c0749c549108
+   Name=W40X149   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X149   t3=38.2000007629395   t2=11.8000001907349   tf=0.829999983310699   tw=0.629999995231628   t2b=11.8000001907349   tfb=0.829999983310699   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=96ba8836-45f1-4db7-a5e2-4a70c9f30dde
+   Name=W40X167   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X167   t3=38.5999984741211   t2=11.8000001907349   tf=1.02999997138977   tw=0.649999976158142   t2b=11.8000001907349   tfb=1.02999997138977   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=4182a02a-dbdc-4ed6-9d12-a01d5ec288c4
+   Name=W40X183   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X183   t3=39   t2=11.8000001907349   tf=1.20000004768372   tw=0.649999976158142   t2b=11.8000001907349   tfb=1.20000004768372   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=8b806d6c-2ec5-4c12-9479-aa28a63f5da0
+   Name=W40X199   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X199   t3=38.7000007629395   t2=15.8000001907349   tf=1.07000005245209   tw=0.649999976158142   t2b=15.8000001907349   tfb=1.07000005245209   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=0d6bb502-1e2a-4000-8608-a31098d1a4a2
+   Name=W40X211   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X211   t3=39.4000015258789   t2=11.8000001907349   tf=1.41999995708466   tw=0.75   t2b=11.8000001907349   tfb=1.41999995708466   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=03153380-c8ea-4b26-a080-c6691be47c32
+   Name=W40X215   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X215   t3=39   t2=15.8000001907349   tf=1.22000002861023   tw=0.649999976158142   t2b=15.8000001907349   tfb=1.22000002861023   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=786496b6-1436-42ad-8c35-d7f68eac6ba1
+   Name=W40X235   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X235   t3=39.7000007629395   t2=11.8999996185303   tf=1.58000004291534   tw=0.829999983310699   t2b=11.8999996185303   tfb=1.58000004291534   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=b35d913c-a09d-4c9e-ab61-7eaaa574ecf5
+   Name=W40X249   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X249   t3=39.4000015258789   t2=15.8000001907349   tf=1.41999995708466   tw=0.75   t2b=15.8000001907349   tfb=1.41999995708466   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=e8ce0ba4-adc2-4f10-9349-3ba20ac614a6
+   Name=W40X264   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X264   t3=40   t2=11.8999996185303   tf=1.73000001907349   tw=0.959999978542328   t2b=11.8999996185303   tfb=1.73000001907349   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=7ca350ed-116c-42f5-8be2-1a03d9b523c6
+   Name=W40X277   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X277   t3=39.7000007629395   t2=15.8000001907349   tf=1.58000004291534   tw=0.829999983310699   t2b=15.8000001907349   tfb=1.58000004291534   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=6521ec1f-e6e3-4090-a483-a918c43926df
+   Name=W40X278   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X278   t3=40.2000007629395   t2=12   tf=1.80999994277954   tw=1.02999997138977   t2b=12   tfb=1.80999994277954   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=f62f4c40-8016-411c-a105-04170b7c966a
+   Name=W40X297   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X297   t3=39.7999992370605   t2=15.8000001907349   tf=1.64999997615814   tw=0.930000007152557   t2b=15.8000001907349   tfb=1.64999997615814   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=6c32fad1-40bc-4c27-a523-ce06e63d2c1b
+   Name=W40X324   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X324   t3=40.2000007629395   t2=15.8999996185303   tf=1.80999994277954   tw=1   t2b=15.8999996185303   tfb=1.80999994277954   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=521aa753-8a02-45c8-b3ca-d1cb4a36a07b
+   Name=W40X327   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X327   t3=40.7999992370605   t2=12.1000003814697   tf=2.13000011444092   tw=1.17999994754791   t2b=12.1000003814697   tfb=2.13000011444092   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=193eaa1c-9edc-4516-a47b-b670cb4a076c
+   Name=W40X331   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X331   t3=40.7999992370605   t2=12.1999998092651   tf=2.13000011444092   tw=1.22000002861023   t2b=12.1999998092651   tfb=2.13000011444092   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=cd57564a-a0e2-4c19-a548-966d233b51e9
+   Name=W40X362   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X362   t3=40.5999984741211   t2=16   tf=2.00999999046326   tw=1.12000000476837   t2b=16   tfb=2.00999999046326   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=5bdce325-af6d-4bcc-822a-224d75289829
+   Name=W40X372   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X372   t3=40.5999984741211   t2=16.1000003814697   tf=2.04999995231628   tw=1.1599999666214   t2b=16.1000003814697   tfb=2.04999995231628   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=4dabba86-3e44-4feb-aeaf-d9d696f56939
+   Name=W40X392   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X392   t3=41.5999984741211   t2=12.3999996185303   tf=2.51999998092651   tw=1.41999995708466   t2b=12.3999996185303   tfb=2.51999998092651   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=9081c165-ce7a-437a-96a7-f0921efbc52a
+   Name=W40X397   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X397   t3=41   t2=16.1000003814697   tf=2.20000004768372   tw=1.22000002861023   t2b=16.1000003814697   tfb=2.20000004768372   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=3f1eb324-cfd0-42eb-bd95-560083f4ba3d
+   Name=W40X431   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X431   t3=41.2999992370605   t2=16.2000007629395   tf=2.35999989509583   tw=1.3400000333786   t2b=16.2000007629395   tfb=2.35999989509583   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=d2f4bfdc-e368-4961-af4d-d49b571562fa
+   Name=W40X503   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X503   t3=42.0999984741211   t2=16.3999996185303   tf=2.75999999046326   tw=1.53999996185303   t2b=16.3999996185303   tfb=2.75999999046326   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=90704900-1c35-4bd5-9519-b7ea29915298
+   Name=W40X593   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W40X593   t3=43   t2=16.7000007629395   tf=3.23000001907349   tw=1.78999996185303   t2b=16.7000007629395   tfb=3.23000001907349   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=b3147678-b2fc-41f5-932b-5c696a067582
+   Name=W44X230   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W44X230   t3=42.9000015258789   t2=15.8000001907349   tf=1.22000002861023   tw=0.709999978542328   t2b=15.8000001907349   tfb=1.22000002861023   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=aee944f2-3dd9-44fe-a3bc-88f388fdc563
+   Name=W44X262   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W44X262   t3=43.2999992370605   t2=15.8000001907349   tf=1.41999995708466   tw=0.785000026226044   t2b=15.8000001907349   tfb=1.41999995708466   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=d36e84ef-ae80-4035-9e6a-ee5d48ab52ab
+   Name=W44X290   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W44X290   t3=43.5999984741211   t2=15.8000001907349   tf=1.58000004291534   tw=0.865000009536743   t2b=15.8000001907349   tfb=1.58000004291534   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=d7f7ffe2-3cc7-42cb-b74b-6f2c7be32f3f
+   Name=W44X335   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W44X335   t3=44   t2=15.8999996185303   tf=1.76999998092651   tw=1.02999997138977   t2b=15.8999996185303   tfb=1.76999998092651   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=eb889444-0bcf-443e-b32e-adff22628385
+   Name=W4X13   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W4X13   t3=4.15999984741211   t2=4.05999994277954   tf=0.344999998807907   tw=0.280000001192093   t2b=4.05999994277954   tfb=0.344999998807907   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=7bea9a08-8960-4f18-9242-36b37ecda965
+   Name=W5X16   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W5X16   t3=5.01000022888184   t2=5   tf=0.360000014305115   tw=0.239999994635582   t2b=5   tfb=0.360000014305115   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=15205d8c-26f8-4063-bc7f-accacc8d9634
+   Name=W5X19   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W5X19   t3=5.15000009536743   t2=5.03000020980835   tf=0.430000007152557   tw=0.270000010728836   t2b=5.03000020980835   tfb=0.430000007152557   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=a9e0bb9c-1546-4ebe-b4c9-1c27fec299aa
+   Name=W6X12   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W6X12   t3=6.03000020980835   t2=4   tf=0.280000001192093   tw=0.230000004172325   t2b=4   tfb=0.280000001192093   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=216f926d-ab40-4013-8060-fb7362141381
+   Name=W6X15   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W6X15   t3=5.98999977111816   t2=5.98999977111816   tf=0.259999990463257   tw=0.230000004172325   t2b=5.98999977111816   tfb=0.259999990463257   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=d331ca1c-dcfa-48a7-811a-91dc4b2e5347
+   Name=W6X16   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W6X16   t3=6.28000020980835   t2=4.03000020980835   tf=0.405000001192093   tw=0.259999990463257   t2b=4.03000020980835   tfb=0.405000001192093   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=ad1a1015-a549-4a30-82d5-94bccd142b13
+   Name=W6X20   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W6X20   t3=6.19999980926514   t2=6.01999998092651   tf=0.365000009536743   tw=0.259999990463257   t2b=6.01999998092651   tfb=0.365000009536743   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=c867c972-e4e8-4156-8aa2-23cdc6678289
+   Name=W6X25   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W6X25   t3=6.38000011444092   t2=6.07999992370605   tf=0.455000013113022   tw=0.319999992847443   t2b=6.07999992370605   tfb=0.455000013113022   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=7a3e8cc8-9c14-4973-9736-aefbf93451e9
+   Name=W6X8.5   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W6X8.5   t3=5.82999992370605   t2=3.94000005722046   tf=0.194999992847443   tw=0.170000001788139   t2b=3.94000005722046   tfb=0.194999992847443   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=8feb9122-4621-483d-a062-73320973eff8
+   Name=W6X9   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W6X9   t3=5.90000009536743   t2=3.94000005722046   tf=0.215000003576279   tw=0.170000001788139   t2b=3.94000005722046   tfb=0.215000003576279   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=f3543b8f-993f-42a8-be5a-c5790c9b2a94
+   Name=W8X10   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W8X10   t3=7.88999986648559   t2=3.94000005722046   tf=0.204999998211861   tw=0.170000001788139   t2b=3.94000005722046   tfb=0.204999998211861   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=d9e2ab0b-f7d5-49e9-bb8f-5387a30dff4a
+   Name=W8X13   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W8X13   t3=7.98999977111816   t2=4   tf=0.254999995231628   tw=0.230000004172325   t2b=4   tfb=0.254999995231628   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=75945004-cd85-4d02-9fd7-37b84fec5b14
+   Name=W8X15   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W8X15   t3=8.10999965667725   t2=4.01000022888184   tf=0.314999997615814   tw=0.245000004768372   t2b=4.01000022888184   tfb=0.314999997615814   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=7f95d872-ef96-40ae-943f-53af02fb1eac
+   Name=W8X18   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W8X18   t3=8.14000034332275   t2=5.25   tf=0.330000013113022   tw=0.230000004172325   t2b=5.25   tfb=0.330000013113022   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=dcd3e465-8231-4453-9f56-bcb6864e6a48
+   Name=W8X21   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W8X21   t3=8.27999973297119   t2=5.26999998092651   tf=0.400000005960464   tw=0.25   t2b=5.26999998092651   tfb=0.400000005960464   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=9f33b992-908a-4f3c-be3c-877677472dac
+   Name=W8X24   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W8X24   t3=7.92999982833862   t2=6.5   tf=0.400000005960464   tw=0.245000004768372   t2b=6.5   tfb=0.400000005960464   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=53792ad2-60c8-4173-b640-bd2486685958
+   Name=W8X28   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W8X28   t3=8.0600004196167   t2=6.53999996185303   tf=0.465000003576279   tw=0.284999996423721   t2b=6.53999996185303   tfb=0.465000003576279   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=0e23de2b-a6c8-4692-81a0-525308caebb8
+   Name=W8X31   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W8X31   t3=8   t2=8   tf=0.435000002384186   tw=0.284999996423721   t2b=8   tfb=0.435000002384186   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=c9d74a67-caff-40ee-8168-a95f4b67b0f1
+   Name=W8X35   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W8X35   t3=8.11999988555908   t2=8.02000045776367   tf=0.495000004768372   tw=0.310000002384186   t2b=8.02000045776367   tfb=0.495000004768372   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=536ca0fb-3945-4613-a032-825a1bb20111
+   Name=W8X40   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W8X40   t3=8.25   t2=8.06999969482422   tf=0.560000002384186   tw=0.360000014305115   t2b=8.06999969482422   tfb=0.560000002384186   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=d40f6f72-70fe-4b67-9cb8-f7b512531bb6
+   Name=W8X48   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W8X48   t3=8.5   t2=8.10999965667725   tf=0.685000002384186   tw=0.400000005960464   t2b=8.10999965667725   tfb=0.685000002384186   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=67bd4035-55c1-45f4-b0e6-c3a6441d93fd
+   Name=W8X58   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W8X58   t3=8.75   t2=8.22000026702881   tf=0.810000002384186   tw=0.509999990463257   t2b=8.22000026702881   tfb=0.810000002384186   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=fe2dd1e8-3928-46f7-90c2-173c990e6705
+   Name=W8X67   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=W8X67   t3=9   t2=8.27999973297119   tf=0.935000002384186   tw=0.569999992847443   t2b=8.27999973297119   tfb=0.935000002384186   FilletRad=0   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=8dbe3020-be2e-481c-8404-8561d846dafa
+
+TABLE:  "Frame Section Property Definitions - Steel Pipe"
+   Name=HSS4X.237   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=HSS4X.237   t3=4   tw=0.237000003457069   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=2927a77c-5cac-4887-853a-5b691bdd04a6
+   Name=HSS4X.250   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=HSS4X.250   t3=4   tw=0.25   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=1c4eff97-4fad-4bfe-9f12-1b80a9e6415e
+   Name=HSS5X.250   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=HSS5X.250   t3=5   tw=0.25   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=ceaed52e-a240-4fe1-aa2d-97d2727b006c
+   Name=HSS5X.258   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=HSS5X.258   t3=5   tw=0.257999986410141   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=095f54ce-80c2-41ee-a601-e63aa22c38fe
+   Name=HSS5X.312   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=HSS5X.312   t3=5   tw=0.3125   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=8b1bee95-ec2a-42a1-9ddf-1a3545f43c43
+   Name=HSS5X.375   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=HSS5X.375   t3=5   tw=0.375   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=373b2f37-c138-4abb-902c-c8444a75855b
+   Name=HSS5X.500   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=HSS5X.500   t3=5   tw=0.5   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=7fd18314-32d5-4c22-8d76-ed219488c400
+   Name=HSS6X.250   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=HSS6X.250   t3=6   tw=0.25   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=74555f9d-6e64-4f73-8791-d14476aa046f
+   Name=HSS6X.280   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=HSS6X.280   t3=6   tw=0.280000001192093   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=c94d4827-5b3c-4436-9fa8-ffd6a0f0bbd0
+   Name=HSS6X.312   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=HSS6X.312   t3=6   tw=0.3125   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=dbfcb3f8-6b3e-44ce-a5aa-524287360802
+   Name=HSS6X.375   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=HSS6X.375   t3=6   tw=0.375   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=7474d561-9e8a-4581-b839-f6bab2ccac7a
+   Name=HSS7X.250   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=HSS7X.250   t3=7   tw=0.25   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=a6fda377-c290-46a8-9de8-d530867dc517
+   Name=HSS7X.312   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=HSS7X.312   t3=7   tw=0.3125   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=e8f9408b-e6ce-4e61-9bc0-a7eae974507e
+   Name=HSS7X.375   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=HSS7X.375   t3=7   tw=0.375   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=68bf3513-e630-4ae8-9600-bfaf71a8a0e9
+   Name=HSS7X.500   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=HSS7X.500   t3=7   tw=0.5   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=39db651a-f833-48eb-9aa8-c1de2ede261b
+   Name=PIPE10SCH40   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=PIPE10SCH40   t3=10.75   tw=0.365000009536743   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=c7c55faf-47d4-4537-9305-0a2f607f3a3f
+   Name=PIPE12STD   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=PIPE12STD   t3=12.75   tw=0.375   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=10d8c4a7-6f66-4643-ba76-2b3a4d4a2e54
+   Name=PIPE12XS   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=PIPE12XS   t3=12.75   tw=0.5   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=fca4d403-2922-4829-bb10-3e4983fbd93a
+   Name=PIPE4SCH40   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=PIPE4SCH40   t3=4.5   tw=0.237000003457069   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=9f63062e-dafa-4b3b-84da-7772493575ba
+   Name=PIPE4SCH80   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=PIPE4SCH80   t3=4.5   tw=0.337000012397766   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=32ded77f-32c5-4852-9cf4-df4a0cfebcd2
+   Name=PIPE4XXS   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=PIPE4XXS   t3=4.5   tw=0.674000024795532   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=15da89d8-52e2-42e8-9b21-8426f8cccbae
+   Name=PIPE5SCH40   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=PIPE5SCH40   t3=5.56300020217896   tw=0.257999986410141   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=05579b1c-4396-4a63-b9e0-6061a0aa7cba
+   Name=PIPE5SCH80   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=PIPE5SCH80   t3=5.56300020217896   tw=0.375   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Blue   GUID=a3727895-c4c2-4b12-8280-8329bb8cf109
+   Name=PIPE5XXS   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=PIPE5XXS   t3=5.56300020217896   tw=0.75   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Yellow   GUID=f0fc45f0-d31c-40f3-afc6-9afa8cc3ccdd
+   Name=PIPE6SCH40   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=PIPE6SCH40   t3=6.625   tw=0.280000001192093   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Red   GUID=4def7bdf-9a47-4639-b18a-278b31738a32
+   Name=PIPE6SCH80   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=PIPE6SCH80   t3=6.625   tw=0.432000011205673   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Green   GUID=81594cd5-fcde-47f6-8c5e-6cfa9c299298
+   Name=PIPE6XXS   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=PIPE6XXS   t3=6.625   tw=0.864000022411346   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=White   GUID=dce487e6-6a28-42ff-a6b7-0bb1c0a1b0e9
+   Name=PIPE8SCH40   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=PIPE8SCH40   t3=8.625   tw=0.321999996900558   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Magenta   GUID=4d18edc4-8014-4824-9268-05592715b738
+   Name=PIPE8SCH80   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=PIPE8SCH80   t3=8.625   tw=0.5   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Cyan   GUID=773a3c85-ca50-4ee6-b634-e0bff2b65dac
+   Name=PIPE8XXS   Material=STEEL   FromFile=Yes   FileName=Sections8   SectInFile=PIPE8XXS   t3=8.625   tw=0.875   AMod=1   A2Mod=1   A3Mod=1   JMod=1   I2Mod=1   I3Mod=1   MMod=1   WMod=1   Color=Gray8Dark   GUID=10d27955-da68-4f11-a9d6-e1679d3088a6
+
+TABLE:  "Functions - Response Spectrum - User Defined"
+   Name=FUNC1   Period=0   Value=0.4   DampRatio=0   GUID=5f2f5991-3141-4d94-a9dd-9289447b2fd3
+   Name=FUNC1   Period=1   Value=0.4
+
+TABLE:  "Grid Definitions - General"
+   Tower=T1   Name=GLOBAL   Type=Cartesian   Ux=0   Uy=0   Rz=0   StoryRange=Default   BubbleSize=60   Color=Gray8Dark   GUID=5a8ebca3-2604-48fb-a7e9-eb93de3e6a27
+
+TABLE:  "Grid Definitions - Grid Lines"
+   Name=GLOBAL   LineType="X (Cartesian)"   ID=A   Ordinate=0   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="X (Cartesian)"   ID=B   Ordinate=420   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="X (Cartesian)"   ID=C   Ordinate=840   BubbleLoc=End   Visible=Yes
+   Name=GLOBAL   LineType="Y (Cartesian)"   ID=1   Ordinate=0   BubbleLoc=Start   Visible=Yes
+   Name=GLOBAL   LineType="Y (Cartesian)"   ID=2   Ordinate=300   BubbleLoc=Start   Visible=Yes
+   Name=GLOBAL   LineType="Y (Cartesian)"   ID=3   Ordinate=600   BubbleLoc=Start   Visible=Yes
+
+TABLE:  "Group Assignments"
+   GroupName=DB01   ObjectType=Point   UniqueName=47
+
+TABLE:  "Group Definitions"
+   Name=ALL   Color=Yellow   Steel=No   Concrete=No   Composite=No   GUID=a7ec0c86-c74d-4fd5-b71e-d3e58c39657d
+   Name=DB01   Color=Yellow   Steel=No   Concrete=No   Composite=No   GUID=9d7fd67c-1556-4821-a015-745827da76fd
+
+TABLE:  "Joint Assignments - Additional Mass"
+   UniqueName=47   MassXY=0.5176   MassZ=0   MMIX=0   MMIY=0   MMIZ=0
+   UniqueName=46   MassXY=0.5176   MassZ=0   MMIX=0   MMIY=0   MMIZ=0
+
+TABLE:  "Joint Assignments - Diaphragms"
+   UniqueName=21   Diaphragm=D1
+   UniqueName=24   Diaphragm=D1
+   UniqueName=36   Diaphragm=D1
+   UniqueName=27   Diaphragm=D1
+   UniqueName=30   Diaphragm=D1
+   UniqueName=33   Diaphragm=D1
+   UniqueName=39   Diaphragm=D1
+   UniqueName=42   Diaphragm=D1
+   UniqueName=45   Diaphragm=D1
+   UniqueName=47   Diaphragm=D1
+   UniqueName=1   Diaphragm=D1
+   UniqueName=20   Diaphragm=D1
+   UniqueName=23   Diaphragm=D1
+   UniqueName=35   Diaphragm=D1
+   UniqueName=26   Diaphragm=D1
+   UniqueName=29   Diaphragm=D1
+   UniqueName=32   Diaphragm=D1
+   UniqueName=38   Diaphragm=D1
+   UniqueName=41   Diaphragm=D1
+   UniqueName=44   Diaphragm=D1
+   UniqueName=46   Diaphragm=D1
+   UniqueName=2   Diaphragm=D1
+   UniqueName=19   Diaphragm="From Shell Object"
+   UniqueName=22   Diaphragm="From Shell Object"
+   UniqueName=34   Diaphragm="From Shell Object"
+   UniqueName=25   Diaphragm="From Shell Object"
+   UniqueName=28   Diaphragm="From Shell Object"
+   UniqueName=31   Diaphragm="From Shell Object"
+   UniqueName=37   Diaphragm="From Shell Object"
+   UniqueName=40   Diaphragm="From Shell Object"
+   UniqueName=43   Diaphragm="From Shell Object"
+
+TABLE:  "Joint Assignments - Restraints"
+   UniqueName=19   UX=Yes   UY=Yes   UZ=Yes   RX=Yes   RY=Yes   RZ=Yes
+   UniqueName=22   UX=Yes   UY=Yes   UZ=Yes   RX=Yes   RY=Yes   RZ=Yes
+   UniqueName=34   UX=Yes   UY=Yes   UZ=Yes   RX=Yes   RY=Yes   RZ=Yes
+   UniqueName=25   UX=Yes   UY=Yes   UZ=Yes   RX=Yes   RY=Yes   RZ=Yes
+   UniqueName=28   UX=Yes   UY=Yes   UZ=Yes   RX=Yes   RY=Yes   RZ=Yes
+   UniqueName=31   UX=Yes   UY=Yes   UZ=Yes   RX=Yes   RY=Yes   RZ=Yes
+   UniqueName=37   UX=Yes   UY=Yes   UZ=Yes   RX=Yes   RY=Yes   RZ=Yes
+   UniqueName=40   UX=Yes   UY=Yes   UZ=Yes   RX=Yes   RY=Yes   RZ=Yes
+   UniqueName=43   UX=Yes   UY=Yes   UZ=Yes   RX=Yes   RY=Yes   RZ=Yes
+
+TABLE:  "Link Property Definitions - Damper - Exponential"
+   Name=NLPR1   Direction=U1   Fixed=No   TransKE=0   TransCE=0   Mass=0   Weight=0   RotInert1=0   RotInert2=0   RotInert3=0   DefLength=12   DefArea=144   PDM2I=0   PDM2J=0   PDM3I=0   PDM3J=0   StiffDFact=1   GUID=46c9aa3b-0cef-4b5d-b4e8-6b382e6b64ce
+
+TABLE:  "Load Case Definitions - Damping - Modal"
+   Name=RS10PCT   DampType=Constant   ConstDamp=0.04
+   Name=RSABS   DampType=Constant   ConstDamp=0.04
+   Name=RSCQC   DampType=Constant   ConstDamp=0.04
+   Name=RSSRSS   DampType=Constant   ConstDamp=0.04
+
+TABLE:  "Load Case Definitions - Linear Static"
+   Name=DEAD   Group=None   StiffType=P-Delta   LoadType=Load   LoadName=DEAD   LoadSF=1   DesignType="Program Determined"   GUID=d619e469-7823-48fb-8f8e-1828d136917d
+   Name=LIVE   Group=None   StiffType=P-Delta   LoadType=Load   LoadName=LIVE   LoadSF=1   DesignType="Program Determined"   GUID=5100644a-2890-412b-86f5-19d6c5e9b8c1
+
+TABLE:  "Load Case Definitions - Response Spectrum"
+   Name=RS10PCT   LoadName=U1   Function=FUNC1   TransAccSF=386.4   Angle=0   ModalCase=Modal   ModalCombo="NRC 10 Percent"   RigidResp=No   DirCombo=SRSS   EccenRatio=0   DesignType="Program Determined"   GUID=588535f2-b8a3-445b-86d0-f08d39f6ba5b
+   Name=RSABS   LoadName=U1   Function=FUNC1   TransAccSF=386.4   Angle=0   ModalCase=Modal   ModalCombo=Absolute   RigidResp=No   DirCombo=SRSS   EccenRatio=0   DesignType="Program Determined"   GUID=c68277ba-e164-4c29-97cf-e9e2e52fc7cf
+   Name=RSCQC   LoadName=U1   Function=FUNC1   TransAccSF=386.4   Angle=0   ModalCase=Modal   ModalCombo=CQC   RigidResp=No   DirCombo=SRSS   EccenRatio=0   DesignType="Program Determined"   GUID=6eea8b3b-7c9a-4691-bd81-ca7031bf5620
+   Name=RSSRSS   LoadName=U1   Function=FUNC1   TransAccSF=386.4   Angle=0   ModalCase=Modal   ModalCombo=SRSS   RigidResp=No   DirCombo=SRSS   EccenRatio=0   DesignType="Program Determined"   GUID=4196fa18-ad2b-4e71-b49b-add5842b7bac
+
+TABLE:  "Load Pattern Definitions"
+   Name=DEAD   IsAuto=No   Type=Dead   SelfWtMult=1   GUID=519cf701-c45e-455f-b442-ca649730d99b
+   Name=LIVE   IsAuto=No   Type=Live   SelfWtMult=0   GUID=ce7c997d-5851-4172-9704-84265206f98f
+
+TABLE:  "Mass Source Definition"
+   Name=MsSrc1   IsDefault=Yes   IncLateral=Yes   IncVertical=No   LumpMass=Yes   SourceSelf=Yes   SourceAdded=Yes   SourceLoads=No   MoveMass=No   GUID=747a8a03-7f99-4b5e-bcfc-8dee0445eef8
+
+TABLE:  "Material Properties - Acceptance Criteria"
+   Material=A416Gr270   IOTens=0.015   LSTens=0.023   CPTens=0.03   IOComp=-0.015   LSComp=-0.023   CPComp=-0.03
+   Material=A615Gr60   IOTens=0.02   LSTens=0.06   CPTens=0.09   IOComp=-0.02   LSComp=-0.06   CPComp=-0.09
+   Material=CONC   IOTens=0.0001   LSTens=0.0005   CPTens=0.001   IOComp=-0.0015   LSComp=-0.003   CPComp=-0.0045
+   Material=MATBEAM   IOTens=0.0001   LSTens=0.0005   CPTens=0.001   IOComp=-0.0015   LSComp=-0.003   CPComp=-0.0045
+   Material=MATCOL   IOTens=0.0001   LSTens=0.0005   CPTens=0.001   IOComp=-0.0015   LSComp=-0.003   CPComp=-0.0045
+   Material=OTHER   IOTens=0.04   LSTens=0.11   CPTens=0.17   IOComp=-0.04   LSComp=-0.11   CPComp=-0.17
+   Material=STEEL   IOTens=0.04   LSTens=0.11   CPTens=0.17   IOComp=-0.04   LSComp=-0.11   CPComp=-0.17
+
+TABLE:  "Material Properties - Basic Mechanical Properties"
+   Material=A416Gr270   DensityType=Weight   UnitWeight=0.000283564814814815   UnitMass=7.34455290352564E-07   E1=28500   A1=6.5E-06
+   Material=A615Gr60   DensityType=Weight   UnitWeight=0.000283564814814815   UnitMass=7.34455290352564E-07   E1=29000   A1=6.5E-06
+   Material=CONC   DensityType=Weight   UnitWeight=8.68E-05   UnitMass=2.246377E-07   E1=3600   G12=1500   U12=0.2   A1=5.5E-06
+   Material=MATBEAM   DensityType=Weight   UnitWeight=0   UnitMass=0   E1=3472.22222222222   G12=1446.75925925926   U12=0.2   A1=5.5E-06
+   Material=MATCOL   DensityType=Weight   UnitWeight=0   UnitMass=0   E1=2430.55555555556   G12=1012.73148148148   U12=0.2   A1=5.5E-06
+   Material=OTHER   DensityType=Weight   UnitWeight=0.000283   UnitMass=7.324016E-07   E1=29000   G12=11153.8461538462   U12=0.3   A1=6.5E-06
+   Material=STEEL   DensityType=Weight   UnitWeight=0.000283   UnitMass=7.324016E-07   E1=29000   G12=11153.8461538462   U12=0.3   A1=6.5E-06
+
+TABLE:  "Material Properties - Concrete Data"
+   Material=CONC   Fc=4   LtWtConc=No   IsUserFr=No   SSCurveOpt=Mander   SSHysType=Elastic   SFc=0   SCap=0   FinalSlope=-0.1   FAngle=0   DAngle=0
+   Material=MATBEAM   Fc=4   LtWtConc=No   IsUserFr=No   SSCurveOpt=Mander   SSHysType=Elastic   SFc=0   SCap=0   FinalSlope=-0.1   FAngle=0   DAngle=0
+   Material=MATCOL   Fc=4   LtWtConc=No   IsUserFr=No   SSCurveOpt=Mander   SSHysType=Elastic   SFc=0   SCap=0   FinalSlope=-0.1   FAngle=0   DAngle=0
+
+TABLE:  "Material Properties - Damping Parameters"
+   Material=A416Gr270   ModalRatio=0   VisMass=0   VisStiff=0
+   Material=A615Gr60   ModalRatio=0   VisMass=0   VisStiff=0
+   Material=CONC   ModalRatio=0   VisMass=0   VisStiff=0
+   Material=MATBEAM   ModalRatio=0   VisMass=0   VisStiff=0
+   Material=MATCOL   ModalRatio=0   VisMass=0   VisStiff=0
+   Material=OTHER   ModalRatio=0   VisMass=0   VisStiff=0
+   Material=STEEL   ModalRatio=0   VisMass=0   VisStiff=0
+
+TABLE:  "Material Properties - General"
+   Material=A416Gr270   Type=Tendon   SymType=Uniaxial   Grade="Grade 270"   Color=Cyan   GUID=84968024-2feb-4f14-85c9-d2ce03fd0caa
+   Material=A615Gr60   Type=Rebar   SymType=Uniaxial   Grade=Unknown   Color=Blue   GUID=7148c4ec-a2f6-45c2-814b-99d3f6dcd748   Notes="4000Psi added 12/3/2012 3:33:08 PM"
+   Material=CONC   Type=Concrete   SymType=Isotropic   Grade=Unknown   Color=Cyan   GUID=a1151e46-a7b4-49ed-b981-bc476fb3bd3e
+   Material=MATBEAM   Type=Concrete   SymType=Isotropic   Grade=Unknown   Color=Green   GUID=867cfc3e-645b-41c9-80d7-06b08882ca15
+   Material=MATCOL   Type=Concrete   SymType=Isotropic   Grade=Unknown   Color=Blue   GUID=a8b6f97f-e797-4063-bc8e-fc2482c22e59
+   Material=OTHER   Type=Other   SymType=Isotropic   Grade=Unknown   Color=Red   GUID=03c3c197-791e-43db-b7a8-8a198a524434
+   Material=STEEL   Type=Steel   SymType=Isotropic   Grade=Unknown   Color=Green   GUID=170953c2-553c-4707-b99b-72f560a24c8f
+
+TABLE:  "Material Properties - Other Data"
+   Material=OTHER   SSHysType=Elastic   FAngle=0   DAngle=0
+
+TABLE:  "Material Properties - Rebar Data"
+   Material=A615Gr60   Fy=60   Fu=90   Fye=66   Fue=99   SSCurveOpt=Simple   SSHysType=Kinematic   SHard=0.01   SCap=0.09   FinalSlope=-0.1
+
+TABLE:  "Material Properties - Steel Data"
+   Material=STEEL   Fy=50   Fu=65   Fye=50   Fue=65   SSCurveOpt=Simple   SSHysType=Elastic   SHard=0   SMax=0   SRup=0   FinalSlope=-0.1
+
+TABLE:  "Material Properties - Tendon Data"
+   Material=A416Gr270   Fy=245.1   Fu=270   SSCurveOpt="270 ksi"   SSHysType=Kinematic   FinalSlope=-0.1
+
+TABLE:  "Material Properties - User Stress-Strain Curves"
+   Material=OTHER   Point=1   Strain=-2.39463601532567E-07   Stress=-0.00694444444444444
+   Material=OTHER   Point=2   Strain=0   Stress=0   PointID=A
+   Material=OTHER   Point=3   Strain=2.39463601532567E-07   Stress=0.00694444444444444
+
+TABLE:  "Miscellaneous Options"
+   StartPage=Yes   CursorValue=Yes   FrameInfo=Yes   BoundPlane=Yes   ArchDim=No   MomentTens=Yes   AniSound=Yes   AutoSave=Yes   AutoSaveInt=10   Crosshairs=No   ModelExp=Yes
+
+TABLE:  "Modal Case Definitions - Eigen"
+   Name=Modal   Group=None   StiffType=P-Delta   MaxModes=4   MinModes=4   FreqShift=0   CutoffFreq=0   ConvTol=1E-07   AutoShift=Yes   DesignType="Program Determined"   GUID=ac86c542-71df-4f8c-9508-7165c8cdc5c3
+
+TABLE:  "Options - Colors - Display"
+   DeviceType=Screen   ColorColumns=10516060   ColorBeams=10516060   ColorBraces=10516060   ColorLinks=10516060   ColorSprings=Black   ColorTendons=DarkCyan   ColorSlabPanels=Green   ColorWalls=Red   ColorFloors=Gray4   ColorNullObjects=Gray8Dark   ColorOpenings=Black   ColorColStripA=DarkCyan   ColorColStripB=DarkCyan   ColorMidStripA=DarkCyan   ColorMidStripB=DarkCyan   ColorStripEdge=DarkCyan   ColorOtherStripFill=DarkCyan   ColorSupportLines=16744703   ColorDimLines=10461087   ColorText=Black   ColorGridLines=Gray8Dark   ColorBackground=White   ColorUserMeshEdge=5065984   ColorStlDesign=DarkCyan   ColorCompDesign=Cyan   ColorConcDesign=4227327   ColorNoDesign=4227327   TransColumns=0.5   TransBeams=0.5   TransBraces=0.5   TransFloors=0.4   TransWalls=0.4   TransLinks=0.5   Darkness=0.3
+   DeviceType=Printer   ColorColumns=Black   ColorBeams=Black   ColorBraces=Black   ColorLinks=Gray8Dark   ColorSprings=Gray8Dark   ColorTendons=DarkCyan   ColorSlabPanels=Green   ColorWalls=Gray4   ColorFloors=Gray4   ColorNullObjects=Gray4   ColorOpenings=Gray8Dark   ColorColStripA=DarkCyan   ColorColStripB=DarkCyan   ColorMidStripA=DarkCyan   ColorMidStripB=DarkCyan   ColorStripEdge=DarkCyan   ColorOtherStripFill=DarkCyan   ColorSupportLines=16744703   ColorDimLines=10461087   ColorText=Black   ColorGridLines=Gray4   ColorBackground=White   ColorUserMeshEdge=5065984   ColorStlDesign=Black   ColorCompDesign=Gray4   ColorConcDesign=Gray8Dark   ColorNoDesign=Gray4   TransColumns=0.5   TransBeams=0.5   TransBraces=0.5   TransFloors=0.4   TransWalls=0.4   TransLinks=0.5   Darkness=0.5
+   DeviceType="Color Printer"   ColorColumns=10516060   ColorBeams=Blue   ColorBraces=Blue   ColorLinks=10516060   ColorSprings=Black   ColorTendons=DarkCyan   ColorSlabPanels=Green   ColorWalls=Blue   ColorFloors=Gray4   ColorNullObjects=Gray8Dark   ColorOpenings=Black   ColorColStripA=DarkCyan   ColorColStripB=DarkCyan   ColorMidStripA=DarkCyan   ColorMidStripB=DarkCyan   ColorStripEdge=DarkCyan   ColorOtherStripFill=DarkCyan   ColorSupportLines=16744703   ColorDimLines=10461087   ColorText=Black   ColorGridLines=Gray8Dark   ColorBackground=White   ColorUserMeshEdge=5065984   ColorStlDesign=DarkCyan   ColorCompDesign=Cyan   ColorConcDesign=4227327   ColorNoDesign=4227327   TransColumns=0.5   TransBeams=0.5   TransBraces=0.5   TransFloors=0.4   TransWalls=0.4   TransLinks=0.5   Darkness=0.3
+
+TABLE:  "Options - Colors - Output"
+   DeviceType="Screen Classic"   Contour1=13107400   Contour2=6553828   Contour3=Red   Contour4=16639   Contour5=Orange   Contour6=43775   Contour7=54527   Contour8=Yellow   Contour9=65408   Contour10=Green   Contour11=8453888   Contour12=Cyan   Contour13=16755200   Contour14=16733440   Contour15=Blue   TransContours=0   Ratio1=Cyan   Ratio2=Green   Ratio3=Yellow   Ratio4=Magenta   Ratio5=Red   RatioNotD=Gray4   RatioVal1=0.5   RatioVal2=0.7   RatioVal3=0.9   RatioVal4=1   HState1=Gray2   HState2=Green   HState3=Yellow   HState4=Cyan   HState5=Blue   HStatus1=Gray2   HStatus2=Green   HStatus3=Cyan   HStatus4=Red   DFillPos=Red   DFillNeg=Red   DFillRange=Blue   TransDiag=0
+   DeviceType="Screen GrayScale"   Contour1=Black   Contour2=3158064   Contour3=4210752   Contour4=5263440   Contour5=6316128   Contour6=7368816   Contour7=Gray8Dark   Contour8=Gray7   Contour9=Gray6   Contour10=Gray5   Contour11=Gray4   Contour12=Gray3   Contour13=Gray2   Contour14=Gray1Light   Contour15=White   TransContours=0   Ratio1=Gray2   Ratio2=Gray4   Ratio3=Gray8Dark   Ratio4=4210752   Ratio5=Black   RatioNotD=Gray4   RatioVal1=0.5   RatioVal2=0.7   RatioVal3=0.9   RatioVal4=1   HState1=Gray3   HState2=Gray5   HState3=Gray7   HState4=7368816   HState5=5263440   HStatus1=Gray2   HStatus2=Gray4   HStatus3=Gray8Dark   HStatus4=4210752   DFillPos=Red   DFillNeg=Red   DFillRange=Blue   TransDiag=0
+   DeviceType=Printer   Contour1=Black   Contour2=3158064   Contour3=4210752   Contour4=5263440   Contour5=6316128   Contour6=7368816   Contour7=Gray8Dark   Contour8=Gray7   Contour9=Gray6   Contour10=Gray5   Contour11=Gray4   Contour12=Gray3   Contour13=Gray2   Contour14=Gray1Light   Contour15=White   TransContours=0   Ratio1=Gray2   Ratio2=Gray4   Ratio3=Gray8Dark   Ratio4=4210752   Ratio5=Black   RatioNotD=Gray4   RatioVal1=0.5   RatioVal2=0.7   RatioVal3=0.9   RatioVal4=1   HState1=Gray3   HState2=Gray5   HState3=Gray7   HState4=7368816   HState5=5263440   HStatus1=Gray2   HStatus2=Gray4   HStatus3=Gray8Dark   HStatus4=4210752   DFillPos=Gray8Dark   DFillNeg=Gray8Dark   DFillRange=4210752   TransDiag=0.2
+   DeviceType="Color Printer"   Contour1=13107400   Contour2=6553828   Contour3=Red   Contour4=16639   Contour5=Orange   Contour6=43775   Contour7=54527   Contour8=Yellow   Contour9=65408   Contour10=Green   Contour11=8453888   Contour12=Cyan   Contour13=16755200   Contour14=16733440   Contour15=Blue   TransContours=0   Ratio1=Cyan   Ratio2=Green   Ratio3=Yellow   Ratio4=Magenta   Ratio5=Red   RatioNotD=Gray4   RatioVal1=0.5   RatioVal2=0.7   RatioVal3=0.9   RatioVal4=1   HState1=Gray2   HState2=Green   HState3=Yellow   HState4=Cyan   HState5=Blue   HStatus1=Gray2   HStatus2=Green   HStatus3=Cyan   HStatus4=Red   DFillPos=Yellow   DFillNeg=Red   DFillRange=Blue   TransDiag=0
+
+TABLE:  "Panel Zone Property Definitions"
+   Name=PZone1   Source=Column   ActiveDir=Both   OffsetRigid=No   DblPlThick=0   AcceptType=None   GUID=20a1d965-75bd-422b-9a52-e7abe857a12b
+
+TABLE:  "Pier Label Definitions"
+   Name=P1   GUID=6e321da9-e5b5-4d58-b847-832a51122c07
+
+TABLE:  "Point Object Connectivity"
+   UniqueName=21   IsAuto=No   IsSpecial=No   X=0   Y=0   Z=312   GUID={3C198FEC-7E71-4153-8B09-72C38FC1E6A6}
+   UniqueName=24   IsAuto=No   IsSpecial=No   X=420   Y=0   Z=312   GUID={15685D18-D003-4F48-9D4D-4D56BD661CEB}
+   UniqueName=36   IsAuto=No   IsSpecial=No   X=840   Y=300   Z=312   GUID={1E89E5D2-D989-4CE8-AE9B-E7F5DBDB4BD1}
+   UniqueName=27   IsAuto=No   IsSpecial=No   X=840   Y=0   Z=312   GUID={6F5C2220-2ED7-4F01-9C9B-2F154A9DD2CE}
+   UniqueName=30   IsAuto=No   IsSpecial=No   X=0   Y=300   Z=312   GUID={0990ED43-A829-4093-8637-208527CB836C}
+   UniqueName=33   IsAuto=No   IsSpecial=No   X=420   Y=300   Z=312   GUID={D66C600C-E376-48C4-B886-1E858641DFC1}
+   UniqueName=39   IsAuto=No   IsSpecial=No   X=0   Y=600   Z=312   GUID={C48B6FC0-6B40-42DE-94FF-C597940A6930}
+   UniqueName=42   IsAuto=No   IsSpecial=No   X=420   Y=600   Z=312   GUID={E28A17C1-19FA-4AFB-B389-A2947C2E4BEA}
+   UniqueName=45   IsAuto=No   IsSpecial=No   X=840   Y=600   Z=312   GUID={4DCE068E-FBF1-4035-8DEE-7CEE7C72AD5F}
+   UniqueName=47   IsAuto=No   IsSpecial=Yes   X=456   Y=324   Z=312   GUID={1DB85E1C-38EB-4709-BBA4-6E5867CB752A}
+   UniqueName=1   IsAuto=Yes   IsSpecial=Yes   X=456   Y=324   Z=312   GUID=fb43d96a-850a-46b9-a7e5-ddde446a9d70
+   UniqueName=20   IsAuto=No   IsSpecial=No   X=0   Y=0   Z=156   GUID={A3A92F31-2192-4E99-87B9-95030C900DAD}
+   UniqueName=23   IsAuto=No   IsSpecial=No   X=420   Y=0   Z=156   GUID={4B39A2F9-7FA1-4E7C-BED0-0279C690D896}
+   UniqueName=35   IsAuto=No   IsSpecial=No   X=840   Y=300   Z=156   GUID={6B2D0C2F-EA9A-4B14-B996-1B1C615AA9B2}
+   UniqueName=26   IsAuto=No   IsSpecial=No   X=840   Y=0   Z=156   GUID={35F97384-AE9E-4C11-B135-6D1D6849E60B}
+   UniqueName=29   IsAuto=No   IsSpecial=No   X=0   Y=300   Z=156   GUID={4BF17F39-1600-42DD-B3EE-3AF1C50C8122}
+   UniqueName=32   IsAuto=No   IsSpecial=No   X=420   Y=300   Z=156   GUID={4CAFC1B5-17A2-483A-B596-ECB416CFA474}
+   UniqueName=38   IsAuto=No   IsSpecial=No   X=0   Y=600   Z=156   GUID={34761AD7-4DF4-4237-8241-9AAF6EEE0CD5}
+   UniqueName=41   IsAuto=No   IsSpecial=No   X=420   Y=600   Z=156   GUID={FB8B76FC-64F2-494A-8BB0-8F8F0DCAF0A5}
+   UniqueName=44   IsAuto=No   IsSpecial=No   X=840   Y=600   Z=156   GUID={94F5FD4D-9E64-475F-A14F-83FBB58951EC}
+   UniqueName=46   IsAuto=No   IsSpecial=Yes   X=456   Y=324   Z=156   GUID={FFEBFDA4-14C6-4F6B-8063-77191AD4ACED}
+   UniqueName=2   IsAuto=Yes   IsSpecial=Yes   X=456   Y=324   Z=156   GUID=2824294b-737f-467b-8abc-a847456ea75b
+   UniqueName=19   IsAuto=No   IsSpecial=No   X=0   Y=0   Z=0   GUID={F497FF0E-0DED-4FAF-8DD8-CCE6293D8967}
+   UniqueName=22   IsAuto=No   IsSpecial=No   X=420   Y=0   Z=0   GUID={45840DDD-AC36-4F62-94FE-91BE6A42B9C1}
+   UniqueName=34   IsAuto=No   IsSpecial=No   X=840   Y=300   Z=0   GUID={9631872A-1024-4B61-B72A-20D396D4FC9A}
+   UniqueName=25   IsAuto=No   IsSpecial=No   X=840   Y=0   Z=0   GUID={CC377E2A-DD9D-47E0-A88C-6C7D5DFE2A3D}
+   UniqueName=28   IsAuto=No   IsSpecial=No   X=0   Y=300   Z=0   GUID={68CF4F8A-0E9F-4E99-9B8C-AC79160253E6}
+   UniqueName=31   IsAuto=No   IsSpecial=No   X=420   Y=300   Z=0   GUID={CE47BA2E-D39C-41D5-98DE-3776FB40F1F8}
+   UniqueName=37   IsAuto=No   IsSpecial=No   X=0   Y=600   Z=0   GUID={99881737-571E-4129-BA83-E40DF5F681CE}
+   UniqueName=40   IsAuto=No   IsSpecial=No   X=420   Y=600   Z=0   GUID={E97D8758-1133-494B-B8EE-A6A53FC77EDD}
+   UniqueName=43   IsAuto=No   IsSpecial=No   X=840   Y=600   Z=0   GUID={96F04692-3672-4FD3-8D33-1220AC373A18}
+
+TABLE:  "Preferences - Graphics"
+   MaxFontSize=8   MinFontSize=3   MinSLineThick=1   MinPLineThick=4   AntiAliasing?=No   ConstantLineThick?=Yes   ShadingWithinElement?=No   AutoZoomStep=10   ShrinkFactor=70
+
+TABLE:  "Preferences - Tolerance"
+   MergeTol=0.1   MaxInclVertCol=1   MaxInclHorzBmFlr=20
+
+TABLE:  "Project Information"
+   ModelName=0384_V13   RevisionNum=0
+
+TABLE:  "Reinforcing Bar Sizes"
+   Name=#2   Diameter=0.25   Area=0.05   GUID=4e124b0e-472d-48f8-a8b6-921a61f8f3c0
+   Name=#3   Diameter=0.375   Area=0.109999999403954   GUID=9c8bd4e2-35e2-4621-8cab-2025087445d9
+   Name=#4   Diameter=0.5   Area=0.200000002980232   GUID=db3ad99a-3381-446e-9b16-8adde34031cc
+   Name=#5   Diameter=0.625   Area=0.310000002384186   GUID=c7856882-7b00-4d7d-b510-6709f7940f7b
+   Name=#6   Diameter=0.75   Area=0.439999997615814   GUID=55fc6cd0-46ea-442b-b265-5775effba7b7
+   Name=#7   Diameter=0.875   Area=0.600000023841858   GUID=a78beec7-f01c-4858-9b55-4ef0ceb5573a
+   Name=#8   Diameter=1   Area=0.790000021457672   GUID=1069db47-461f-439e-952c-8eb6bd556bd2
+   Name=#9   Diameter=1.12800002098083   Area=1   GUID=a96fb04e-2cc6-4b3c-b589-089ccac6a407
+   Name=#10   Diameter=1.26999998092651   Area=1.26999998092651   GUID=3985f325-3ca0-4724-95bc-97a56bee2e85
+   Name=#11   Diameter=1.4099999666214   Area=1.55999994277954   GUID=2c834e1b-35cb-4166-994c-05dbc1358049
+   Name=#14   Diameter=1.692999958992   Area=2.25   GUID=35d0fdaf-d5f8-4bf3-a614-3181e4756635
+   Name=#18   Diameter=2.25699996948242   Area=4   GUID=1f5858c8-3ac4-407f-a8a3-abb02e2f6227
+   Name=10M   Diameter=0.444881903954482   Area=0.155000316452672   GUID=9127b0b5-c30d-48d8-b807-50d897c995ce
+   Name=15M   Diameter=0.629921269302988   Area=0.310000632905345   GUID=799dd93e-dfec-4860-a1b7-a320344e6456
+   Name=20M   Diameter=0.767716546963016   Area=0.465000949358017   GUID=dd084578-acfe-404c-9186-36eb7a5fa78d
+   Name=25M   Diameter=0.992126029189193   Area=0.775001582263362   GUID=62ebcc9f-a415-4c8c-9028-45a2ea59f6f2
+   Name=30M   Diameter=1.17716535699147   Area=1.08500221516871   GUID=ca604540-d8b5-40ae-b42e-1b40dd5bd102
+   Name=35M   Diameter=1.40551186216928   Area=1.55000316452672   GUID=b7c0d9b8-e0b4-4671-b32e-a4f635cf11cf
+   Name=45M   Diameter=1.72047249682077   Area=2.32500474679009   GUID=0b794cb8-6408-4368-8398-e09059612610
+   Name=55M   Diameter=2.22047253436701   Area=3.87500791131681   GUID=f92a71f2-3b11-4583-8f73-7fb2a156ed31
+   Name=6d   Diameter=0.23622047598862   Area=0.0438650883735477   GUID=32eadb58-be7f-4f92-9fcf-29614d5a10d0
+   Name=8d   Diameter=0.314960634651494   Area=0.0779651579931357   GUID=8fa50567-a69e-4f74-949f-23a229ad433e
+   Name=10d   Diameter=0.393700793314367   Area=0.121675248415348   GUID=086c8c7c-ce84-4344-8d2b-a7cb8b93ca22
+   Name=12d   Diameter=0.472440951977241   Area=0.17515035759152   GUID=e415d66c-971c-4ef8-9778-efa3ddcdf0e8
+   Name=14d   Diameter=0.551181110640114   Area=0.238700487337116   GUID=cb252aa1-9a18-43d1-b731-8eb226bada97
+   Name=16d   Diameter=0.629921269302988   Area=0.311550636069872   GUID=301a3592-2767-4099-9816-089fa4843fed
+   Name=20d   Diameter=0.787401586628735   Area=0.486700993661391   GUID=9de028d2-54fd-4781-a2fb-0e1577f58bad
+   Name=25d   Diameter=0.984251983285919   Area=0.761051553782622   GUID=8d4453e9-be1b-40ae-b815-97a845887eec
+   Name=26d   Diameter=1.02362206261736   Area=0.823051680363691   GUID=81b51511-de44-4cb6-8561-ed302477a88c
+   Name=28d   Diameter=1.10236222128023   Area=0.954801949348462   GUID=7b68a6c2-057e-4f6d-9295-7e4745596a4e
+   Name=N12   Diameter=0.472440951977241   Area=0.17515035759152   GUID=4ec4b8df-2b70-413f-9ebc-78c0c2e0b32e
+   Name=N16   Diameter=0.629921269302988   Area=0.311550636069872   GUID=4fea0098-595e-44d1-ab75-cde52a745d4a
+   Name=N20   Diameter=0.787401586628735   Area=0.486700993661391   GUID=ed2a82e9-b8cc-49f5-834e-bdf5f7b88cc5
+   Name=N24   Diameter=0.944881903954482   Area=0.700601430366079   GUID=2584ead2-f460-4b0f-bfab-450fd687c3cb
+   Name=N28   Diameter=1.10236222128023   Area=0.954801949348462   GUID=b36dd8d8-8708-4853-bfc7-6f38fdec8d93
+   Name=N32   Diameter=1.25984253860598   Area=1.24620254427949   GUID=26a86014-d352-4e9e-a94c-fe877612ca90
+   Name=N36   Diameter=1.41732285593172   Area=1.58100322781726   GUID=8d56e430-b0b5-4fcd-b802-a220b08873bd
+
+TABLE:  "Shear Wall Design Preferences - ACI 318-08"
+   MultiMethod=Step-by-Step   RebarMat=A615Gr60   RebarShrMat=A615Gr60   Rho=1   Sds=0.5   ImpFactor=1   Cd=5.5   PhiTen=0.9   PhiCompTied=0.65   PhiShrTor=0.75   PhiShrSeis=0.6   PMax=0.8   NumCurves=24   NumPoints=11   PTMax=0.06   PCMax=0.04   IPMax=0.02   IPMin=0.0025   DCLimit=0.95
+
+TABLE:  "Slab Property Definitions"
+   Name=PLANK1   ModelType=Membrane   PropType=Slab   Material=CONC   Thickness=12   OneWayLoad=Yes   NotSizeType=User   NotUserSize=12   f11Mod=0.01   f22Mod=0.01   f12Mod=1   m11Mod=1   m22Mod=1   m12Mod=1   v13Mod=1   v23Mod=1   MMod=1   WMod=1   Color=Red   GUID=a34932ab-78f5-4aaf-b728-bc07a8ea8049
+   Name=SLAB1   ModelType=Shell-Thin   PropType=Slab   Material=CONC   Thickness=12   NotSizeType=User   NotUserSize=12   f11Mod=1   f22Mod=1   f12Mod=1   m11Mod=1   m22Mod=1   m12Mod=1   v13Mod=1   v23Mod=1   MMod=1   WMod=1   Color=Green   GUID=df4ee2ff-580f-405f-a8e5-077b22b1801b
+
+TABLE:  "Spandrel Label Definitions"
+   Name=S1   MultiStory=No   GUID=af67e339-fc1f-4def-95c9-bb08c307c1e4
+
+TABLE:  "Steel Frame Design Preferences - AISC LRFD 93"
+   MultiMethod=Step-by-Step   FrameType="Moment Frame"   PhiBend=0.9   PhiComp=0.85   PhiTension=0.9   PhiShear=0.9   PhiCompAng=0.9   CheckDefl=Yes   DLRat=120   SDLAndLLRat=120   LLRat=360   TotalRat=240   TotalCamber=240   PatLLF=0.75   DCLimit=0.95   MaxIter=1
+
+TABLE:  "Steel Joist Design Preferences - SJI-2010"
+   DesProv=LRFD
+
+TABLE:  "Tendon Section Properties"
+   Name=Tendon1   Material=A416Gr270   StrandArea=0.153   Color=Red   GUID=61e97385-4ee4-45fa-9f6a-75127b395962
+
+TABLE:  "Wall Property Definitions - Specified"
+   Name=WALL1   ModelType=Shell-Thin   Material=CONC   Thickness=12   RigidZone=No   NotSizeType=User   NotUserSize=12   f11Mod=1   f22Mod=1   f12Mod=1   m11Mod=1   m22Mod=1   m12Mod=1   v13Mod=1   v23Mod=1   MMod=1   WMod=1   Color=Blue   GUID=3b017651-fc78-4f53-b2c7-bc010d64f340
+
+END TABLE DATA
