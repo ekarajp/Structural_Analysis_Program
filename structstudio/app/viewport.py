@@ -236,7 +236,12 @@ class ModelViewport(QtWidgets.QWidget):
         self.state = state or ViewState(document)
         self.config = config or ViewConfig()
         self._scene_actors: List[vtk.vtkProp] = []
+        self._scene_keys: List[str] = []
         self._overlay_actors: List[vtk.vtkProp] = []
+        self._panel_actors: List[vtk.vtkProp] = []
+        # parts to redo when this window is shown again ("scene", "selection",
+        # "labels", "overlays"): a window that is not on screen builds nothing
+        self._dirty: Set[str] = set()
         self._highlight_actors: List[vtk.vtkProp] = []
         self.highlight_story: Optional[str] = None  # story of the plan window, shaded in 3D
         # View > Show Selected Objects Only / Make Selected Objects Invisible (per window)
@@ -381,7 +386,7 @@ class ModelViewport(QtWidgets.QWidget):
         self.where_box.currentIndexChanged.connect(self._header_changed)
         self.results_box.toggled.connect(self._results_toggled)
         self.doc.on_change(self._on_doc_change)
-        self.state.selection_changed.connect(self.rebuild)
+        self.state.selection_changed.connect(self._on_selection_changed)
         # this window's own result / load display (Display commands act on the active window)
         self.result_display = self.state.window_display() if hasattr(self.state, "window_display") else {}
         self.state.display_changed.connect(self._on_display_changed)
@@ -533,7 +538,7 @@ class ModelViewport(QtWidgets.QWidget):
                 c.ordinate = None
         self._fill_header()
         self.state.tool.cancel()
-        self.rebuild()
+        self.invalidate("scene", "overlays")
         self.apply_camera()
         self.activate()
         self.view_changed.emit(self)
@@ -575,7 +580,7 @@ class ModelViewport(QtWidgets.QWidget):
         self.results_box.setChecked(config.results)
         self.results_box.blockSignals(False)
         self._fill_header()
-        self.rebuild()
+        self.invalidate("scene", "overlays")
         self.apply_camera()
         self.view_changed.emit(self)
 
@@ -584,9 +589,24 @@ class ModelViewport(QtWidgets.QWidget):
     def display_options(self) -> DisplayOptions:
         return DisplayOptions.from_dict(self.config.display)
 
+    # options whose change only touches the text labels / also the results drawn
+    LABEL_OPTIONS = frozenset({"frame_labels", "joint_labels", "area_labels", "section_names"})
+    OVERLAY_OPTIONS = frozenset({"extrude", "releases", "analysis_mesh"})
+
     def set_display_options(self, options: DisplayOptions):
-        self.config.display = options.to_dict()
-        self.rebuild()
+        old = DisplayOptions.from_dict(self.config.display).to_dict()  # same keys on both sides
+        new = options.to_dict()
+        self.config.display = new
+        changed = {k for k in set(old) | set(new) if old.get(k) != new.get(k)}
+        if not changed:
+            return
+        if changed <= self.LABEL_OPTIONS:
+            self.invalidate("labels")  # labels only: the objects and results stay
+            return
+        parts = ["scene"]
+        if changed & self.OVERLAY_OPTIONS:
+            parts.append("overlays")
+        self.invalidate(*parts)
 
     def set_highlight_story(self, story: Optional[str]):
         """3D windows: shade the plane of ``story`` (the story of the plan window)."""
@@ -620,14 +640,14 @@ class ModelViewport(QtWidgets.QWidget):
             self.config.ordinate = float(ordinate)
             self.config.grid = None
         self._fill_header()
-        self.rebuild()
+        self.invalidate("scene", "overlays")
         self.apply_camera()
         self.view_changed.emit(self)
 
     def set_story(self, story: Optional[str]):
         self.config.story = story
         self._fill_header()
-        self.rebuild()
+        self.invalidate("scene", "overlays")
         if self.config.kind == "plan":
             self.apply_camera()
         self.view_changed.emit(self)
@@ -658,7 +678,7 @@ class ModelViewport(QtWidgets.QWidget):
             self.kind_box.setItemIcon(i, icon("view_" + self.kind_box.itemData(i)))
         self.set_active(self._active)
         self._clear_preview()
-        self.rebuild()
+        self.invalidate("scene", "overlays")
 
     def _style_tip(self):
         tp = self.tip.GetTextProperty()
@@ -717,7 +737,7 @@ class ModelViewport(QtWidgets.QWidget):
     def _set_hidden(self, frames, areas, points):
         self._hidden_history.append(tuple(set(x) for x in self.hidden))
         self.hidden = (set(frames), set(areas), set(points))
-        self.rebuild()
+        self.invalidate("scene", "overlays")
 
     def make_selected_invisible(self):
         st = self.state
@@ -810,7 +830,7 @@ class ModelViewport(QtWidgets.QWidget):
     def restore_previous_visibility(self):
         if self._hidden_history:
             self.hidden = self._hidden_history.pop()
-            self.rebuild()
+            self.invalidate("scene", "overlays")
 
     def show_all_objects(self):
         if any(self.hidden):
@@ -828,14 +848,14 @@ class ModelViewport(QtWidgets.QWidget):
             return
         if what == "model":
             self._fill_header()
-            self.rebuild()
+            self.invalidate("scene", "overlays")
             if not self._camera_set:
                 self.apply_camera()
             else:  # new / resized objects (e.g. after a change of units): nothing clipped away
                 self.renderer.ResetCameraClippingRange()
                 self.render()
         elif what == "results":
-            self.update_overlays()
+            self.invalidate("overlays")
 
     def _on_display_changed(self):
         """A Display command (the toolbar's case / diagram / deformed ...): the active
@@ -846,16 +866,48 @@ class ModelViewport(QtWidgets.QWidget):
             return  # this window keeps its own display: nothing it shows has changed
         # a Display command changes results / loads only - the model actors stay; a
         # window that is not on screen catches up when it is shown again
-        if not self.isVisible():
-            self._overlays_dirty = True
+        self.invalidate("overlays")
+
+    # ------------------------------------------------------- what to redo
+    def invalidate(self, *parts: str):
+        """Redo ``parts`` of the picture now, or when the window is shown again if
+        it is not on screen: "scene" (objects - with selection and labels),
+        "selection", "labels", "overlays" (results / loads)."""
+        self._dirty.update(parts)
+        if self.isVisible():
+            self.flush()
+
+    def flush(self):
+        """Redo what is marked (once, whatever number of changes marked it)."""
+        parts, self._dirty = self._dirty, set()
+        if not parts:
             return
-        self.update_overlays()
+        if "scene" in parts:
+            self._build_scene()
+        else:
+            if "selection" in parts:
+                self._build_layer("selection")
+            if "labels" in parts:
+                self._build_layer("labels")
+        if "overlays" in parts:
+            self.update_overlays()
+        else:
+            self._style_scene()
+            if "selection" in parts or "scene" in parts:
+                self._build_panels()
+            self.render()
+
+    def refresh(self):
+        """View > Refresh: everything again (when shown)."""
+        self.invalidate("scene", "overlays")
+
+    def _on_selection_changed(self):
+        self.invalidate("selection")
 
     def showEvent(self, event):
         super().showEvent(event)
-        if getattr(self, "_overlays_dirty", False):
-            self._overlays_dirty = False
-            self.update_overlays()
+        if self._dirty:
+            self.flush()
 
     GHOST_OPACITY = 0.18
 
@@ -896,23 +948,54 @@ class ModelViewport(QtWidgets.QWidget):
         return list(getattr(self, "_scene_keys", []))
 
     def rebuild(self):
+        """The whole picture again, now (objects, selection, labels, results)."""
+        self._dirty = set()
+        self._build_scene()
+        self.update_overlays()
+
+    def _model_actors(self, layers):
+        st = self.state
+        story = self.config.story if self.config.kind == "plan" else None
+        return scene.build_model_actors(self.doc.model, st.show_labels, st.extruded, st.frames, story=story,
+                                        selected_areas=st.areas, selected_points=st.points,
+                                        plane=self._scene_plane(), options=self.display_options,
+                                        hidden=self.hidden, layers=layers)
+
+    def _build_scene(self):
         for a in self._scene_actors:
             self.renderer.RemoveActor(a)
         self._scene_actors = []
+        self._scene_keys = []
         self._ghost_orig = {}
         self._hidden_orig = {}
-        st = self.state
-        story = self.config.story if self.config.kind == "plan" else None
-        sc = scene.build_model_actors(self.doc.model, st.show_labels, st.extruded, st.frames, story=story,
-                                      selected_areas=st.areas, selected_points=st.points, plane=self._scene_plane(),
-                                      options=self.display_options, hidden=self.hidden)
-        self._scene_keys = list(sc.actors)
-        for actor in sc.actors.values():
+        sc = self._model_actors(scene.MODEL_LAYERS)
+        for key, actor in sc.actors.items():
             self.renderer.AddActor(actor)
+            self._scene_keys.append(key)
             self._scene_actors.append(actor)
         self._draw_highlight()
         self._draw_grips()
-        self.update_overlays()
+
+    def _build_layer(self, layer: str):
+        """Only the selection highlights / only the labels again: the objects (and
+        the results) stay as they are."""
+        keep_k, keep_a = [], []
+        for key, a in zip(self._scene_keys, self._scene_actors):
+            if scene.model_layer_of(key) == layer:
+                self.renderer.RemoveActor(a)
+                self._ghost_orig.pop(id(a), None)
+                self._hidden_orig.pop(id(a), None)
+            else:
+                keep_k.append(key)
+                keep_a.append(a)
+        self._scene_keys, self._scene_actors = keep_k, keep_a
+        sc = self._model_actors((layer,))
+        for key, actor in sc.actors.items():
+            self.renderer.AddActor(actor)
+            self._scene_keys.append(key)
+            self._scene_actors.append(actor)
+        if layer == "selection":
+            self._draw_grips()
 
     # ------------------------------------------------------------- grips
     # Dragging the selection / its joints with the select tool (AutoCAD grips) is off:
@@ -1074,20 +1157,26 @@ class ModelViewport(QtWidgets.QWidget):
         self.render()
         return True
 
-    def update_overlays(self):
-        for a in self._overlay_actors:
-            self.renderer.RemoveActor(a)
-        self._overlay_actors = []
+    def _result_display(self):
         st = self.state
         from types import SimpleNamespace
         rd = SimpleNamespace(**{k: getattr(st, k, None) for k in getattr(st, "WINDOW_DISPLAY", ())})
         for k, v in (self.result_display or {}).items():
             setattr(rd, k, v)
+        return rd
+
+    def _result_flags(self, rd):
         res = self.doc.results
         shown = bool(res is not None and rd.display_case and self.config.results)
-        extr = bool(getattr(self.display_options, "extrude", False))
         fcol = getattr(rd, "display_frame_color", None) if shown and rd.display_mode is None else None
         contour_on = shown and rd.display_diagram in SHELL_COMPONENTS and rd.display_mode is None
+        return shown, fcol, contour_on
+
+    def _style_scene(self, rd=None):
+        """The objects under a result: a faint shadow under a deformed shape, hidden
+        under a contour / member colours (also for actors made after the result)."""
+        rd = rd or self._result_display()
+        shown, fcol, contour_on = self._result_flags(rd)
         if shown and (rd.deformed or rd.display_mode is not None):
             self._ghost_scene(False)
             self._ghost_scene(True)
@@ -1099,6 +1188,35 @@ class ModelViewport(QtWidgets.QWidget):
         if shown and (rd.deformed or rd.display_mode is not None):
             hide += ("releases",)  # the pin symbols are drawn on the deflected members instead
         self._hide_scene(hide)
+
+    def _build_panels(self, rd=None):
+        """Load panels (a selected one with its outline): shown with the plain
+        model - they would veil a contour / member colours."""
+        for a in self._panel_actors:
+            self.renderer.RemoveActor(a)
+        self._panel_actors = []
+        rd = rd or self._result_display()
+        _shown, fcol, contour_on = self._result_flags(rd)
+        st = self.state
+        try:
+            if not (contour_on or fcol) or getattr(st, "panels", None):
+                self._panel_actors = scene.build_panel_actors(self.doc.model, getattr(st, "panels", None))
+        except Exception as exc:
+            print("panel display error:", exc)
+        for a in self._panel_actors:
+            self.renderer.AddActor(a)
+
+    def update_overlays(self):
+        for a in self._overlay_actors:
+            self.renderer.RemoveActor(a)
+        self._overlay_actors = []
+        self._dirty.discard("overlays")
+        st = self.state
+        rd = self._result_display()
+        res = self.doc.results
+        extr = bool(getattr(self.display_options, "extrude", False))
+        shown, fcol, contour_on = self._result_flags(rd)
+        self._style_scene(rd)
         if getattr(self.display_options, "analysis_mesh", False) and res is not None:
             # Set Display Options > Analysis mesh: the mesh the analysis used (nothing
             # before an analysis)
@@ -1147,11 +1265,7 @@ class ModelViewport(QtWidgets.QWidget):
                                                                         points=pt)
             except Exception as exc:  # display must never crash the app
                 print("overlay error:", exc)
-        try:  # load panels would veil a contour / member colours: shown again with the plain model
-            if not (contour_on or fcol) or getattr(st, "panels", None):
-                self._overlay_actors += scene.build_panel_actors(self.doc.model, getattr(st, "panels", None))
-        except Exception as exc:
-            print("panel display error:", exc)
+        self._build_panels(rd)
         if rd.load_pattern and rd.load_pattern in self.doc.model.load_patterns:
             try:
                 kind = self.config.kind
@@ -1950,11 +2064,27 @@ class ModelViewport(QtWidgets.QWidget):
     def _on_middle_release(self, obj, event):
         self._end_nav()
 
+    WHEEL_LABEL_IDLE_MS = 180  # labels hidden while the wheel turns come back after this pause
+
     def _on_wheel(self, direction: int):
         x, y = self.interactor.GetEventPosition()
         f = navigation.WHEEL_FACTOR if direction > 0 else 1.0 / navigation.WHEEL_FACTOR
+        # many labels (force diagrams of a large model): hidden while zooming, like a drag
+        self._drag_labels(True)
+        if getattr(self, "_drag_hidden", None):
+            t = getattr(self, "_wheel_timer", None)
+            if t is None:
+                t = self._wheel_timer = QtCore.QTimer(self)
+                t.setSingleShot(True)
+                t.setInterval(self.WHEEL_LABEL_IDLE_MS)
+                t.timeout.connect(self._wheel_idle)
+            t.start()
         navigation.zoom_at(self.renderer, x, y, f)
         self.render()
+
+    def _wheel_idle(self):
+        if getattr(self, "_nav", None) is None:  # not in the middle of a drag (it shows them on release)
+            self._drag_labels(False)
 
     def rotate_view(self, d_azimuth: float, d_elevation: float):
         if self.config.kind == "3d":
@@ -1976,7 +2106,7 @@ class ModelViewport(QtWidgets.QWidget):
     def default_3d(self):
         self.config.kind = "3d"
         self._fill_header()
-        self.rebuild()
+        self.invalidate("scene", "overlays")
         self.apply_camera()
 
     _TYPED_KEYS = {"period": ".", "KP_Decimal": ".", "comma": ",", "minus": "-", "KP_Subtract": "-",

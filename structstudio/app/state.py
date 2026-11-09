@@ -206,8 +206,9 @@ class ViewState(QtCore.QObject):
         return len(self.frames) + len(self.areas) + len(self.points) + len(self.panels)
 
     def set_selection(self, frames=(), areas=(), points=(), add: bool = False):
+        before = (set(self.frames), set(self.areas), set(self.points), set(self.panels))
         if self.count:
-            self._previous = (set(self.frames), set(self.areas), set(self.points))
+            self._previous = before[:3]
         if add:
             self.frames |= set(frames)
             self.areas |= set(areas)
@@ -215,7 +216,8 @@ class ViewState(QtCore.QObject):
         else:
             self.frames, self.areas, self.points = set(frames), set(areas), set(points)
             self.panels = set()
-        self.selection_changed.emit()
+        if (self.frames, self.areas, self.points, self.panels) != before:  # no signal for the same selection
+            self.selection_changed.emit()
 
     def toggle(self, kind: str, name: str, add: bool):
         target = {"frame": self.frames, "area": self.areas, "point": self.points, "panel": self.panels}[kind]
@@ -287,6 +289,8 @@ class ViewState(QtCore.QObject):
         return {k: (set(getattr(self, k)) if k == "load_kinds" else getattr(self, k)) for k in self.WINDOW_DISPLAY}
 
     def set_display(self, **kw):
+        if all(hasattr(self, k) and getattr(self, k) == v for k, v in kw.items()):
+            return  # the same display again: nothing to redraw
         for k, v in kw.items():
             setattr(self, k, v)
         self.display_changed.emit()

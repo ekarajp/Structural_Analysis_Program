@@ -526,7 +526,7 @@ class MenuCommandsMixin:
 
     def view_refresh_all(self):
         for vp in self.views.viewports:
-            vp.rebuild()
+            vp.refresh()  # the windows not on screen when they are shown again
 
     # ------------------------------------------------------------- Define
     def define_shell_sections(self):

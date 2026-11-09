@@ -654,6 +654,10 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         self.mode_box = QtWidgets.QSpinBox()
         self.mode_box.setRange(0, 999)
         self.mode_box.setSpecialValueText("-")
+        # a typed number counts on Enter / leaving the box (typing "12" must not draw
+        # mode 1 first); the arrows still step at once
+        self.mode_box.setKeyboardTracking(False)
+        self.mode_box.setToolTip("Mode number (Enter to show a typed number)")
         self.mode_box.valueChanged.connect(self._display_changed)
         res.addWidget(self.mode_box)
         res.addSeparator()
@@ -927,7 +931,24 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         t = box.currentText() if box is not None else ""
         return None if t in ("", "None") else t
 
+    def _mode_count(self, case: str) -> int:
+        """Number of modes of ``case`` (0: not a modal case / no results)."""
+        res = self.doc.results
+        r = getattr(res, "cases", {}).get(case) if res is not None and case else None
+        md = getattr(r, "modal", None)
+        return len(md.periods) if md is not None else 0
+
+    def _sync_mode_range(self):
+        """Mode numbers 1 .. modes of the case shown (none for other cases)."""
+        n = self._mode_count(self.case_box.currentText())
+        top = n if n else 0
+        if self.mode_box.maximum() != top:
+            self.mode_box.blockSignals(True)
+            self.mode_box.setMaximum(top)
+            self.mode_box.blockSignals(False)
+
     def _display_changed(self, *_):
+        self._sync_mode_range()
         mode = self.mode_box.value()
         d = self.diagram_box.currentText()
         lp = self.load_box.currentText()
@@ -1221,6 +1242,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             self.case_box.setCurrentText(rd.get("display_case") or "")
             if not rd.get("display_case") and self.case_box.count():
                 self.case_box.setCurrentIndex(-1)
+            self._sync_mode_range()
             self.mode_box.setValue(int(rd.get("display_mode") or 0))
             self.diagram_box.setCurrentText(rd.get("display_diagram") or "None")
             self.frame_color_box.setCurrentText(rd.get("display_frame_color") or "None")

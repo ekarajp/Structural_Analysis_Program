@@ -145,14 +145,32 @@ def scalar_bar(lut, title: str, labels: int = 7):
 
 # ------------------------------------------------------------------ geometry
 class ScalarMesh:
-    """Polygons + lines with one scalar per point (unshared points per piece)."""
+    """Polygons + lines with one scalar per point (unshared points per piece:
+    every polygon / line has its own consecutive points).  Pieces are added one
+    at a time or as arrays of many (same order, same points)."""
 
     def __init__(self):
         self.pts: List[np.ndarray] = []
         self.vals: List[np.ndarray] = []
-        self.polys: List[List[int]] = []
-        self.lines: List[List[int]] = []
+        self._polys: List = []  # (first point, point count) - ints or arrays, in order
+        self._lines: List = []
         self.n = 0
+
+    @property
+    def polys(self) -> List[List[int]]:
+        return [list(range(int(b), int(b) + int(k))) for b, k in self._iter(self._polys)]
+
+    @property
+    def lines(self) -> List[List[int]]:
+        return [list(range(int(b), int(b) + int(k))) for b, k in self._iter(self._lines)]
+
+    @staticmethod
+    def _iter(segs):
+        for b, k in segs:
+            if np.ndim(b):
+                yield from zip(b, k)
+            else:
+                yield b, k
 
     def _add(self, P, v) -> int:
         P = np.atleast_2d(np.asarray(P, float))
@@ -164,11 +182,23 @@ class ScalarMesh:
 
     def polygon(self, P, v):
         b = self._add(P, v)
-        self.polys.append(list(range(b, b + len(P))))
+        self._polys.append((b, len(self.pts[-1])))
 
     def polyline(self, P, v):
         b = self._add(P, v)
-        self.lines.append(list(range(b, b + len(P))))
+        self._lines.append((b, len(self.pts[-1])))
+
+    def polygons(self, P: np.ndarray, V: np.ndarray):
+        """Many polygons of k points: P (m, k, 3), V (m, k) - as m calls of polygon."""
+        P = np.asarray(P, float)
+        m, k = P.shape[0], P.shape[1]
+        if not m:
+            return
+        base = self.n
+        self.pts.append(P.reshape(-1, 3))
+        self.vals.append(np.broadcast_to(np.asarray(V, float), (m, k)).reshape(-1).copy())
+        self.n += m * k
+        self._polys.append((base + k * np.arange(m, dtype=np.int64), np.full(m, k, dtype=np.int64)))
 
     def slab(self, P, v, lo: np.ndarray, hi: np.ndarray):
         """A polygon with thickness: faces at P+lo and P+hi and the sides."""
@@ -181,18 +211,43 @@ class ScalarMesh:
             j = (i + 1) % k
             self.polygon([P[i] + lo, P[j] + lo, P[j] + hi, P[i] + hi], [v[i], v[j], v[j], v[i]])
 
+    @staticmethod
+    def slab_faces(P: np.ndarray, V: np.ndarray, lo: np.ndarray, hi: np.ndarray):
+        """The faces :meth:`slab` makes, for m quads at once: (m, 6, 4, 3) points and
+        (m, 6, 4) values (bottom reversed, top, then the four sides)."""
+        m = len(P)
+        F = np.empty((m, 6, 4, 3))
+        W = np.empty((m, 6, 4))
+        lo, hi = lo[:, None, :], hi[:, None, :]
+        F[:, 0] = (P + lo)[:, ::-1]
+        W[:, 0] = V[:, ::-1]
+        F[:, 1] = P + hi
+        W[:, 1] = V
+        for i in range(4):
+            j = (i + 1) % 4
+            F[:, 2 + i, 0] = P[:, i] + lo[:, 0]
+            F[:, 2 + i, 1] = P[:, j] + lo[:, 0]
+            F[:, 2 + i, 2] = P[:, j] + hi[:, 0]
+            F[:, 2 + i, 3] = P[:, i] + hi[:, 0]
+            W[:, 2 + i] = np.stack([V[:, i], V[:, j], V[:, j], V[:, i]], axis=1)
+        return F, W
+
     def sweep(self, path: np.ndarray, vals: np.ndarray, rings: Sequence[np.ndarray]):
         """Section ``rings`` (each (m, 3) offsets from the axis) swept along
         ``path`` (n, 3), values along the path, with end caps."""
         path = np.asarray(path, float)
         vals = np.asarray(vals, float)
         for ring in rings:
+            ring = np.asarray(ring, float)
             m = len(ring)
-            for k in range(len(path) - 1):
-                a, b = path[k] + ring, path[k + 1] + ring
-                for i in range(m):
-                    j = (i + 1) % m
-                    self.polygon([a[i], a[j], b[j], b[i]], [vals[k], vals[k], vals[k + 1], vals[k + 1]])
+            if len(path) > 1:
+                A = path[:-1, None, :] + ring[None, :, :]  # (n-1, m, 3): a = path[k] + ring
+                B = path[1:, None, :] + ring[None, :, :]
+                j = (np.arange(m) + 1) % m
+                Q = np.stack([A, A[:, j], B[:, j], B], axis=2)  # (n-1, m, 4, 3): a[i], a[j], b[j], b[i]
+                va, vb = vals[:-1], vals[1:]
+                W = np.broadcast_to(np.stack([va, va, vb, vb], axis=1)[:, None, :], (len(va), m, 4))
+                self.polygons(Q.reshape(-1, 4, 3), W.reshape(-1, 4))
             self.polygon((path[0] + ring)[::-1], vals[0])
             self.polygon(path[-1] + ring, vals[-1])
 
@@ -204,18 +259,21 @@ class ScalarMesh:
         pts.SetData(numpy_support.numpy_to_vtk(X, deep=True))
         poly = vtk.vtkPolyData()
         poly.SetPoints(pts)
-        for cells, setter in ((self.polys, poly.SetPolys), (self.lines, poly.SetLines)):
-            if cells:
+        for segs, setter in ((self._polys, poly.SetPolys), (self._lines, poly.SetLines)):
+            if segs:
+                starts = np.concatenate([np.atleast_1d(np.asarray(b, np.int64)) for b, _ in segs])
+                sizes = np.concatenate([np.atleast_1d(np.asarray(k, np.int64)) for _, k in segs])
+                offsets = np.concatenate([[0], np.cumsum(sizes)]).astype(np.int64)
+                conn = np.repeat(starts, sizes) + (np.arange(offsets[-1], dtype=np.int64)
+                                                   - np.repeat(offsets[:-1], sizes))
                 ca = vtk.vtkCellArray()
-                for c in cells:
-                    ca.InsertNextCell(len(c))
-                    for i in c:
-                        ca.InsertCellPoint(i)
+                ca.SetData(numpy_support.numpy_to_vtkIdTypeArray(offsets, deep=True),
+                           numpy_support.numpy_to_vtkIdTypeArray(conn, deep=True))
                 setter(ca)
         s = numpy_support.numpy_to_vtk(np.ascontiguousarray(np.concatenate(self.vals), float), deep=True)
         s.SetName("value")
         poly.GetPointData().SetScalars(s)
-        if self.polys:
+        if self._polys:
             nf = vtk.vtkPolyDataNormals()
             nf.SetInputData(poly)
             nf.SetFeatureAngle(30.0)
@@ -302,6 +360,58 @@ def thick_shell(mesh: ScalarMesh, model: Model, obj_name: str, P: np.ndarray, v)
         mesh.polygon(P, v)
     else:
         mesh.slab(P, v, *off)
+
+
+def thick_shells(mesh: ScalarMesh, model: Model, objs: Sequence[str], P: np.ndarray, V: np.ndarray) -> None:
+    """Many quad shell elements as slabs (or flat quads without a thickness): the
+    same faces, values and order as :func:`thick_shell` element by element.
+    ``P`` (m, 4, 3) corners, ``V`` (m, 4) values, ``objs`` their area objects."""
+    P = np.asarray(P, float)
+    V = np.asarray(V, float)
+    m = len(P)
+    if not m:
+        return
+    if P.shape[1] != 4:
+        for i in range(m):
+            thick_shell(mesh, model, objs[i], P[i], V[i])
+        return
+    # Newell normal per element (as polygon_normal), (0, 0, 1) for a degenerate one
+    n = np.zeros((m, 3))
+    for i in range(4):
+        p, q = P[:, i], P[:, (i + 1) % 4]
+        n[:, 0] += (p[:, 1] - q[:, 1]) * (p[:, 2] + q[:, 2])
+        n[:, 1] += (p[:, 2] - q[:, 2]) * (p[:, 0] + q[:, 0])
+        n[:, 2] += (p[:, 0] - q[:, 0]) * (p[:, 1] + q[:, 1])
+    ln = np.sqrt(np.einsum("ij,ij->i", n, n))
+    zero = ln == 0.0
+    nrm = np.where(zero[:, None], np.array([0.0, 0.0, 1.0]), n / np.where(zero, 1.0, ln)[:, None])
+    # thickness and kind per area object (as shell_offsets)
+    info = {}
+    for name in dict.fromkeys(objs):
+        a = model.areas.get(name)
+        sec = model.shell_sections.get(getattr(a, "section", None) or "") if a is not None else None
+        t = float(sec.thickness) if sec is not None and sec.thickness else 0.0
+        info[name] = (t, a is not None and a.type in ("Floor", "Ramp"))
+    t = np.array([info[o][0] for o in objs], float)
+    floor = np.array([info[o][1] for o in objs], bool)
+    thick = t > 0
+    nf = np.where((floor & (nrm[:, 2] < 0))[:, None], -nrm, nrm)
+    lo = np.where(floor[:, None], -t[:, None] * nf, -0.5 * t[:, None] * nrm)
+    hi = np.where(floor[:, None], np.zeros((m, 3)), 0.5 * t[:, None] * nrm)
+    # faces in element order: 6 for a slab, 1 for a flat element (all quads)
+    nfaces = np.where(thick, 6, 1)
+    start = np.concatenate([[0], np.cumsum(nfaces)[:-1]])
+    F = np.empty((int(nfaces.sum()), 4, 3))
+    W = np.empty((len(F), 4))
+    if np.any(thick):
+        Ft, Wt = ScalarMesh.slab_faces(P[thick], V[thick], lo[thick], hi[thick])
+        idx = (start[thick][:, None] + np.arange(6)).reshape(-1)
+        F[idx] = Ft.reshape(-1, 4, 3)
+        W[idx] = Wt.reshape(-1, 4)
+    if not np.all(thick):
+        F[start[~thick]] = P[~thick]
+        W[start[~thick]] = V[~thick]
+    mesh.polygons(F, W)
 
 
 # -------------------------------------------------------------- frame colours

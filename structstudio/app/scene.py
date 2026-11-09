@@ -270,17 +270,37 @@ def build_elevation_grid(model: Model, plane: Tuple[str, float]) -> List[vtk.vtk
     return out
 
 
+MODEL_LAYERS = ("base", "selection", "labels")
+SELECTION_KEYS_END = ("_sel", "_sel_lines", "_sel_tubes")
+
+
+def model_layer_of(key: str) -> str:
+    """The layer an actor key of :func:`build_model_actors` belongs to."""
+    if key.endswith(SELECTION_KEYS_END) or key in ("joints", "areas_sel", "points_sel"):
+        return "selection"
+    if key in ("labels", "joint_labels", "area_labels"):
+        return "labels"
+    return "base"
+
+
 def build_model_actors(model: Model, show_labels: bool = False, extruded: bool = False,
                        selection: Optional[set] = None, story: Optional[str] = None,
                        selected_areas: Optional[set] = None, selected_points: Optional[set] = None,
                        plane: Optional[Tuple[str, float]] = None, options=None,
-                       hidden: Optional[Tuple[set, set, set]] = None) -> SceneActors:
+                       hidden: Optional[Tuple[set, set, set]] = None,
+                       layers: Sequence[str] = MODEL_LAYERS) -> SceneActors:
     """Actors for the model.  ``story`` limits the display to one story (plan
     view), ``plane`` to one elevation; ``selection``/``selected_areas``/
     ``selected_points`` are highlighted.  ``options`` (:class:`~.display.DisplayOptions`)
-    decides what is shown; without it ``show_labels`` / ``extruded`` apply."""
+    decides what is shown; without it ``show_labels`` / ``extruded`` apply.
+
+    ``layers`` picks the parts to build: "base" (objects, supports, grids ... -
+    independent of the selection), "selection" (the highlights and the joint
+    marks, which leave out the selected joints) and "labels" (text).  A window
+    rebuilds only the layer a change touches."""
     from .display import DisplayOptions
 
+    base_on, sel_on, labels_on = "base" in layers, "selection" in layers, "labels" in layers
     opts = options if options is not None else DisplayOptions(frame_labels=show_labels, extrude=extruded)
     extruded = opts.extrude
     out = SceneActors()
@@ -310,12 +330,24 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
         for gkey, (color, names) in groups.items():
             key = f"frames_{ftype}" if gkey == color_key else f"frames_{ftype}_{gkey}"
             out.frame_ids += names
-            sel = [n for n in names if n in selection]
+            sel = [n for n in names if n in selection] if sel_on else []
             if extruded and ftype != "Null":
                 # real cross-sections (ETABS "Extrude"); selected members as solids in the selection colour
                 from .extrude import frame_solids
-                rest = [n for n in names if n not in selection]
-                solid, missing = frame_solids(model, rest)
+                if sel:
+                    ssolid, smissing = frame_solids(model, sel)
+                    if ssolid is not None:
+                        # translucent solid in the highlight colour over the member (drawn in
+                        # front of the coincident faces) plus a dashed centre line
+                        sa = _actor_from_polydata(ssolid, COLORS["selection"], opacity=0.55)
+                        sa.GetMapper().SetRelativeCoincidentTopologyPolygonOffsetParameters(-2.0, -2.0)
+                        out.actors[key + "_sel"] = sa
+                    if smissing:
+                        out.actors[key + "_sel_tubes"] = _tube_actor(model, smissing, COLORS["selection"])
+                    out.actors[key + "_sel_lines"] = _frame_lines_actor(model, sel, COLORS["selection"], 3.0, dashed=True)
+                if not base_on:
+                    continue
+                solid, missing = frame_solids(model, names)
                 if solid is not None:
                     out.actors[key] = _actor_from_polydata(solid, color)
                 if solid is not None and opts.edges:
@@ -331,14 +363,12 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
                                                                       lighting=False)
                 if missing:
                     out.actors[key + "_tubes"] = _tube_actor(model, missing, color)
+                continue
+            width = gsize(_FRAME_WIDTH_KEY.get(ftype, "frame_width"))
+            if not base_on:
                 if sel:
-                    ssolid, smissing = frame_solids(model, sel)
-                    if ssolid is not None:
-                        # translucent solid in the highlight colour plus a dashed centre line
-                        out.actors[key + "_sel"] = _actor_from_polydata(ssolid, COLORS["selection"], opacity=0.55)
-                    if smissing:
-                        out.actors[key + "_sel_tubes"] = _tube_actor(model, smissing, COLORS["selection"])
-                    out.actors[key + "_sel_lines"] = _frame_lines_actor(model, sel, COLORS["selection"], 3.0, dashed=True)
+                    out.actors[key + "_sel"] = _frame_lines_actor(model, sel, COLORS["selection"], width + 2.5,
+                                                                  dashed=True)
                 continue
             coords = []
             lines = vtk.vtkCellArray()
@@ -353,7 +383,6 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
             poly = vtk.vtkPolyData()
             poly.SetPoints(_points(np.array(coords)))
             poly.SetLines(lines)
-            width = gsize(_FRAME_WIDTH_KEY.get(ftype, "frame_width"))
             out.actors[key] = _actor_from_polydata(poly, color, line_width=width, lighting=False)
             # selected frames highlighted
             if sel:
@@ -366,7 +395,7 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
                                       ("Ramp", "floor", gopacity("floor_fill")),
                                       ("Opening", "opening", 0.15), ("Null", "opening", 0.15)):
         groups: Dict[str, Tuple[tuple, list]] = {}
-        if not opts.shows_area_type(atype):
+        if not base_on or not opts.shows_area_type(atype):
             continue
         for a in model.areas.values():
             if a.type == atype and (vis_a is None or a.name in vis_a):
@@ -444,7 +473,7 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
             out.actors[key + "_edges"] = _actor_from_polydata(edges.GetOutput(), COLORS["area_edge"],
                                                               gsize("area_edge_width"), lighting=False)
     # ---- plan-view column markers (section outline at the story level) -------
-    if story is not None and not extruded and opts.columns:
+    if base_on and story is not None and not extruded and opts.columns:
         cols = [f for f in model.frames.values() if f.type == "Column" and f.story == story]
         groups: Dict[str, Tuple[tuple, list]] = {}
         for f in cols:
@@ -476,7 +505,7 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
             key = "column_markers" if gkey == "column" else f"column_markers_{gkey}"
             out.actors[key] = _actor_from_polydata(poly, color, lighting=False)
     # ---- selected areas / points --------------------------------------------
-    sel_areas = [model.areas[n] for n in selected_areas if n in model.areas]
+    sel_areas = [model.areas[n] for n in selected_areas if n in model.areas] if sel_on else []
     if sel_areas:
         seg = []
         for a in sel_areas:
@@ -484,7 +513,7 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
             for k in range(n):
                 seg += [pts[a.points[k]].xyz, pts[a.points[(k + 1) % n]].xyz]
         out.actors["areas_sel"] = _dashed_lines_actor(model, seg, COLORS["selection"], 4.0)
-    sel_pts = [pts[n] for n in selected_points if n in pts]
+    sel_pts = [pts[n] for n in selected_points if n in pts] if sel_on else []
     if sel_pts:
         # a large square in the selection colour over everything (lines, extruded solids, slabs),
         # with a contrasting core so it stands out from a selected (same colour) member
@@ -493,8 +522,9 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
                                                 "square", 2.0, inner=5.0)
     # ---- supports -----------------------------------------------------------
     sup = [p for p in pts.values() if any(p.restraints) and (vis_p is None or p.name in vis_p or (
-        story is not None and any(f.story == story for f in model.frames.values() if p.name in (f.point_i, f.point_j))))]
-    if sup and opts.supports:
+        story is not None and any(f.story == story for f in model.frames.values() if p.name in (f.point_i, f.point_j))))
+           ] if base_on else []
+    if base_on and sup and opts.supports:
         from .supports import support_polydata
         size = _tube_radius(model) * 4 * gsize("support_size")
         append = vtk.vtkAppendPolyData()
@@ -510,23 +540,25 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
     # ---- joints, springs, releases, local axes ---------------------------------
     shown_pts = [p for p in pts.values() if vis_p is None or p.name in vis_p]
     plain_pts = [p for p in shown_pts if p.name not in selected_points]  # selected: the round mark only
-    if opts.joints and plain_pts:
+    if sel_on and opts.joints and plain_pts:
         out.actors["joints"] = _joint_dots(plain_pts, _tube_radius(model) * 1.2 * gsize("joint_size"))
-    if opts.springs:
+    if base_on and opts.springs:
         sp = [p for p in shown_pts if any(p.springs) or any(p.rotational_springs)]
         if sp:
             out.actors["springs"] = _spring_symbols(model, sp)
     vis_frames = [f for f in model.frames.values() if (vis_f is None or f.name in vis_f)
                   and opts.shows_frame_type(f.type)]
-    if opts.releases:
+    if base_on and opts.releases:
         a = _release_dots(model, vis_frames)
         if a is not None:
             out.actors["releases"] = a
-    if opts.local_axes and vis_frames:
+    if base_on and opts.local_axes and vis_frames:
         for k, a in enumerate(_local_axes_actors(model, vis_frames)):
             out.actors[f"local_axes_{k}"] = a
     # ---- grids ----------------------------------------------------------------
-    if plane is not None and plane[0] == "z":  # free plan: the plan grid at that elevation
+    if not base_on:
+        pass
+    elif plane is not None and plane[0] == "z":  # free plan: the plan grid at that elevation
         if opts.grid_lines:
             g = build_grid_actor(model, None, levels=[float(plane[1])])
             if g is not None:
@@ -567,7 +599,7 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
         if opts.grid_bubbles and model.grid_lines and model.stories:
             out.actors["grid_bubbles"] = build_grid_bubbles(model, story, z=levels[0] if levels else None)
     # ---- reference lines (CYPE 3D) --------------------------------------------
-    if getattr(opts, "reference_lines", False):
+    if base_on and getattr(opts, "reference_lines", False):
         from .snap import reference_lines_for
         from .tools import Plane as _Plane
         if plane is not None and plane[0] in ("x", "y", "z"):
@@ -583,14 +615,14 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
             ra.GetProperty().SetOpacity(0.7)
             out.actors["reference_lines"] = ra
     # ---- labels ---------------------------------------------------------------
-    if opts.frame_labels or opts.section_names:
+    if labels_on and (opts.frame_labels or opts.section_names):
         out.actors["labels"] = build_label_actor(model, {f.name for f in vis_frames}, opts.frame_labels,
                                                  opts.section_names)
-    if opts.joint_labels and shown_pts:
+    if labels_on and opts.joint_labels and shown_pts:
         out.actors["joint_labels"] = _text_labels(_points_of([p.xyz for p in shown_pts]),
                                                   _strings([p.label or p.name for p in shown_pts]),
                                                   COLORS["text"], _text_pt(-1))
-    if opts.area_labels:
+    if labels_on and opts.area_labels:
         ar = [a for a in model.areas.values() if (vis_a is None or a.name in vis_a) and opts.shows_area_type(a.type)]
         if ar:
             cen = [np.mean([pts[q].xyz for q in a.points], axis=0) for a in ar]
@@ -1143,6 +1175,198 @@ def build_deformed_actor(model: Model, results, case: str, scale: Optional[float
     return actor, scale
 
 
+# ---------------------------------------------------------------------------
+# Deformed / mode shape: what depends only on the analysis mesh and on the
+# objects a window shows (connectivity, frame sample points, Hermite basis) is
+# prepared once and reused; a new case / mode only evaluates arrays.
+# ---------------------------------------------------------------------------
+class _MeshArrays:
+    """Read-only arrays of an analysis mesh for drawing (one per mesh)."""
+
+    _serial = 0
+
+    def __init__(self, am):
+        _MeshArrays._serial += 1
+        self.serial = _MeshArrays._serial  # cache key part (an id() can be reused)
+        self.X = am.coords().astype(float) if am.nodes else np.zeros((0, 3))
+        sh = am.shells
+        self.sh_len = np.array([len(s.nodes) for s in sh], dtype=np.int64)
+        self.sh_conn = np.array([n for s in sh for n in s.nodes], dtype=np.int64)
+        self.sh_off = np.concatenate([[0], np.cumsum(self.sh_len)]).astype(np.int64)
+        self.sh_obj = [s.object for s in sh]
+        fr = am.frames
+        self.fr_i = np.array([f.node_i for f in fr], dtype=np.int64)
+        self.fr_j = np.array([f.node_j for f in fr], dtype=np.int64)
+        self.fr_obj = [f.object for f in fr]
+        self.fr_hinged = np.array([bool(np.any(f.releases_i[3:]) or np.any(f.releases_j[3:])) for f in fr], bool)
+        # every node of the drawn elements: the colour range is the whole model's
+        self.every = np.unique(np.concatenate([self.sh_conn, self.fr_i, self.fr_j]).astype(np.int64))
+        self.by_obj: Dict[str, List[int]] = {}
+        for k, f in enumerate(fr):
+            self.by_obj.setdefault(f.object, []).append(k)
+
+
+_MESH_CACHE: "OrderedDict" = None
+_PLAN_CACHE: "OrderedDict" = None
+PLAN_CACHE_ITEMS = 12  # deformed-shape plans kept (a few windows x a few view sets) ...
+PLAN_CACHE_BYTES = 96 * 2 ** 20  # ... within this many bytes (a whole 21-storey model: ~15 MB)
+
+
+def _mesh_arrays(am) -> _MeshArrays:
+    global _MESH_CACHE
+    import weakref
+    from collections import OrderedDict
+    if _MESH_CACHE is None:
+        _MESH_CACHE = OrderedDict()
+    hit = _MESH_CACHE.get(id(am))
+    if hit is not None and hit[0]() is am:
+        return hit[1]
+    arrays = _MeshArrays(am)
+    _MESH_CACHE[id(am)] = (weakref.ref(am), arrays)
+    while len(_MESH_CACHE) > 2:  # the current analysis (and the one before)
+        _MESH_CACHE.popitem(last=False)
+    return arrays
+
+
+def _set_key(names):
+    return None if names is None else frozenset(names)
+
+
+class _DeformedPlan:
+    """Topology and frame sampling of a deformed-shape view: the shells and the
+    frame elements of the objects shown, the used nodes, the sample fractions
+    along each frame element and their cubic Hermite (or linear, hinged) basis."""
+
+    def __init__(self, model: Model, am, M: _MeshArrays, Lf: float, frames, areas, shells: bool, releases: bool):
+        self.ext = model_extent(model)
+        self.X0 = M.X / Lf
+        if shells:
+            sh = np.array([k for k, o in enumerate(M.sh_obj) if areas is None or o in areas], dtype=np.int64)
+        else:
+            sh = np.zeros(0, dtype=np.int64)
+        fr = np.array([k for k, o in enumerate(M.fr_obj) if frames is None or o in frames], dtype=np.int64)
+        self.sh, self.fr = sh, fr
+        pick = np.zeros(len(M.sh_len), bool)
+        pick[sh] = True
+        sh_nodes = M.sh_conn[np.repeat(pick, M.sh_len)]  # in element order (sh ascending)
+        self.used = np.unique(np.concatenate([sh_nodes, M.fr_i[fr], M.fr_j[fr]]).astype(np.int64))
+        # shells: connectivity in the used-node numbering
+        self.sh_conn = np.searchsorted(self.used, sh_nodes).astype(np.int64)
+        self.sh_off = np.concatenate([[0], np.cumsum(M.sh_len[sh])]).astype(np.int64)
+        # frames: elements of positive length, sampled every ``ext / 80`` (at most 10 parts)
+        I, J = M.fr_i[fr], M.fr_j[fr]
+        A, B = self.X0[I], self.X0[J]
+        L = np.linalg.norm(B - A, axis=1)
+        ok = L > 0
+        self.fe = fr[ok]  # analysis frame element index of each drawn member piece
+        self.I, self.J, A, B, L = I[ok], J[ok], A[ok], B[ok], L[ok]
+        self.L = L
+        self.E = (B - A) / L[:, None] if len(L) else np.zeros((0, 3))
+        self.hinged = M.fr_hinged[self.fe]
+        seg = max(self.ext / 80.0, 1e-9)
+        n = np.minimum(10, np.maximum(1, np.ceil(L / seg))).astype(np.int64)
+        self.n = n
+        self.el = np.repeat(np.arange(len(L), dtype=np.int64), n + 1)
+        start = np.concatenate([[0], np.cumsum(n + 1)[:-1]]).astype(np.int64)
+        self.start = start
+        self.x = (np.arange(len(self.el), dtype=np.int64) - start[self.el]) / n[self.el] if len(L) else np.zeros(0)
+        self.H = self._basis(self.x, self.hinged[self.el])
+        self.base = A[self.el] + self.x[:, None] * (B - A)[self.el]
+        # pin symbols: same place along the member as undeformed, riding on the curve
+        self.ring_el = np.zeros(0, np.int64)
+        self.ring_x = np.zeros(0)
+        if releases and len(self.fe):
+            pos = {int(e): k for k, e in enumerate(self.fe)}
+            shown = set(int(k) for k in fr)
+            rel, rx = [], []
+            for name in dict.fromkeys(M.fr_obj[k] for k in fr):
+                obj = model.frames.get(name)
+                if obj is None:
+                    continue
+                els = [k for k in M.by_obj.get(name, []) if k in shown]
+                ends = [t for t, r in ((RELEASE_RING_AT, obj.releases_i), (1.0 - RELEASE_RING_AT, obj.releases_j))
+                        if any(r[1:3]) or any(r[3:])]
+                for t in ends:
+                    k = next((k for k in els if am.frames[k].rel_start - 1e-9 <= t <= am.frames[k].rel_end + 1e-9),
+                             None)
+                    if k is None or k not in pos:
+                        continue
+                    f = am.frames[k]
+                    span = max(f.rel_end - f.rel_start, 1e-12)
+                    rel.append(pos[k])
+                    rx.append(min(max((t - f.rel_start) / span, 0.0), 1.0))
+            self.ring_el = np.array(rel, dtype=np.int64)
+            self.ring_x = np.array(rx, float)
+        self.ring_H = self._basis(self.ring_x, self.hinged[self.ring_el])
+        self.ring_base = (self.X0[self.I[self.ring_el]] + self.ring_x[:, None]
+                          * (self.X0[self.J[self.ring_el]] - self.X0[self.I[self.ring_el]]))
+        for a in vars(self).values():
+            if isinstance(a, np.ndarray):
+                a.setflags(write=False)
+        self.nbytes = sum(a.nbytes for a in vars(self).values() if isinstance(a, np.ndarray))
+
+    @staticmethod
+    def _basis(x, hinged):
+        x2, x3 = x * x, x ** 3
+        H = np.stack([1 - 3 * x2 + 2 * x3, x - 2 * x2 + x3, 3 * x2 - 2 * x3, -x2 + x3], axis=1) if len(x) \
+            else np.zeros((0, 4))
+        if np.any(hinged):
+            xh = x[hinged]
+            H[hinged] = np.stack([1 - xh, np.zeros_like(xh), xh, np.zeros_like(xh)], axis=1)
+        return H
+
+    def deflection(self, D: np.ndarray, el: np.ndarray, x: np.ndarray, H: np.ndarray) -> np.ndarray:
+        """Displacement of the member pieces ``el`` at fractions ``x`` (cubic Hermite
+        from the end translations and rotations; straight between hinges)."""
+        if not len(el):
+            return np.zeros((0, 3))
+        E, L = self.E, self.L
+        di, dj = D[self.I, :3], D[self.J, :3]
+        ri = np.cross(D[self.I, 3:6], E) * L[:, None]
+        rj = np.cross(D[self.J, 3:6], E) * L[:, None]
+        ri[self.hinged] = 0.0
+        rj[self.hinged] = 0.0
+        ai = np.einsum("ij,ij->i", di, E)
+        aj = np.einsum("ij,ij->i", dj, E)
+        ti, tj = di - ai[:, None] * E, dj - aj[:, None] * E
+        return (((1 - x) * ai[el] + x * aj[el])[:, None] * E[el] + H[:, 0:1] * ti[el] + H[:, 1:2] * ri[el]
+                + H[:, 2:3] * tj[el] + H[:, 3:4] * rj[el])
+
+
+def _deformed_plan(model: Model, results, frames, areas, shells: bool, releases: bool) -> _DeformedPlan:
+    global _PLAN_CACHE
+    from collections import OrderedDict
+    if _PLAN_CACHE is None:
+        _PLAN_CACHE = OrderedDict()
+    am = results.am
+    M = _mesh_arrays(am)
+    Lf = results.U.factor("length")
+    key = (M.serial, Lf, model_extent(model), _set_key(frames), _set_key(areas), bool(shells), bool(releases))
+    plan = _PLAN_CACHE.get(key)
+    if plan is not None:
+        _PLAN_CACHE.move_to_end(key)
+        return plan
+    plan = _DeformedPlan(model, am, M, Lf, frames, areas, shells, releases)
+    _PLAN_CACHE[key] = plan
+    while len(_PLAN_CACHE) > 1 and (len(_PLAN_CACHE) > PLAN_CACHE_ITEMS
+                                    or sum(p.nbytes for p in _PLAN_CACHE.values()) > PLAN_CACHE_BYTES):
+        _PLAN_CACHE.popitem(last=False)  # least recently used first
+    return plan
+
+
+def _cells(offsets: np.ndarray, conn: np.ndarray) -> vtk.vtkCellArray:
+    cells = vtk.vtkCellArray()
+    cells.SetData(numpy_support.numpy_to_vtkIdTypeArray(np.ascontiguousarray(offsets, dtype=np.int64), deep=True),
+                  numpy_support.numpy_to_vtkIdTypeArray(np.ascontiguousarray(conn, dtype=np.int64), deep=True))
+    return cells
+
+
+def _float_scalars(values, name: str):
+    arr = numpy_support.numpy_to_vtk(np.ascontiguousarray(np.asarray(values, float), dtype=np.float32), deep=True)
+    arr.SetName(name)
+    return arr
+
+
 def build_deformed_mesh_actors(model: Model, results, case: str, mode: Optional[int] = None,
                                frames: Optional[set] = None, areas: Optional[set] = None,
                                shells: bool = True, extruded: bool = False,
@@ -1152,7 +1376,6 @@ def build_deformed_mesh_actors(model: Model, results, case: str, mode: Optional[
     scale.  A slab sagging between its beams shows, not only the object corners.
     Same scale as :func:`build_deformed_actor`.  Returns (actors, scale)."""
     am = results.am
-    Lf = results.U.factor("length")
     if mode is not None:
         D = np.asarray(results.mode_shape(case, mode, normalize="max"), float)
         title = f"Mode {mode}\ndisplacement"
@@ -1163,134 +1386,79 @@ def build_deformed_mesh_actors(model: Model, results, case: str, mode: Optional[
         title = f"Displacement\n[{unit}]"
     if not len(D):
         return [], 1.0
+    plan = _deformed_plan(model, results, frames, areas, shells, releases)
+    M = _mesh_arrays(am)
     U3 = D[:, :3]
     mag = np.linalg.norm(U3, axis=1)
-    ext = model_extent(model)
+    ext = plan.ext
     dmax = float(np.max(np.abs(U3)))
     scale = (0.08 * ext / dmax) if dmax > 0 else 1.0
-    X = np.array([n.xyz for n in am.nodes], float) / Lf + scale * U3
-    sel_sh = [s for s in am.shells if areas is None or s.object in areas] if shells else []
-    sel_fr = [f for f in am.frames if frames is None or f.object in frames]
-    used = sorted({n for s in sel_sh for n in s.nodes} | {n for f in sel_fr for n in (f.node_i, f.node_j)})
-    if not used:
+    used = plan.used
+    if not len(used):
         return [], scale
-    idx = {n: k for k, n in enumerate(used)}
+    X = plan.X0 + scale * U3
     vals = mag[used] * fac
     # one colour scale in every window (a plan of one story and the 3-D view):
     # the range of the whole model, not of the objects this window shows
-    every = sorted({n for s in am.shells for n in s.nodes} | {n for f in am.frames for n in (f.node_i, f.node_j)})
-    vmax = float(mag[every].max()) * fac if every else float(vals.max())
-    scalars = vtk.vtkFloatArray()
-    scalars.SetName("U")
-    for v in vals:
-        scalars.InsertNextValue(float(v))
+    vmax = float(mag[M.every].max()) * fac if len(M.every) else float(vals.max())
     # frames: cubic (Hermite) deflected shape from the end translations and
     # rotations, so members bend and tilt with the joints (straight if released)
-    X0 = np.array([n.xyz for n in am.nodes], float) / Lf
-    seg = max(ext / 80.0, 1e-9)
-    fpts, fval, flines, fel = [], [], [], []
-
-    def deflected(f, x):
-        """Displacement of analysis frame element f at fraction x of its length."""
-        a, b = X0[f.node_i], X0[f.node_j]
-        L = float(np.linalg.norm(b - a))
-        e = (b - a) / L
-        di, dj = D[f.node_i, :3], D[f.node_j, :3]
-        hinged = bool(np.any(f.releases_i[3:]) or np.any(f.releases_j[3:]))
-        ri = np.cross(D[f.node_i, 3:6], e) * L if not hinged else np.zeros(3)
-        rj = np.cross(D[f.node_j, 3:6], e) * L if not hinged else np.zeros(3)
-        ti, tj = di - (di @ e) * e, dj - (dj @ e) * e
-        h1, h2, h3, h4 = 1 - 3 * x * x + 2 * x ** 3, x - 2 * x * x + x ** 3, 3 * x * x - 2 * x ** 3, -x * x + x ** 3
-        if hinged:
-            h1, h2, h3, h4 = 1 - x, 0.0, x, 0.0
-        return ((1 - x) * (di @ e) + x * (dj @ e)) * e + h1 * ti + h2 * ri + h3 * tj + h4 * rj
-
-    for f in sel_fr:
-        a, b = X0[f.node_i], X0[f.node_j]
-        L = float(np.linalg.norm(b - a))
-        if L <= 0:
-            continue
-        n = int(min(10, max(1, math.ceil(L / seg))))
-        start = len(fpts)
-        for k in range(n + 1):
-            x = k / n
-            d = deflected(f, x)
-            fpts.append(a + x * (b - a) + scale * d)
-            fval.append(float(np.linalg.norm(d)) * fac)
-        flines.append(list(range(start, len(fpts))))
-        fel.append(f)
-    # pin symbols ride on the deflected members (same place along the member as undeformed)
-    ring_pts = []
-    if releases:
-        by_obj = {}
-        for f in sel_fr:
-            by_obj.setdefault(f.object, []).append(f)
-        for name, els in by_obj.items():
-            obj = model.frames.get(name)
-            if obj is None:
-                continue
-            ends = [(t, rel) for t, rel in ((RELEASE_RING_AT, obj.releases_i), (1.0 - RELEASE_RING_AT, obj.releases_j))
-                    if any(rel[1:3]) or any(rel[3:])]
-            for t, _ in ends:
-                f = next((el for el in els if el.rel_start - 1e-9 <= t <= el.rel_end + 1e-9), None)
-                if f is None:
-                    continue
-                span = max(f.rel_end - f.rel_start, 1e-12)
-                x = min(max((t - f.rel_start) / span, 0.0), 1.0)
-                a, b = X0[f.node_i], X0[f.node_j]
-                if float(np.linalg.norm(b - a)) <= 0:
-                    continue
-                ring_pts.append(a + x * (b - a) + scale * deflected(f, x))
-    if fval:
-        vmax = max(vmax, max(fval))
+    d = plan.deflection(D, plan.el, plan.x, plan.H)
+    FP = plan.base + scale * d
+    FV = np.linalg.norm(d, axis=1) * fac
+    ring_pts = plan.ring_base + scale * plan.deflection(D, plan.ring_el, plan.ring_x, plan.ring_H) \
+        if len(plan.ring_el) else np.zeros((0, 3))
+    if len(FV):
+        vmax = max(vmax, float(FV.max()))
     lut, (vmin, vmax), step = result_lut(0.0, vmax or 1e-12)
     actors: List[vtk.vtkProp] = []
+    line_off = np.concatenate([[0], np.cumsum(plan.n + 1)]).astype(np.int64)
     if extruded:  # real sections bending with the joints, shells with their thickness
-        from .result_view import ScalarMesh, frame_rings, mapped_actor, thick_shell, tube_rings
+        from .result_view import ScalarMesh, frame_rings, mapped_actor, thick_shell, thick_shells, tube_rings
         sm = ScalarMesh()
-        for s in sel_sh:
-            thick_shell(sm, model, s.object, X[list(s.nodes)], mag[list(s.nodes)] * fac)
-        FP, FV = np.array(fpts, float).reshape(-1, 3), np.array(fval, float)
+        if len(plan.sh) and np.all(M.sh_len[plan.sh] == 4):
+            nodes = M.sh_conn.reshape(-1, 4)[plan.sh] if np.all(M.sh_len == 4) else \
+                np.array([am.shells[int(k)].nodes for k in plan.sh], np.int64)
+            thick_shells(sm, model, [M.sh_obj[int(k)] for k in plan.sh], X[nodes], mag[nodes] * fac)
+        else:
+            for k in plan.sh:
+                s = am.shells[int(k)]
+                thick_shell(sm, model, s.object, X[list(s.nodes)], mag[list(s.nodes)] * fac)
         r = _tube_radius(model) * 0.9
-        for line, f in zip(flines, fel):
-            obj = model.frames.get(f.object)
-            rings = frame_rings(model, obj, axes=np.asarray(f.axes, float)) if obj is not None else None
+        ring_cache = {}  # the pieces of one member share its section and axes
+        for k, e in enumerate(plan.fe):
+            f = am.frames[int(e)]
+            line = slice(line_off[k], line_off[k + 1])
+            axes = np.asarray(f.axes, float)
+            key = (f.object, axes.tobytes())
+            rings = ring_cache.get(key)
             if rings is None:
-                rings = tube_rings(r, np.asarray(f.axes, float))
+                obj = model.frames.get(f.object)
+                rings = frame_rings(model, obj, axes=axes) if obj is not None else None
+                if rings is None:
+                    rings = tube_rings(r, axes)
+                ring_cache[key] = rings
             sm.sweep(FP[line], FV[line], rings)
         if sm.pts:
             actors.append(mapped_actor(sm.polydata(), lut))
     for kind in (() if extruded else ("shells", "frames")):
-        cells = vtk.vtkCellArray()
-        if kind == "shells":
-            for s in sel_sh:
-                cells.InsertNextCell(len(s.nodes))
-                for n in s.nodes:
-                    cells.InsertCellPoint(idx[n])
-        else:
-            for line in flines:
-                cells.InsertNextCell(len(line))
-                for k in line:
-                    cells.InsertCellPoint(k)
-        if cells.GetNumberOfCells() == 0:
-            continue
         poly = vtk.vtkPolyData()
         if kind == "shells":
+            if not len(plan.sh):
+                continue
             poly.SetPoints(_points(X[used]))
-            poly.SetPolys(cells)
-            poly.GetPointData().SetScalars(scalars)
+            poly.SetPolys(_cells(plan.sh_off, plan.sh_conn))
+            poly.GetPointData().SetScalars(_float_scalars(vals, "U"))
         else:
-            poly.SetPoints(_points(np.array(fpts, float)))
-            poly.SetLines(cells)
-            fs = vtk.vtkFloatArray()
-            fs.SetName("U")
-            for v in fval:
-                fs.InsertNextValue(v)
-            poly.GetPointData().SetScalars(fs)
+            if not len(plan.fe):
+                continue
             # members as coloured screen-space lines (fixed pixel width, as in the
             # undeformed view) - not tubes: a tube radius tied to the model size made
             # every member a thick pipe on a tall building and hundreds of thousands
             # of triangles.  Real section shapes are the extruded view's job.
+            poly.SetPoints(_points(FP))
+            poly.SetLines(_cells(line_off, np.arange(len(FP), dtype=np.int64)))
+            poly.GetPointData().SetScalars(_float_scalars(FV, "U"))
         mapper = vtk.vtkPolyDataMapper()
         mapper.SetInputData(poly)
         mapper.SetLookupTable(lut)
@@ -1305,8 +1473,8 @@ def build_deformed_mesh_actors(model: Model, results, case: str, mode: Optional[
             prop.SetLineWidth(gsize("deformed_width"))
             prop.LightingOff()
         actors.append(actor)
-    if ring_pts:
-        actors.append(_release_rings(ring_pts))
+    if len(ring_pts):
+        actors.append(_release_rings(list(ring_pts)))
     actors.append(legend_bar(lut, title, vmin, vmax, step))
     return actors, scale
 
@@ -1438,8 +1606,7 @@ def build_diagram_actors(model: Model, results, case: str, component: str = "M3"
         series.append((f, st))
     if scale is None:
         scale = (0.12 * ext / vmax) if vmax > 0 else 1.0
-    pos_coords, neg_coords = [], []
-    pos_polys, neg_polys = vtk.vtkCellArray(), vtk.vtkCellArray()
+    pos_blocks, neg_blocks = [], []  # (n, 4, 3) quads of each member, in member order
     lab_pts, lab_txt, lab_pri, ext_vals = [], [], [], []
     from ..display_units import DisplayUnits
     _du = DisplayUnits.of(model)
@@ -1464,34 +1631,44 @@ def build_diagram_actors(model: Model, results, case: str, component: str = "M3"
             nv = np.asarray(view_normal, float)
             if abs(float(direction @ nv)) > 0.7:  # seen edge-on: turn into the view plane
                 direction = _plan_side(nv, v1)
-        def quad(coords, polys, xa, xb, va, vb):
-            p0 = a + v1 * xa
-            p1 = a + v1 * xb
-            start = len(coords)
-            coords += [p0, p0 + direction * va * scale, p1 + direction * vb * scale, p1]
-            polys.InsertNextCell(4)
-            for j in range(4):
-                polys.InsertCellPoint(start + j)
+        def quads(xa, xb, va, vb):
+            """Quads (n, 4, 3) between stations xa - xb with values va - vb."""
+            p0 = a + v1 * xa[:, None]
+            p1 = a + v1 * xb[:, None]
+            return np.stack([p0, p0 + direction * va[:, None] * scale, p1 + direction * vb[:, None] * scale, p1],
+                            axis=1)
 
-        x = st.station
+        x = np.asarray(st.station, float)
         if st.forces_min is None:
             # one case: coloured by sign (positive / negative), split where the diagram crosses zero
-            vals = st.forces[:, comp_index]
-            for k in range(len(x) - 1):
-                va, vb = float(vals[k]), float(vals[k + 1])
-                if va * vb < 0:
-                    xm = x[k] + (x[k + 1] - x[k]) * va / (va - vb)
-                    for xa, xb, v0, v1_ in ((x[k], xm, va, 0.0), (xm, x[k + 1], 0.0, vb)):
-                        tgt = (pos_coords, pos_polys) if (v0 + v1_) >= 0 else (neg_coords, neg_polys)
-                        quad(*tgt, xa, xb, v0, v1_)
-                else:
-                    tgt = (pos_coords, pos_polys) if (va + vb) >= 0 else (neg_coords, neg_polys)
-                    quad(*tgt, x[k], x[k + 1], va, vb)
+            vals = np.asarray(st.forces[:, comp_index], float)
+            if len(x) > 1:
+                va, vb = vals[:-1], vals[1:]
+                xa_, xb_ = x[:-1], x[1:]
+                cross = va * vb < 0
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    xm = xa_ + (xb_ - xa_) * va / (va - vb)
+                # segments in order; a crossing one becomes two (to and from the zero)
+                n2 = np.where(cross, 2, 1)
+                seg = np.repeat(np.arange(len(va)), n2)
+                second = np.zeros(len(seg), bool)
+                second[1:] = (seg[1:] == seg[:-1])
+                c = cross[seg]
+                sxa = np.where(c & second, xm[seg], xa_[seg])
+                sxb = np.where(c & ~second, xm[seg], xb_[seg])
+                sva = np.where(c & second, 0.0, va[seg])
+                svb = np.where(c & ~second, 0.0, vb[seg])
+                q = quads(sxa, sxb, sva, svb)
+                pos = (sva + svb) >= 0
+                if np.any(pos):
+                    pos_blocks.append(q[pos])
+                if not np.all(pos):
+                    neg_blocks.append(q[~pos])
         else:  # envelope: maximum and minimum curves in the two colours
-            for arr, coords, polys in ((st.forces, pos_coords, pos_polys), (st.forces_min, neg_coords, neg_polys)):
-                vals = arr[:, comp_index]
-                for k in range(len(x) - 1):
-                    quad(coords, polys, x[k], x[k + 1], float(vals[k]), float(vals[k + 1]))
+            for arr, blocks in ((st.forces, pos_blocks), (st.forces_min, neg_blocks)):
+                vals = np.asarray(arr[:, comp_index], float)
+                if len(x) > 1:
+                    blocks.append(quads(x[:-1], x[1:], vals[:-1], vals[1:]))
         if labels and len(x):
             # the maximum positive and the maximum negative value of the member are always
             # labelled (an envelope: from its maximum and its minimum curves), plus the
@@ -1527,12 +1704,14 @@ def build_diagram_actors(model: Model, results, case: str, component: str = "M3"
                     lab_pri.append((2.0 if ext else 1.0) + abs(v) / max(vmax, 1e-30))
                     ext_vals.append(v)
     actors = []
-    for coords, polys, color in ((pos_coords, pos_polys, COLORS["moment_pos"]), (neg_coords, neg_polys, COLORS["moment_neg"])):
-        if not coords:
+    for blocks, color in ((pos_blocks, COLORS["moment_pos"]), (neg_blocks, COLORS["moment_neg"])):
+        Q = np.concatenate(blocks).reshape(-1, 3) if blocks else np.zeros((0, 3))
+        if not len(Q):
             continue
+        nq = len(Q) // 4
         poly = vtk.vtkPolyData()
-        poly.SetPoints(_points(np.array(coords)))
-        poly.SetPolys(polys)
+        poly.SetPoints(_points(Q))
+        poly.SetPolys(_cells(np.arange(0, 4 * nq + 1, 4, dtype=np.int64), np.arange(4 * nq, dtype=np.int64)))
         actor = _actor_from_polydata(poly, color, 1.0, opacity=gopacity("diagram_fill"), lighting=False)
         actors.append(actor)
         edges = vtk.vtkFeatureEdges()
@@ -1666,7 +1845,7 @@ def build_contour_actors(model: Model, results, case: str, component: str = "M11
     Lf = results.U.factor("length")  # analysis nodes are SI
     if deformed:
         disp, scale = _deformed_positions(model, results, case)
-        X = np.array([disp[i] for i in range(len(am.nodes))], float)
+        X = disp
     else:
         X = am.coords() / Lf
     nodes = np.asarray(nodes, int)
@@ -1685,11 +1864,10 @@ def build_contour_actors(model: Model, results, case: str, component: str = "M11
     poly.SetPolys(polys)
     poly.GetPointData().SetScalars(scalars)
     if extruded and objs is not None:
-        from .result_view import ScalarMesh, thick_shell
+        from .result_view import ScalarMesh, thick_shells
         sm = ScalarMesh()
         C = np.array(coords, float).reshape(-1, 4, 3)
-        for i in range(len(vals)):
-            thick_shell(sm, model, objs[i], C[i], vals[i])
+        thick_shells(sm, model, objs, C, np.asarray(vals, float).reshape(-1, 4))
         poly = sm.polydata()
     lut, (vmin, vmax), step = result_lut(gmin, gmax)
     mapper = vtk.vtkPolyDataMapper()
@@ -1823,7 +2001,7 @@ def _deformed_positions(model: Model, results, case: str):
     dmax = float(np.max(np.abs(env[:, :3]))) if len(env) else 0.0
     scale = (0.05 * ext / dmax) if dmax > 0 else 1.0
     Lf = results.U.factor("length")
-    pos = {i: np.asarray(n.xyz, float) / Lf + scale * env[i, :3] for i, n in enumerate(am.nodes)}
+    pos = _mesh_arrays(am).X / Lf + scale * np.asarray(env, float)[:, :3]  # row i = analysis node i
     return pos, scale
 
 

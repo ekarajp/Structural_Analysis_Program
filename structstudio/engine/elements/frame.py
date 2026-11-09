@@ -22,7 +22,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 from ...mesh.analysis_model import ElementLoad, FrameElement
-from ...mesh.geometry import skew
+from ...mesh.geometry import cross3, skew
 
 # 6-point Gauss-Legendre on [0, 1]
 _GX, _GW = np.polynomial.legendre.leggauss(6)
@@ -506,7 +506,7 @@ class FrameFormulation:
             u_end = self.kin.R12 @ self.kin.T_off @ u_global
         for n, xs in enumerate(x):
             Fsum = fI[:3].copy()
-            Msum = fI[3:6].copy() + np.cross(np.array([-xs, 0.0, 0.0]), fI[:3])
+            Msum = fI[3:6].copy() + cross3((-xs, 0.0, 0.0), fI[:3])
             for ld in span:
                 Fl, Ml = _load_resultant_left(ld, xs, L)
                 Fsum += Fl
@@ -593,7 +593,7 @@ def _load_resultant_left(ld: ElementLoad, x: float, L: Optional[float] = None) -
         if ld.x_a <= x + 1e-12 and not at_end_j:
             if ld.load_type == "Force":
                 F += ld.value_a
-                M += np.cross(np.array([ld.x_a - x, 0.0, 0.0]), ld.value_a)
+                M += cross3((ld.x_a - x, 0.0, 0.0), ld.value_a)
             else:
                 M += ld.value_a
         return F, M
@@ -615,10 +615,9 @@ def _load_resultant_left(ld: ElementLoad, x: float, L: Optional[float] = None) -
         F += total
         # moment of each component about x: r x q with r = (lo + xc - x) e1
         for comp in range(3):
-            r = np.array([lo + float(xc[comp]) - x, 0.0, 0.0])
-            fc = np.zeros(3)
+            fc = [0.0, 0.0, 0.0]
             fc[comp] = total[comp]
-            M += np.cross(r, fc)
+            M += cross3((lo + float(xc[comp]) - x, 0.0, 0.0), fc)
     else:
         M += total
     return F, M

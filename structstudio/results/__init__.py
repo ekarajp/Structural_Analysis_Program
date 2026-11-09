@@ -78,6 +78,52 @@ class FrameStationForces:
         return float(np.max(np.abs(vals)))
 
 
+class ShellForcesTable:
+    """Shell forces rows held as arrays (read-only): row r is node ``kk[r]`` of
+    element ``el[r]`` of the stacked envelope.  ``row(r)`` gives the same dict
+    as the list form; ``value(r, column)`` one cell ("" where a row has no such
+    column: an element without a distinct minimum has no ...Min columns)."""
+
+    def __init__(self, case, components, env, two, el, kk, node, eid, obj):
+        self.case, self.components = case, list(components)
+        self.env, self.two = env, two
+        self.el, self.kk, self.node, self.eid, self.obj = el, kk, node, eid, obj
+        self._col = {lab: j for j, lab in enumerate(self.components)}
+
+    def __len__(self) -> int:
+        return len(self.el)
+
+    def columns(self, r: int = 0) -> List[str]:
+        """Column names of row ``r`` (the table shows those of its first row)."""
+        cols = ["Area", "Element", "Node", "Case"]
+        two = len(self.el) and bool(self.two[self.el[r]])
+        for lab in self.components:
+            cols.append(lab)
+            if two:
+                cols.append(lab + "Min")
+        return cols
+
+    def value(self, r: int, col: str):
+        if col == "Area":
+            return self.obj[r]
+        if col == "Element":
+            return int(self.eid[r])
+        if col == "Node":
+            return int(self.node[r])
+        if col == "Case":
+            return self.case
+        k = int(self.el[r])
+        if col.endswith("Min") and col[:-3] in self._col:
+            if not self.two[k]:
+                return ""
+            return float(self.env.min[k, self.kk[r], self._col[col[:-3]]])
+        j = self._col.get(col)
+        return "" if j is None else float(self.env.max[k, self.kk[r], j])
+
+    def row(self, r: int) -> dict:
+        return {c: self.value(r, c) for c in self.columns(r)}
+
+
 class Results:
     def __init__(self, model: Model, am: AnalysisModel, cases: Dict[str, CaseResult], engine=None):
         self.model = model
@@ -138,12 +184,15 @@ class Results:
         env = self.displacement_envelope(case)
         rows = []
         names = points if points is not None else list(self.model.points)
+        # Min columns when the envelope has distinct max / min anywhere in the model
+        # (decided once per query, not per point and DOF)
+        with_min = not np.array_equal(env.max, env.min)
         for p in names:
             nid = self._node_of_point(p)
             row = {"Point": p, "Story": self.model.points[p].story, "OutputCase": case}
             for j, lab in enumerate(DOF_LABELS):
                 row[lab] = float(env.max[nid, j])
-                if not np.array_equal(env.max, env.min):
+                if with_min:
                     row[lab + "Min"] = float(env.min[nid, j])
             rows.append(row)
         return rows
@@ -586,18 +635,18 @@ class Results:
         F = self.U.factor("force")
         rows = []
         r = self._case(case) if case not in self.model.load_combinations else None
+        frames = self.engine.asm.frames
+        ZA, ZB = self._frame_end_z()
+        ZLO, ZHI = np.minimum(ZA, ZB), np.maximum(ZA, ZB)
         for k in range(1, len(stories)):
             s, below = stories[k], stories[k - 1]
             z_cut = (s.elevation - 0.02 * (s.elevation - below.elevation)) * L
             total = np.zeros(3)
             total_min = np.zeros(3)
-            for fe in self.engine.asm.frames:
-                el = fe.el
-                za = self.am.nodes[el.node_i].xyz[2] + el.offset_i[2]
-                zb = self.am.nodes[el.node_j].xyz[2] + el.offset_j[2]
-                lo, hi = min(za, zb), max(za, zb)
-                if not (lo < z_cut < hi):
-                    continue
+            # the elements crossing the cut (in element order, as the sums were made)
+            for i in np.flatnonzero((ZLO < z_cut) & (z_cut < ZHI)):
+                fe = frames[int(i)]
+                za, zb = float(ZA[i]), float(ZB[i])
                 t = (z_cut - za) / (zb - za)
                 x = np.array([t * fe.kin.L])
                 env = self._element_force_envelope(case, fe, x)
@@ -614,6 +663,19 @@ class Results:
                 row.update({"VXMin": float(total_min[0] / F), "VYMin": float(total_min[1] / F), "PMin": float(total_min[2] / F)})
             rows.append(row)
         return rows
+
+    def _frame_end_z(self):
+        """Z of the two ends (with offsets) of every analysis frame element (SI)."""
+        z = getattr(self, "_frame_z_cache", None)
+        if z is None:
+            frames = self.engine.asm.frames
+            nz = np.array([n.xyz[2] for n in self.am.nodes], float)
+            za = np.array([nz[fe.el.node_i] + fe.el.offset_i[2] for fe in frames], float)
+            zb = np.array([nz[fe.el.node_j] + fe.el.offset_j[2] for fe in frames], float)
+            za.setflags(write=False)
+            zb.setflags(write=False)
+            z = self._frame_z_cache = (za, zb)
+        return z
 
     def _element_force_envelope(self, case: str, fe, x: np.ndarray) -> Envelope:
         """Internal forces (SI) of one element at stations x for a case or combo."""
@@ -705,8 +767,10 @@ class Results:
                 r = self._case(case)
                 ids = np.array(sorted(r.shell_resultants), dtype=int)
                 if len(ids):
-                    vals = np.stack([np.hstack([r.shell_resultants[i]["F_nodes"], r.shell_resultants[i]["M_nodes"],
-                                                r.shell_resultants[i]["V_nodes"]]) for i in ids]) * fac
+                    sr = r.shell_resultants
+                    vals = np.concatenate([np.stack([sr[i]["F_nodes"] for i in ids]),
+                                           np.stack([sr[i]["M_nodes"] for i in ids]),
+                                           np.stack([sr[i]["V_nodes"] for i in ids])], axis=2) * fac
                 else:
                     vals = np.zeros((0, 4, 8))
                 env = Envelope.symmetric(vals) if r.is_envelope else Envelope.single(vals)
@@ -726,26 +790,48 @@ class Results:
 
     def shell_forces(self, case: str, areas: Optional[Iterable[str]] = None) -> List[dict]:
         """Table like ETABS "Shell Forces": one row per element node."""
+        t = self.shell_forces_table(case, areas)
+        return [t.row(r) for r in range(len(t))]
+
+    def shell_forces_table(self, case: str, areas: Optional[Iterable[str]] = None) -> "ShellForcesTable":
+        """The rows of :meth:`shell_forces` as arrays (a row made only when asked
+        for): a large model has hundreds of thousands of element nodes."""
         ids, env = self._shell_stack(case)
-        pos_of = {int(e): k for k, e in enumerate(ids)}
-        wanted = set(areas) if areas is not None else None
-        rows = []
-        for se in self.am.shells:
-            if wanted is not None and se.object not in wanted:
-                continue
-            k = pos_of.get(se.id)
-            if k is None:
-                continue
-            mx, mn = env.max[k], env.min[k]
-            two = mn is not None and not np.allclose(mn, mx)  # once per element, not per value
-            for kk, node in enumerate(se.nodes):
-                row = {"Area": se.object, "Element": se.id, "Node": node, "Case": case}
-                for j, lab in enumerate(self.SHELL_COMPONENTS):
-                    row[lab] = float(mx[kk, j])
-                    if two:
-                        row[lab + "Min"] = float(mn[kk, j])
-                rows.append(row)
-        return rows
+        key = ("shell_rows", len(ids), None if areas is None else frozenset(areas))
+
+        def make():
+            # element nodes in the order of the mesh (shell by shell, node by node)
+            sh = self.am.shells
+            sid = np.fromiter((se.id for se in sh), np.int64, len(sh))
+            lens = np.fromiter((len(se.nodes) for se in sh), np.int64, len(sh))
+            conn = np.fromiter((n for se in sh for n in se.nodes), np.int64, int(lens.sum()))
+            objs = np.array([se.object for se in sh], dtype=object)
+            pos = np.searchsorted(ids, sid) if len(ids) else np.zeros(len(sh), np.int64)
+            keep = (pos < len(ids)) & (ids[np.minimum(pos, max(len(ids) - 1, 0))] == sid) if len(ids) \
+                else np.zeros(len(sh), bool)
+            if areas is not None:
+                wanted = set(areas)
+                keep &= np.fromiter((o in wanted for o in objs), bool, len(sh))
+            start = np.concatenate([[0], np.cumsum(lens)[:-1]]).astype(np.int64)
+            n_rows = lens[keep]
+            el = np.repeat(pos[keep], n_rows)
+            first = np.repeat(start[keep], n_rows)
+            kk = np.arange(int(n_rows.sum()), dtype=np.int64) - np.repeat(
+                np.concatenate([[0], np.cumsum(n_rows)[:-1]]).astype(np.int64), n_rows)
+            node = conn[first + kk]
+            eid = np.repeat(sid[keep], n_rows)
+            obj = np.repeat(objs[keep], n_rows)
+            arrays = (el.astype(np.int64), kk, node, eid, obj)
+            for a in arrays:
+                a.setflags(write=False)
+            return arrays
+        el, kk, node, eid, obj = self._cached(key, make)
+        # Min columns for the elements whose minimum differs (as np.allclose decides)
+        if env.min is None or not len(ids):
+            two = np.zeros(len(ids), bool)
+        else:
+            two = ~np.isclose(env.min, env.max).reshape(len(ids), -1).all(axis=1)
+        return ShellForcesTable(case, self.SHELL_COMPONENTS, env, two, el, kk, node, eid, obj)
 
     def shell_node_values(self, case: str, component: str, average: bool = True) -> Tuple[np.ndarray, np.ndarray]:
         """Per-element nodal values (n_shells, 4) of one component (max of the

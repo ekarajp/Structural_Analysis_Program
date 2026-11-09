@@ -456,6 +456,8 @@ class ResultsPanel(QtWidgets.QWidget):
             self.refresh()
 
     def set_frame(self, name: str):
+        if name == self.selected_frame:
+            return  # the same frame again (Model Explorer and the selection both say so)
         self.selected_frame = name
         if self.table_box.currentText().startswith("Frame forces"):
             self.refresh()
@@ -485,7 +487,13 @@ class ResultsPanel(QtWidgets.QWidget):
             elif kind.startswith("Frame forces"):
                 rows = res.frame_forces(self.selected_frame, case).table() if self.selected_frame else []
             elif kind == "Shell forces":
-                rows = res.shell_forces(case)
+                # rows as arrays: cell text (in the display units) made when a cell is drawn
+                table = UnitsTable.of(self.doc.model, kind, res.shell_forces_table(case))
+                self._rows = table
+                if len(table):
+                    self.model_rows.set_rows(table)
+                    self._fit_columns()
+                return
             elif kind == "Modal periods":
                 rows = res.modal_periods(case)
             elif kind == "Modal mass ratios":
@@ -504,6 +512,15 @@ class ResultsPanel(QtWidgets.QWidget):
         if not rows:
             return
         self.model_rows.set_rows(rows)
+        self._fit_columns()
+
+    BIG_TABLE = 1000
+
+    def _fit_columns(self):
+        """Column widths from the header and the first rows (Qt reads 1000 rows by
+        default: a cell at a time through Python for a table of 491 400 rows)."""
+        h = self.table.horizontalHeader()
+        h.setResizeContentsPrecision(100 if self.model_rows.rowCount() > self.BIG_TABLE else 1000)
         self.table.resizeColumnsToContents()
 
 
@@ -518,23 +535,94 @@ class ResultsPanel(QtWidgets.QWidget):
         if not path:
             return
         try:
-            export_rows(self._rows, path)
+            if isinstance(self._rows, UnitsTable):  # every row, written as it is made
+                export_rows(self._rows.iter_rows(), path, cols=self._rows.columns())
+            else:
+                export_rows(self._rows, path)
         except Exception as exc:
             QtWidgets.QMessageBox.warning(self, "Export", str(exc))
 
 
+class UnitsTable:
+    """An array-backed result table (``len``, ``columns(r)``, ``value(r, col)``,
+    e.g. :class:`~structstudio.results.ShellForcesTable`) in the display units:
+    the unit in the column name and the value converted when a cell is read -
+    the same names and values as :func:`table_in_display_units` on the rows."""
+
+    def __init__(self, base, conv):
+        self.base, self.conv = base, conv  # base column -> (shown name, factor)
+        self._names = {}
+
+    @classmethod
+    def of(cls, model, kind: str, base):
+        from ..display_units import DisplayUnits
+        key = next((k for k in _COLUMN_ITEMS if kind.startswith(k)), None)
+        conv = {}
+        if key is not None:
+            du = DisplayUnits.of(model)
+            for col, item in _COLUMN_ITEMS[key].items():
+                if item.endswith("/len"):
+                    label, k = du.per_length(item[:-4])
+                else:
+                    label, k = du.label(item), du.factor(item)
+                conv[col] = (f"{col} [{label}]", k)
+        return cls(base, conv)
+
+    def __len__(self):
+        return len(self.base)
+
+    def _shown(self, col: str):
+        hit = self._names.get(col)
+        if hit is None:
+            base = col[:-3] if col.endswith("Min") and col[:-3] in self.conv else col
+            if base in self.conv:
+                name, k = self.conv[base]
+                if base != col:
+                    name = name.replace(base, col, 1)
+            else:
+                name, k = col, None
+            hit = self._names[col] = (name, k)
+        return hit
+
+    def columns(self, r: int = 0) -> List[str]:
+        return [self._shown(c)[0] for c in self.base.columns(r)]
+
+    def _base_columns(self, r: int = 0) -> List[str]:
+        return self.base.columns(r)
+
+    def value(self, r: int, base_col: str):
+        v = self.base.value(r, base_col)
+        k = self._shown(base_col)[1]
+        if k is not None and isinstance(v, (int, float)) and not isinstance(v, bool):
+            v = v * k
+        return v
+
+    def row(self, r: int) -> dict:
+        return {self._shown(c)[0]: self.value(r, c) for c in self.base.columns(r)}
+
+    def iter_rows(self):
+        for r in range(len(self)):
+            yield self.row(r)
+
+
 class _RowsModel(QtCore.QAbstractTableModel):
-    """Read-only table of result rows (list of dicts, columns of the first row)."""
+    """Read-only table of result rows: a list of dicts (columns of the first row)
+    or a :class:`UnitsTable` (values read from its arrays when a cell is drawn)."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.rows: List[dict] = []
+        self.rows = []
         self.cols: List[str] = []
+        self._base_cols: List[str] = []
 
-    def set_rows(self, rows: List[dict]):
+    def set_rows(self, rows):
         self.beginResetModel()
         self.rows = rows
-        self.cols = list(rows[0].keys()) if rows else []
+        if isinstance(rows, UnitsTable):
+            self.cols = rows.columns(0) if len(rows) else []
+            self._base_cols = rows._base_columns(0) if len(rows) else []
+        else:
+            self.cols = list(rows[0].keys()) if rows else []
         self.endResetModel()
 
     def rowCount(self, parent=QtCore.QModelIndex()):
@@ -546,7 +634,10 @@ class _RowsModel(QtCore.QAbstractTableModel):
     def data(self, index, role=QtCore.Qt.DisplayRole):
         if role != QtCore.Qt.DisplayRole or not index.isValid():
             return None
-        v = self.rows[index.row()].get(self.cols[index.column()], "")
+        if isinstance(self.rows, UnitsTable):
+            v = self.rows.value(index.row(), self._base_cols[index.column()])
+        else:
+            v = self.rows[index.row()].get(self.cols[index.column()], "")
         return f"{v:.6g}" if isinstance(v, float) else str(v)
 
     def headerData(self, section, orientation, role=QtCore.Qt.DisplayRole):
@@ -606,9 +697,13 @@ def table_in_display_units(model, kind: str, rows: List[dict]) -> List[dict]:
     return out
 
 
-def export_rows(rows: List[dict], path: str):
-    """Write table rows to .csv or .xlsx (openpyxl when available)."""
-    cols = list(rows[0].keys())
+def export_rows(rows, path: str, cols: Optional[List[str]] = None):
+    """Write table rows (dicts; a list or an iterator, written as they come) to
+    .csv or .xlsx (openpyxl when available).  ``cols``: the columns (default:
+    those of the first row)."""
+    if cols is None:
+        rows = list(rows)
+        cols = list(rows[0].keys())
     if path.lower().endswith(".xlsx"):
         from openpyxl import Workbook
         wb = Workbook()

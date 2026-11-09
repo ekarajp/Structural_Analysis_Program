@@ -1529,3 +1529,211 @@ def test_drawing_audit_real_clicks_cross_level_lines_and_hover_in_other_windows(
     assert len(mm.frames) == n0 + 1
     f = mm.frames[window.state.tool.created[-1]]
     assert {mm.points[f.point_i].xyz, mm.points[f.point_j].xyz} == {(1.0, 1.0, 3.5), (5.0, 4.0, 7.0)}
+
+
+def _counting(monkeypatch, module, names):
+    calls = {n: 0 for n in names}
+    for n in names:
+        fn = getattr(module, n)
+
+        def w(*a, _fn=fn, _n=n, **k):
+            calls[_n] += 1
+            return _fn(*a, **k)
+        monkeypatch.setattr(module, n, w)
+    return calls
+
+
+@gui
+def test_selection_redraws_only_the_highlight_and_hidden_windows_wait(window, app, monkeypatch):
+    """Post-analysis responsiveness: a selection change redraws the highlight layer
+    only (not the objects, not the deformed shape); a window not on screen builds
+    nothing until it is shown, then shows the latest selection and results."""
+    from structstudio.api import analyze
+    from structstudio.app import scene
+    m = _with_objects(window, app)
+    window.doc.set_results(analyze(window.doc.model, ["Dead"]))
+    vp = window.views.viewports[1]
+    window.views.set_active(vp)
+    window.state.set_display(display_case="Dead", deformed=True)
+    app.processEvents()
+    base_before = dict(zip(vp._scene_keys, vp._scene_actors))["frames_Beam"]
+    overlays_before = list(vp._overlay_actors)
+    calls = _counting(monkeypatch, scene, ["build_deformed_mesh_actors", "build_model_actors"])
+    signals = []
+    window.state.selection_changed.connect(lambda: signals.append(1))
+    beams = [f.name for f in m.frames.values() if f.type == "Beam"]
+    window.state.set_selection([beams[0]])
+    app.processEvents()
+    assert calls["build_deformed_mesh_actors"] == 0
+    keys = dict(zip(vp._scene_keys, vp._scene_actors))
+    assert keys["frames_Beam"] is base_before and vp._overlay_actors == overlays_before
+    sel = keys["frames_Beam_sel"]
+    assert sel.GetProperty().GetOpacity() <= vp.GHOST_OPACITY + 1e-9  # under the deformed shape, like the rest
+    # the same selection again: no signal, nothing drawn
+    n = len(signals)
+    window.state.set_selection([beams[0]])
+    assert len(signals) == n
+    # a hidden window: marked, not built
+    window.views.set_layout("1")
+    app.processEvents()
+    assert not vp.isVisible()
+    before = calls["build_model_actors"]
+    window.state.set_selection([beams[1]])
+    app.processEvents()
+    assert "selection" in vp._dirty
+    window.views.set_layout("2")
+    app.processEvents()
+    assert vp.isVisible() and not vp._dirty
+    assert calls["build_model_actors"] > before
+    sel_now = [k for k in vp._scene_keys if k.endswith("_sel")]
+    assert sel_now and vp._overlay_actors  # the deformed shape is still shown
+    window.state.clear_selection()
+    app.processEvents()
+    assert not [k for k in vp._scene_keys if k.endswith("_sel")]
+    assert calls["build_deformed_mesh_actors"] == 0
+
+
+@gui
+def test_label_option_redraws_labels_only(window, app, monkeypatch):
+    from structstudio.api import analyze
+    from structstudio.app import scene
+    _with_objects(window, app)
+    window.doc.set_results(analyze(window.doc.model, ["Dead"]))
+    vp = window.views.viewports[1]
+    window.views.set_active(vp)
+    window.state.set_display(display_case="Dead", deformed=True)
+    app.processEvents()
+    base_before = dict(zip(vp._scene_keys, vp._scene_actors))["frames_Beam"]
+    overlays_before = list(vp._overlay_actors)
+    calls = _counting(monkeypatch, scene, ["build_deformed_mesh_actors"])
+    window.views.set_option_all("frame_labels", True)
+    app.processEvents()
+    keys = dict(zip(vp._scene_keys, vp._scene_actors))
+    assert "labels" in keys and keys["frames_Beam"] is base_before
+    assert vp._overlay_actors == overlays_before and calls["build_deformed_mesh_actors"] == 0
+    window.views.set_option_all("frame_labels", False)
+    app.processEvents()
+    assert "labels" not in vp._scene_keys
+    # Extrude changes the objects and the results drawn
+    window.views.set_option_all("extrude", True)
+    app.processEvents()
+    assert calls["build_deformed_mesh_actors"] >= 1
+    window.views.set_option_all("extrude", False)
+
+
+@gui
+def test_mode_box_commits_typed_numbers_and_follows_the_case(window, app):
+    from PySide6.QtTest import QTest
+    from structstudio.api import analyze
+    _with_objects(window, app)
+    window.doc.set_results(analyze(window.doc.model))
+    vp = window.views.viewports[1]
+    window.views.set_active(vp)
+    app.processEvents()
+    n = window._mode_count("Modal")
+    assert n >= 3 and not window.mode_box.keyboardTracking()
+    window.case_box.setCurrentText("Modal")
+    window.mode_box.setValue(2)
+    app.processEvents()
+    assert window.mode_box.maximum() == n
+    seen = []
+    window.state.display_changed.connect(lambda: seen.append(window.state.display_mode))
+    window.mode_box.setFocus()
+    window.mode_box.lineEdit().selectAll()
+    QTest.keyClicks(window.mode_box.lineEdit(), str(n))
+    app.processEvents()
+    assert seen == []  # nothing drawn while typing
+    QTest.keyClick(window.mode_box.lineEdit(), QtCore.Qt.Key_Return)
+    app.processEvents()
+    assert seen == [n] and vp.result_display["display_mode"] == n
+    window.mode_box.setValue(n + 5)  # past the last mode: the last one
+    assert window.mode_box.value() == n
+    window.case_box.setCurrentText("Dead")  # a static case has no modes
+    app.processEvents()
+    assert window.mode_box.value() == 0 and vp.result_display["display_mode"] is None
+
+
+def test_joint_displacement_min_columns_decided_once_per_table():
+    from structstudio.api import analyze
+    from tests.unit.test_app_scene import small_building
+    m = small_building()
+    m.add_combination("UP", {"DL": -1.0})
+    m.add_combination("ENV", {"DL": 1.0, "UP": 1.0}, type="Envelope")
+    m.add_combination("ADD", {"DL": 1.2})
+    res = analyze(m)
+    import numpy as np
+    calls = []
+    orig = np.array_equal
+
+    def counted(*a, **k):
+        calls.append(1)
+        return orig(*a, **k)
+    np.array_equal, saved = counted, np.array_equal
+    try:
+        rows = res.joint_displacements("ENV")
+        assert len(calls) == 1
+    finally:
+        np.array_equal = saved
+    env = res.displacement_envelope("ENV")
+    assert "UxMin" in rows[0] and len(rows) == len(m.points)
+    for r in rows:
+        nid = res._node_of_point(r["Point"])
+        assert r["Ux"] == float(env.max[nid, 0]) and r["UxMin"] == float(env.min[nid, 0])
+    assert "UxMin" not in res.joint_displacements("ADD")[0]
+    assert "UxMin" not in res.joint_displacements("DL")[0]
+
+
+def test_shell_forces_table_rows_units_and_export_match_the_list_form(tmp_path):
+    """The array-backed Shell forces table (what the Results panel shows and
+    exports) gives the same rows, display-unit columns and values as the rows."""
+    from structstudio.api import analyze
+    from structstudio.app.panels import UnitsTable, export_rows, table_in_display_units
+    from tests.unit.test_app_scene import small_building
+    m = small_building()
+    m.add_combination("UP", {"DL": -0.5})
+    m.add_combination("ENV", {"DL": 1.0, "UP": 1.0}, type="Envelope")
+    res = analyze(m)
+    for case in ("DL", "ENV"):
+        rows = table_in_display_units(m, "Shell forces", res.shell_forces(case))
+        t = UnitsTable.of(m, "Shell forces", res.shell_forces_table(case))
+        assert len(t) == len(rows) > 0
+        assert [t.row(r) for r in range(len(t))] == rows
+        assert t.columns(0) == list(rows[0].keys())
+        a, b = tmp_path / f"{case}_list.csv", tmp_path / f"{case}_table.csv"
+        export_rows(rows, str(a))
+        export_rows(t.iter_rows(), str(b), cols=t.columns())
+        assert a.read_text() == b.read_text()
+    two = t.base.two  # the envelope has elements with a distinct minimum (Min columns)
+    assert two.any() and any("Min [" in k for r in range(len(t)) for k in t.columns(r)[:12])
+
+
+@gui
+def test_wheel_zoom_hides_many_labels_and_shows_them_after_a_pause(window, app, monkeypatch):
+    import vtk
+    vp = window.views.viewports[1]
+    # a label layer with more labels than the limit
+    pts = vtk.vtkPoints()
+    texts = vtk.vtkStringArray()
+    texts.SetName("labels")
+    for k in range(vp.DRAG_LABEL_LIMIT + 50):
+        pts.InsertNextPoint(k * 0.1, 0.0, 0.0)
+        texts.InsertNextValue(str(k))
+    poly = vtk.vtkPolyData()
+    poly.SetPoints(pts)
+    poly.GetPointData().AddArray(texts)
+    hier = vtk.vtkPointSetToLabelHierarchy()
+    hier.SetInputData(poly)
+    hier.SetLabelArrayName("labels")
+    mapper = vtk.vtkLabelPlacementMapper()
+    mapper.SetInputConnection(hier.GetOutputPort())
+    actor = vtk.vtkActor2D()
+    actor.SetMapper(mapper)
+    vp.renderer.AddViewProp(actor)
+    monkeypatch.setattr(vp, "WHEEL_LABEL_IDLE_MS", 20)
+    vp._on_wheel(+1)
+    assert not actor.GetVisibility()
+    vp._on_wheel(-1)
+    assert not actor.GetVisibility()
+    QtTest.QTest.qWait(150)
+    assert actor.GetVisibility()
+    vp.renderer.RemoveViewProp(actor)
