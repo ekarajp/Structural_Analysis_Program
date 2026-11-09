@@ -7,6 +7,8 @@ they return.  Points may be given as (u, v) plane coordinates or as (x, y, z).
 """
 from __future__ import annotations
 
+import copy
+import dataclasses
 import math
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -600,6 +602,20 @@ class Tool:
         s = self.model.story_at(z, max(self.model.options.merge_tolerance, 1e-6))
         return s.name if s else None
 
+    def _level_snapped(self, p: XYZ, skip_base: bool = False) -> XYZ:
+        """In an elevation: the point moved to the nearest story level (columns and
+        walls span whole stories, so a pick a little off a level means that level).
+        ``skip_base``: the lowest level is not a top (a column needs a story below)."""
+        if self.plane.kind not in ("xz", "yz"):
+            return p
+        lv = [z for _, z in self.model.levels()]
+        if skip_base and len(lv) > 1:
+            lv = lv[1:]
+        if not lv:
+            return p
+        z = min(lv, key=lambda v: abs(v - p[2]))
+        return (p[0], p[1], z)
+
     def _require_story(self, z: float) -> str:
         st = self._story_at(z)
         if st is None:
@@ -1001,8 +1017,11 @@ class ColumnTool(Tool):
     name = "column"
     prompt = "Click the column location"
 
+    def resolve(self, pt) -> XYZ:
+        return self._offset_point(self._level_snapped(self._p3(pt), skip_base=True))
+
     def click(self, pt, snap: Optional[SnapResult] = None) -> bool:
-        raw = self._p3(pt)
+        raw = self._level_snapped(self._p3(pt), skip_base=True)  # elevation: the nearest story level
         q = self._offset_point(raw)
         dz = q[2] - raw[2]  # Offset Z moves the whole column (both ends)
         p = (q[0], q[1], raw[2])
@@ -1059,7 +1078,8 @@ class WallTool(Tool):
     prompt = "Click the start of the wall"
 
     def resolve(self, pt) -> XYZ:
-        return self._apply_drawing_control(self._p3(pt))  # (a no-op: the wall form has no drawing control)
+        # elevation: the nearest story level (a wall spans whole stories)
+        return self._apply_drawing_control(self._level_snapped(self._p3(pt)))
 
     def _spans(self, a, b) -> List[str]:
         """Stories the wall between picks a and b fills (each from the story below up
@@ -2005,7 +2025,8 @@ def _copy_frame(model: Model, f: Frame, pi: Point, pj: Point, story: Optional[st
           if k not in ("name", "point_i", "point_j", "section", "type", "story", "loads", "label")}
     # dataclass children need real objects, not dicts
     kw["releases_i"], kw["releases_j"] = f.releases_i, f.releases_j
-    kw["modifiers"] = f.modifiers
+    kw["modifiers"] = copy.deepcopy(f.modifiers)
+    kw["hinges"] = copy.deepcopy(f.hinges)
     new = model.add_frame(pi, pj, f.section, type=f.type, story=story, **kw)
     new.loads = [dataclasses.replace(ld) for ld in f.loads]
     return new
@@ -2071,42 +2092,17 @@ def move_objects(doc: Document, frames: Sequence[str], areas: Sequence[str], poi
 
 def replicate_linear(doc: Document, frames: Sequence[str], areas: Sequence[str], points: Sequence[str],
                      dx: float, dy: float, dz: float, count: int = 1) -> List[str]:
-    """Copy the selection ``count`` times along (dx, dy, dz)."""
-    created: List[str] = []
-    frames, areas, points = list(frames), list(areas), list(points)
-    if count < 1 or not (frames or areas or points):
-        return created
-
-    def mutate(model: Model):
-        for k in range(1, count + 1):
-            off = np.array([dx, dy, dz]) * k
-            cache: Dict[str, Point] = {}
-
-            def moved(name: str) -> Point:
-                if name not in cache:
-                    p = model.points[name]
-                    q = model.add_point(p.x + off[0], p.y + off[1], p.z + off[2])
-                    if any(p.restraints) and not any(q.restraints):
-                        q.restraints = p.restraints
-                    cache[name] = q
-                return cache[name]
-
-            for n in points:
-                moved(n)
-            for n in frames:
-                f = model.frames[n]
-                created.append(_copy_frame(model, f, moved(f.point_i), moved(f.point_j), None).name)
-            for n in areas:
-                a = model.areas[n]
-                created.append(_copy_area(model, a, [moved(p) for p in a.points], None).name)
-
-    doc.edit(mutate)
-    return created
+    """Copy the selection ``count`` times along (dx, dy, dz) (joints with all their
+    assignments - see :func:`commands.replicate_transform`)."""
+    from .commands import linear_transforms, replicate_transform
+    return replicate_transform(doc, frames, areas, points, linear_transforms(dx, dy, dz, count))
 
 
 def replicate_to_stories(doc: Document, frames: Sequence[str], areas: Sequence[str], points: Sequence[str],
-                         stories: Sequence[str]) -> List[str]:
-    """Copy the selection to other stories (ETABS "Replicate > Story")."""
+                         stories: Sequence[str], delete_original: bool = False) -> List[str]:
+    """Copy the selection to other stories (ETABS "Replicate > Story"): joints
+    with all their assignments, members with theirs; ``delete_original`` removes
+    the copied objects afterwards (one undo step)."""
     created: List[str] = []
     frames, areas, points = list(frames), list(areas), list(points)
     m = doc.model
@@ -2124,57 +2120,88 @@ def replicate_to_stories(doc: Document, frames: Sequence[str], areas: Sequence[s
     if src_story is None or src_story not in m.stories:
         return created
     z0 = m.stories[src_story].elevation
+    from ..model.point_ops import clone_assignments, has_assignments
+    from .commands import _delete_originals
+    notes: List[str] = []
 
     def mutate(model: Model):
-        for st in stories:
-            if st == src_story or st not in model.stories:
-                continue
+        kept = []
+        targets = [st for st in stories if st != src_story and st in model.stories]
+        for st in targets:
             dz = model.stories[st].elevation - z0
             cache: Dict[str, Point] = {}
 
             def moved(name: str) -> Point:
                 if name not in cache:
                     p = model.points[name]
-                    cache[name] = model.add_point(p.x, p.y, p.z + dz)
+                    existing = model.find_point(p.x, p.y, p.z + dz)
+                    q = existing or model.add_point(p.x, p.y, p.z + dz)
+                    if existing is None:
+                        clone_assignments(p, q)
+                    elif has_assignments(p):
+                        kept.append(existing.name)
+                    cache[name] = q
                 return cache[name]
 
             for n in points:
-                moved(n)
+                created.append(moved(n).name)
             for n in frames:
                 f = model.frames[n]
                 created.append(_copy_frame(model, f, moved(f.point_i), moved(f.point_j), st).name)
             for n in areas:
                 a = model.areas[n]
                 created.append(_copy_area(model, a, [moved(p) for p in a.points], st).name)
+        if kept:
+            notes.append(f"{len(set(kept))} copied joint(s) landed on existing joints ({', '.join(sorted(set(kept))[:6])}): "
+                         "those joints keep their own supports, springs and loads")
+        if delete_original and targets:
+            _delete_originals(model, frames, areas, points, created)
 
     doc.edit(mutate)
+    for t in notes:
+        doc.note(t, "info")
     return created
 
 
 def divide_frames(doc: Document, frames: Sequence[str], n: int = 2) -> List[str]:
-    """Divide frames into ``n`` equal objects (ETABS "Divide Frames")."""
+    """Divide frames into ``n`` equal objects (ETABS "Divide Frames").  Every load
+    stays where it acts (each piece gets its part of distributed and temperature
+    loads, a point load goes to the piece it is on); end releases, partial
+    fixities and end / joint offsets stay at the original outer ends only, the new
+    inner joints are continuous (function audit FA09)."""
+    import math
+    from ..model.frame_ops import piece_loads
     created: List[str] = []
-    frames = list(frames)
+    frames = [f for f in frames if f in doc.model.frames]
     if n < 2 or not frames:
         return created
+    free3 = (0.0, 0.0, 0.0)
 
     def mutate(model: Model):
         for name in frames:
             f = model.frames.pop(name)
             a, b = model.points[f.point_i], model.points[f.point_j]
+            L = math.dist(a.xyz, b.xyz)
             nodes = [a] + [model.add_point(a.x + (b.x - a.x) * k / n, a.y + (b.y - a.y) * k / n, a.z + (b.z - a.z) * k / n)
                            for k in range(1, n)] + [b]
             for k in range(n):
                 new = _copy_frame(model, f, nodes[k], nodes[k + 1], f.story)
-                # a distributed load keeps its intensity on every piece
-                new.loads = [ld for ld in new.loads if ld.kind == "distributed"]
-                if k == 0:
-                    new.releases_j = (False,) * 6
-                elif k == n - 1:
-                    new.releases_i = (False,) * 6
-                else:
-                    new.releases_i = new.releases_j = (False,) * 6
+                new.loads = piece_loads(f.loads, L, L * k / n, L * (k + 1) / n, last=k == n - 1)
+                if k > 0:  # inner end I
+                    new.releases_i, new.fixity_i_trans, new.fixity_i_rot = (False,) * 6, free3, free3
+                    new.end_offset_i, new.joint_offset_i = 0.0, free3
+                if k < n - 1:  # inner end J
+                    new.releases_j, new.fixity_j_trans, new.fixity_j_rot = (False,) * 6, free3, free3
+                    new.end_offset_j, new.joint_offset_j = 0.0, free3
+                lo, hi = k / n, (k + 1) / n
+                new.hinges = [dataclasses.replace(h, relative_distance=(h.relative_distance - lo) * n)
+                              for h in f.hinges if lo - 1e-9 <= h.relative_distance <= hi + 1e-9
+                              and (k == n - 1 or h.relative_distance < hi - 1e-9)]
                 created.append(new.name)
+            for g in model.groups.values():
+                if name in g.frames:
+                    i = g.frames.index(name)
+                    g.frames[i:i + 1] = created[-n:]
 
     doc.edit(mutate)
     return created

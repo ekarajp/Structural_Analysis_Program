@@ -14,9 +14,13 @@ Frame = Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]  # origin, e1, e2,
 
 
 def newell_normal(P: np.ndarray) -> np.ndarray:
-    n = np.zeros(3)
-    for i in range(len(P)):
-        n += np.cross(P[i], P[(i + 1) % len(P)])
+    P = np.asarray(P, float)
+    if len(P) < 3:
+        raise ValueError("degenerate polygon")
+    Q = np.roll(P, -1, axis=0)  # one vectorised Newell sum (called for every shell of a scene)
+    n = np.array([np.sum((P[:, 1] - Q[:, 1]) * (P[:, 2] + Q[:, 2])),
+                  np.sum((P[:, 2] - Q[:, 2]) * (P[:, 0] + Q[:, 0])),
+                  np.sum((P[:, 0] - Q[:, 0]) * (P[:, 1] + Q[:, 1]))])
     ln = float(np.linalg.norm(n))
     if ln < 1e-12:
         raise ValueError("degenerate polygon")
@@ -29,14 +33,19 @@ def plane_frame(P: np.ndarray, normal: Optional[np.ndarray] = None,
     non-zero edge, n by the point order (Newell) unless ``normal`` is given."""
     P = np.asarray(P, float)
     n = newell_normal(P) if normal is None else np.asarray(normal, float) / np.linalg.norm(normal)
-    cands = [e1_hint] if e1_hint is not None else []
-    cands += [P[(i + 1) % len(P)] - P[i] for i in range(len(P))]
     e1 = None
-    for c in cands:
-        c = np.asarray(c, float) - n * (np.asarray(c, float) @ n)
+    if e1_hint is not None:
+        c = np.asarray(e1_hint, float)
+        c = c - n * (c @ n)
         if np.linalg.norm(c) > 1e-9:
             e1 = c / np.linalg.norm(c)
-            break
+    if e1 is None:  # the first edge that is not along the normal (all edges in one go)
+        E = np.roll(P, -1, axis=0) - P
+        E = E - np.outer(E @ n, n)
+        L = np.linalg.norm(E, axis=1)
+        k = np.flatnonzero(L > 1e-9)
+        if len(k):
+            e1 = E[k[0]] / L[k[0]]
     if e1 is None:
         raise ValueError("degenerate polygon")
     return P[0].copy(), e1, np.cross(n, e1), n

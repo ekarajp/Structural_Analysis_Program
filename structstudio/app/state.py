@@ -54,6 +54,7 @@ class ViewState(QtCore.QObject):
         self.areas: Set[str] = set()
         self.points: Set[str] = set()
         self._previous: Tuple[Set[str], Set[str], Set[str]] = (set(), set(), set())
+        self._session_units = doc.model.units  # the units the session's values are in
         doc.on_change(self._on_doc_change)
         self.selection_changed.connect(self.update_hint)
 
@@ -92,6 +93,22 @@ class ViewState(QtCore.QObject):
 
     # ----------------------------------------------------------- document
     def _on_doc_change(self, what: str):
+        if what == "replaced":
+            # New / Open / Import: a half-drawn object, picks or a previous selection of
+            # the old document must not reach the new one (function audit FA03)
+            self.tool.doc = self.doc
+            self.tool.cancel()
+            self.frames, self.areas, self.points, self.panels = set(), set(), set(), set()
+            self._previous = (set(), set(), set())
+            self.selection_changed.emit()
+            self.update_hint()
+            return
+        if what in ("units", "model"):
+            # the first listener: convert before any window redraws or re-plans the tool
+            u = self.doc.model.units
+            if u != self._session_units:
+                old, self._session_units = self._session_units, u
+                self.convert_units(old, u)
         if what == "model":
             m = self.doc.model
             self.frames &= set(m.frames)
@@ -143,6 +160,61 @@ class ViewState(QtCore.QObject):
         mine = store.get(new, {})
         for k in TOOL_LOCAL_SETTINGS:
             setattr(self.settings, k, mine.get(k, getattr(defaults, k)))
+
+    def convert_units(self, old, new):
+        """The model's units changed (Display Units, undo of it, a model in other units):
+        every length / force kept by the session follows, so nothing changes size -
+        the form of the active tool, the values each other tool keeps for itself, the
+        snap steps and the points of a command in progress (function audit FA01 /
+        FA02)."""
+        def r(q):
+            return old.factor(q) / new.factor(q)
+        k = r("length")
+
+        def scale(values: dict):
+            for key in ("offset_x", "offset_y", "offset_z", "fixed_length", "offset_distance", "arc_radius"):
+                if key in values and isinstance(values[key], (int, float)):
+                    values[key] = values[key] * k
+        s = self.settings
+        cur = {key: getattr(s, key) for key in ("offset_x", "offset_y", "offset_z", "fixed_length",
+                                                 "offset_distance", "arc_radius") if hasattr(s, key)}
+        scale(cur)
+        for key, v in cur.items():
+            setattr(s, key, v)
+        for key in ("load_fx", "load_fy", "load_fz"):
+            setattr(s, key, getattr(s, key) * r("force"))
+        for key in ("load_mx", "load_my", "load_mz"):
+            setattr(s, key, getattr(s, key) * r("moment"))
+        tool_name = getattr(self.tool, "name", "")
+        q = ("force_per_area" if tool_name == "area_load" else "force" if s.frame_load_kind == "Point"
+             else "force_per_length")
+        s.load_value *= r(q)
+        s.load_value_b *= r(q)
+        for values in self.__dict__.get("_tool_settings", {}).values():
+            scale(values)  # the other tools' own offsets / fixed length
+        snap = getattr(self, "snap", None)
+        if snap is not None:
+            snap.fine_spacing *= k
+            snap.length_steps = [v * k for v in snap.length_steps]
+        clip = getattr(self, "clipboard", None)
+        if clip is not None and hasattr(clip, "in_units") and getattr(clip, "units", None) is not None:
+            self.clipboard = clip.in_units(new)
+        t = self.tool
+        if hasattr(t, "base") and hasattr(t, "_base"):  # Paste in progress: its base point
+            t.base = t._base(self.clipboard)
+            t.points = [tuple(t.base)] if t.base is not None else []
+        elif getattr(t, "points", None):
+            t.points = [tuple(c * k for c in p) for p in t.points]
+        if getattr(t, "_raw_last", None) is not None:
+            t._raw_last = tuple(c * k for c in t._raw_last)
+        pl = getattr(t, "plane", None)
+        if pl is not None and getattr(pl, "kind", "3d") != "3d":
+            import dataclasses as _dc
+            try:
+                t.plane = _dc.replace(pl, value=pl.value * k)
+            except TypeError:
+                pass
+        self.update_hint()
 
     def update_hint(self, *_):
         try:

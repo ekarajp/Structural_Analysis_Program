@@ -58,6 +58,7 @@ def window(app):
     w.show()
     app.processEvents()
     yield w
+    w.doc.dirty = False  # teardown: no Save / Discard / Cancel question (FA04 asks on close)
     w.views.finalize()
     w.close()
     w.deleteLater()

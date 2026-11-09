@@ -7,6 +7,7 @@ elements; :mod:`structstudio.mesh` turns it into an analysis model and
 from __future__ import annotations
 
 import dataclasses
+import math
 import hashlib
 import json
 from dataclasses import dataclass, field
@@ -661,10 +662,20 @@ class Model:
             for ld in f.loads:
                 if ld.pattern not in self.load_patterns:
                     err("UNKNOWN_PATTERN", f"Frame {name!r} load uses unknown pattern {ld.pattern!r}", f"frames.{name}")
+        tol = max(self.options.merge_tolerance, 1e-9)
+        for name, f in self.frames.items():
+            if f.point_i in self.points and f.point_j in self.points and \
+                    math.dist(self.points[f.point_i].xyz, self.points[f.point_j].xyz) <= tol:
+                err("ZERO_LENGTH", f"Frame {name!r} has no length (its two ends coincide)", f"frames.{name}")
+        from .checks import area_size
         for name, a in self.areas.items():
             for p in a.points:
                 if p not in self.points:
                     err("UNKNOWN_POINT", f"Area {name!r} references unknown point {p!r}", f"areas.{name}")
+            if all(p in self.points for p in a.points) and \
+                    (len(set(a.points)) < 3 or area_size(self, a) <= tol * tol * 10):
+                err("DEGENERATE_AREA", f"Area {name!r} has no area (repeated corners or corners on one line)",
+                    f"areas.{name}")
             if a.section is not None and a.section not in self.shell_sections:
                 err("UNKNOWN_SECTION", f"Area {name!r} references unknown section {a.section!r}", f"areas.{name}")
             if a.diaphragm and a.diaphragm not in self.diaphragms:

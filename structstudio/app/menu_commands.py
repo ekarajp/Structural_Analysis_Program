@@ -297,8 +297,7 @@ class MenuCommandsMixin:
 
     # --------------------------------------------------------------- File
     def close_model(self):
-        if self.doc.dirty and QtWidgets.QMessageBox.question(
-                self, "Close", "Close the model without saving the changes?") != QtWidgets.QMessageBox.Yes:
+        if not self.maybe_save_changes("Close"):
             return
         u = self.doc.model.units
         self.doc.new(f"{u.force} {u.length}")
@@ -379,7 +378,8 @@ class MenuCommandsMixin:
         if kind == "story":
             names = [s.strip() for s in v["stories"].split(",") if s.strip()] or stories
             from .tools import replicate_to_stories
-            made = replicate_to_stories(self.doc, *sel, names)
+            made = self._try("Replicate", lambda: replicate_to_stories(self.doc, *sel, names,
+                                                                       delete_original=v.get("delete", False)))
         else:
             if kind == "linear":
                 T, rev = C.linear_transforms(v["dx"], v["dy"], v["dz"], v["n"]), False
@@ -1207,26 +1207,10 @@ class MenuCommandsMixin:
                                      f"Edit > Undo goes back", 8000)
 
     def _convert_session_values(self, old, new):
-        """Values typed in the Properties of Object form and the snap settings are
-        in the model's units: convert them too, so the next object drawn is the same."""
-        def r(q):
-            return old.factor(q) / new.factor(q)
-        s = self.state.settings
-        for k in ("offset_x", "offset_y", "offset_z", "fixed_length", "offset_distance"):
-            setattr(s, k, getattr(s, k) * r("length"))
-        for k in ("load_fx", "load_fy", "load_fz"):
-            setattr(s, k, getattr(s, k) * r("force"))
-        for k in ("load_mx", "load_my", "load_mz"):
-            setattr(s, k, getattr(s, k) * r("moment"))
-        tool = getattr(getattr(self.state, "tool", None), "name", "")
-        q = ("force_per_area" if tool == "area_load" else "force" if s.frame_load_kind == "Point"
-             else "force_per_length")
-        s.load_value *= r(q)
-        s.load_value_b *= r(q)
-        snap = getattr(self.state, "snap", None)
-        if snap is not None:
-            snap.fine_spacing *= r("length")
-            snap.length_steps = [v * r("length") for v in snap.length_steps]
+        """Values typed in the Properties of Object form, the values each tool keeps,
+        the snap settings and a command in progress are in the model's units:
+        convert them too, so the next object drawn is the same (ViewState.convert_units)."""
+        self.state.convert_units(old, new)
 
     def options_tolerances(self):
         o = self.doc.model.options

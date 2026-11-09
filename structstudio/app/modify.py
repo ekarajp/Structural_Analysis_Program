@@ -81,7 +81,9 @@ def plane_normal(plane: Plane) -> np.ndarray:
 
 # ------------------------------------------------------------ in-place edits
 def _merge_points(model: Model, moved: Sequence[str], tol: float) -> int:
-    """Merge every moved point lying on another (not moved) joint into that joint."""
+    """Merge every moved point lying on another (not moved) joint into that joint:
+    assignments combined and every reference re-pointed (model.point_ops)."""
+    from ..model.point_ops import merge_points
     moved = [n for n in moved if n in model.points]
     mset = set(moved)
     others = [p for n, p in model.points.items() if n not in mset]
@@ -104,28 +106,7 @@ def _merge_points(model: Model, moved: Sequence[str], tol: float) -> int:
                             best = q
         if best is not None:
             target[n] = best.name
-    for n, k in target.items():
-        p, q = model.points[n], model.points[k]
-        q.restraints = tuple(a or b for a, b in zip(q.restraints, p.restraints))
-        q.loads.extend(p.loads)
-    if target:
-        for f in list(model.frames.values()):
-            f.point_i = target.get(f.point_i, f.point_i)
-            f.point_j = target.get(f.point_j, f.point_j)
-            if f.point_i == f.point_j:
-                model.frames.pop(f.name)
-        for a in list(model.areas.values()):
-            pts: List[str] = []
-            for p in a.points:
-                p = target.get(p, p)
-                if p not in pts:
-                    pts.append(p)
-            if len(pts) < 3:
-                model.areas.pop(a.name)
-            else:
-                a.points = pts
-        for n in target:
-            model.points.pop(n, None)
+    merge_points(model, target)  # raises MERGE_CONFLICT before changing anything
     return len(target)
 
 
@@ -195,16 +176,21 @@ def copy_transformed(doc: Document, frames, areas, points, T: Transform, reverse
                      panels: Sequence[str] = ()) -> Tuple[List[str], List[str], List[str]]:
     """Copy of the selection through ``T``; returns the new (frames, areas, points)."""
     before = (set(doc.model.frames), set(doc.model.areas), set(doc.model.points), set(doc.model.panel_loads))
-    created = replicate_transform(doc, list(frames), list(areas), list(points), [T], reverse_areas=reverse_areas)
     free = [n for n in panels if n in doc.model.panel_loads and not doc.model.panel_loads[n].area]
-    if free:
-        def mutate(model: Model):
-            for n in free:
-                pl = copy.deepcopy(model.panel_loads[n])
-                pl.name = model._next_name("PL", model.panel_loads)
-                pl.points = [tuple(float(v) for v in T(np.array(q, float))) for q in pl.points]
-                model.panel_loads[pl.name] = pl
-        doc.edit(mutate)
+
+    def panels_too(model: Model):  # in the same undo step as the objects
+        for n in free:
+            pl = copy.deepcopy(model.panel_loads[n])
+            pl.name = model._next_name("PL", model.panel_loads)
+            pl.points = [tuple(float(v) for v in T(np.array(q, float))) for q in pl.points]
+            model.panel_loads[pl.name] = pl
+    if frames or areas or points:
+        created = replicate_transform(doc, list(frames), list(areas), list(points), [T], reverse_areas=reverse_areas,
+                                      extra=panels_too if free else None)
+    else:
+        created = []
+        if free:
+            doc.edit(panels_too)
     m = doc.model
     fr = [n for n in created if n in m.frames and n not in before[0]]
     ar = [n for n in created if n in m.areas and n not in before[1]]
@@ -448,7 +434,8 @@ def parse_typed(text: str, base: XYZ, toward: Optional[XYZ], plane: Plane) -> XY
         L = float(t)
         if toward is None or np.linalg.norm(np.asarray(toward, float) - b) < 1e-12:
             if plane.kind == "3d":
-                raise ValueError("Move the cursor in the direction first")
+                raise ValueError("In 3D a typed length needs a direction: point the cursor where the line goes, then type "
+                                 "the length and press Enter - or type dx,dy,dz (relative) or #x,y,z (absolute)")
             d = np.array(plane.to3((1.0, 0.0)), float) - np.array(plane.to3((0.0, 0.0)), float)
         else:
             d = np.asarray(toward, float) - b
@@ -484,7 +471,7 @@ def parse_absolute(text: str, plane: Plane) -> XYZ:
             return (vals[0], vals[1], vals[2])
         if len(vals) == 2:
             if plane.kind == "3d":
-                raise ValueError("3D: type all three coordinates x,y,z")
+                raise ValueError("In 3D type all three coordinates: x,y,z (for example 6,0,3) and press Enter")
             return tuple(float(c) for c in plane.to3((vals[0], vals[1])))
     raise ValueError(f"Type the point as x,y,z{'' if plane.kind == '3d' else ' (or u,v in this window)'}"
                      f" - not {text!r}")

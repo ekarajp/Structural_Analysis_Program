@@ -893,8 +893,25 @@ class ModelViewport(QtWidgets.QWidget):
             self._set_hidden((), (), ())
 
     # ------------------------------------------------------------ building
+    def _forget_typed_input(self):
+        """Typed values and the reference point belong to the old units / document."""
+        try:
+            self.drop_reference(redraw=False)
+            self._held_second = ""
+            box = getattr(self, "where_box", None)
+            if box is not None:
+                box.blockSignals(True)
+                box.clear()
+                box.blockSignals(False)
+        except Exception:  # never let input bookkeeping break a document change
+            pass
+
     def _on_doc_change(self, what: str):
+        if what == "replaced":  # another document: nothing typed / referenced survives
+            self._forget_typed_input()
+            return
         if what == "units":  # same view of the structure: the coordinates were scaled
+            self._forget_typed_input()
             r = float(getattr(self.doc, "units_ratio", 1.0))
             cam = self.renderer.GetActiveCamera()
             cam.SetPosition(*(np.array(cam.GetPosition()) * r))
@@ -1829,8 +1846,9 @@ class ModelViewport(QtWidgets.QWidget):
         st.tool.tolerance = self._world_tolerance() * 2.0
         pt, snap = self._snapped(x, y)
         if pt is None:
-            st.status.emit("Nothing to snap to here: in 3D pick a joint, line or grid point, or set "
-                           "'3D: point off the snaps' to a work plane (Properties of Object), or type x,y,z")
+            st.status.emit("3D: a click must land on something - a joint, a line or a grid point (the snap "
+                           "marker shows it). Or type x,y,z + Enter, or set '3D: point off the snaps' to a "
+                           "work plane in Properties of Object")
             return
         try:
             if self.interactor.GetRepeatCount() > 0:

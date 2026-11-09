@@ -572,6 +572,11 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
                          ("define.load_cases", "load_cases", "Load Cases"),
                          ("define.combos", "combos", "Load Combinations")))
         ana = bar("Analyze", "analyze")
+        # Check Model before Run: duplicates, overlaps, zero-length / zero-area objects ...
+        a = self._menu_tool("analyze.check", "check_model", "Check Model: duplicate or overlapping members, "
+                            "joints not merged, objects with no length / area, missing definitions")
+        if a is not None:
+            ana.addAction(a)
         ana.addAction(self.act_run)
         # Fine mesh: Check Mesh finds it once (kept with the model); "Use fine mesh" analyses with it
         ana.addAction(self.act_check_mesh)
@@ -903,6 +908,8 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         self.act_redo.setEnabled(self.doc.can_redo)
         if what == "model":
             self._sync_grid_mode()
+            if self.doc.notes or self.doc.duplicates:  # after the command has finished speaking
+                QtCore.QTimer.singleShot(0, self._report_command_notes)
             self._follow_model_units()
             if getattr(self, "units_button", None) is not None:
                 self.units_button.refresh()
@@ -932,11 +939,8 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         from ..display_units import DisplayUnits
         from . import forms
         forms.DISPLAY["units"] = DisplayUnits.of(self.doc.model)
-        u = self.doc.model.units
-        prev = getattr(self, "_session_units", None)
-        if prev is not None and prev != u:
-            self._convert_session_values(prev, u)
-        self._session_units = u
+        # the values themselves are converted by the shared ViewState (convert_units), the
+        # first to hear of the change, so a window never sees half-converted values
 
     def _frame_color(self):
         box = getattr(self, "frame_color_box", None)
@@ -1524,6 +1528,9 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             self.state.status.emit("The analysis mesh shows after the analysis has run")
 
     def closeEvent(self, event):
+        if not self.maybe_save_changes("Exit"):
+            event.ignore()
+            return
         self.views.save()
         super().closeEvent(event)
 
@@ -1722,7 +1729,88 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         menu.addSeparator()
         menu.addAction("Start Page...", self.show_start_page)
 
+    def _report_command_notes(self):
+        """What the last command said (Document.note) and the duplicate members it
+        made: information in the log and the status bar, warnings in a message that
+        does not stop the work."""
+        notes, dups = list(self.doc.notes), list(self.doc.duplicates)
+        self.doc.notes, self.doc.duplicates = [], []
+        warn = []
+        for level, text in notes:
+            self.logger.log(("WARNING " if level == "warning" else "") + text)
+            if level == "warning":
+                warn.append(text)
+            else:
+                self.statusBar().showMessage(text, 8000)
+        if warn:
+            box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Warning, "Structural Studio", "\n\n".join(warn),
+                                        QtWidgets.QMessageBox.Ok, self)
+            box.setModal(False)
+            box.show()
+            self._note_box = box
+        if dups:
+            self.warn_duplicates(dups)
+
+    def warn_duplicates(self, issues):
+        """Members / shells the last command put on top of others: say so and offer
+        Undo (the members could differ in section or loads, so none is deleted
+        silently - Check Model lists them again later)."""
+        rev = self.doc.revision
+        for it in issues:
+            self.logger.log(f"WARNING {it.code}: {it.message}")
+        lines = [it.message for it in issues[:6]] + ([f"... and {len(issues) - 6} more"] if len(issues) > 6 else [])
+        box = QtWidgets.QMessageBox(self)
+        box.setIcon(QtWidgets.QMessageBox.Warning)
+        box.setWindowTitle("Duplicate members")
+        box.setText("The last command put members on top of existing ones:")
+        box.setInformativeText("\n".join(lines) + "\n\nUndo removes what the command made. "
+                               "Keep leaves both (Analyze > Check Model lists them).")
+        undo = box.addButton("Undo", QtWidgets.QMessageBox.AcceptRole)
+        select = box.addButton("Select Them", QtWidgets.QMessageBox.ActionRole)
+        box.addButton("Keep", QtWidgets.QMessageBox.RejectRole)
+        box.setDefaultButton(undo)
+
+        def done(btn):
+            if btn is undo and self.doc.revision == rev and self.doc.can_undo:
+                self.doc.undo()
+            elif btn is select:
+                fr = sorted({n for it in issues for n in it.frames})
+                ar = sorted({n for it in issues for n in it.areas})
+                self.state.set_selection(fr, ar)
+        box.buttonClicked.connect(done)
+        box.setModal(False)
+        box.show()
+        self._duplicate_box = box
+        return box
+
+    def maybe_save_changes(self, action: str = "Continue") -> bool:
+        """Before the model is replaced or closed (New, Open, Import, Close, Exit):
+        unsaved changes are saved, discarded or the command is cancelled.  True when
+        the command may go on (function audit FA04)."""
+        if not self.doc.dirty:
+            return True
+        name = os.path.basename(self.doc.path) if self.doc.path else (self.doc.model.info.name or "Untitled")
+        B = QtWidgets.QMessageBox
+        ans = B.question(self, action, f"Save the changes to {name} before you go on?\n\n"
+                         "Discard throws the changes away; Cancel keeps working on this model.",
+                         B.Save | B.Discard | B.Cancel, B.Save)
+        if ans == B.Discard:
+            return True
+        if ans != B.Save:
+            return False
+        try:
+            if self.doc.path:
+                self.save_model()
+            else:
+                self.save_model_as()
+        except Exception as exc:  # disk full, no permission ...: the model stays as it is
+            B.warning(self, "Save", f"The model was not saved:\n{exc}")
+            return False
+        return not self.doc.dirty
+
     def new_model(self):
+        if not self.maybe_save_changes("New Model"):
+            return
         from .new_model import NewModelWizard
         d = NewModelWizard(self, self.settings_store())
         self._new_model_dialog = d
@@ -1734,6 +1822,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
                 return
             self.doc.new()
             self.doc.model = model
+            self.doc.revision += 1
             self.doc._emit("model")
             for vp in self.views.viewports:
                 vp.apply_camera()
@@ -1741,15 +1830,19 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
 
     def open_model(self):
         from ..io.importers import FILE_FILTER
+        if not self.maybe_save_changes("Open"):
+            return
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self, "Open model", "", "Structural Studio (*.ssj.json *.json);;" + FILE_FILTER)
         if path:
-            self._open(path)
+            self._open(path, asked=True)
 
-    def _open(self, path: str):
+    def _open(self, path: str, asked: bool = False):
         """Open a Structural Studio model; ETABS / SAP2000 / SAFE files go through Import."""
+        if not asked and not self.maybe_save_changes("Open"):
+            return None
         if not path.lower().endswith(".json"):
-            return self.import_csi(path)
+            return self.import_csi(path, asked=True)
         try:
             self.doc.open(path)
         except Exception as exc:  # bad or foreign JSON: tell the user, keep the current model
@@ -1765,9 +1858,11 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
     def import_e2k(self):  # kept for scripts / older shortcuts
         self.import_csi()
 
-    def import_csi(self, path: Optional[str] = None):
+    def import_csi(self, path: Optional[str] = None, asked: bool = False):
         """File > Import: any ETABS / SAP2000 / SAFE model or table export."""
         from ..io.importers import FILE_FILTER, detect, program_of
+        if not asked and not self.maybe_save_changes("Import"):
+            return
         if not path:
             path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Import ETABS / SAP2000 / SAFE model", "", FILE_FILTER)
         if not path:
@@ -1853,33 +1948,66 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             self.views.active.screenshot(path)
 
     # ------------------------------------------------------------ analysis
-    def validate_model(self):
-        errors = self.doc.model.validate()
-        if errors:
-            from .. import diagnostics as dg
-            from ..api import _located
-            issues = []
-            for e in errors:
-                self.logger.log(f"ERROR {e.code}: {e.message}")
-                attr = name = None
-                if e.path and "." in e.path:
-                    a, n = e.path.split(".", 1)
-                    if a in ("points", "frames", "areas") and n in getattr(self.doc.model, a):
-                        attr, name = a, n
-                issues.append(dg.Issue("error", f"{e.code}: {e.message}", attr, name))
-            self._last_issues = _located(self.doc.model, issues)
-            self.show_analysis_issues(title=f"Check model: {len(errors)} problem(s)")
+    def model_check_issues(self):
+        """Analyze > Check Model: structural errors (validate) and geometry problems
+        (members drawn twice, overlaps, zero length / area, joints not merged ...)."""
+        from .. import diagnostics as dg
+        from ..api import _located
+        from ..model.checks import geometry_issues
+        m = self.doc.model
+        issues = []
+        for e in m.validate():
+            attr = name = None
+            if e.path and "." in e.path:
+                a, n = e.path.split(".", 1)
+                if a in ("points", "frames", "areas") and n in getattr(m, a):
+                    attr, name = a, n
+            issues.append(dg.Issue("error", f"{e.code}: {e.message}", attr, name))
+        seen = {(i.attr, i.name, i.message.split(":")[0]) for i in issues}
+        for g in geometry_issues(m):
+            if g.code in ("ZERO_LENGTH_FRAME", "ZERO_AREA", "REPEATED_CORNER") and \
+                    any(i.name in (g.frames + g.areas) for i in issues):
+                continue  # validate already says it
+            attr, names = (("frames", g.frames) if g.frames else ("areas", g.areas) if g.areas
+                           else ("points", g.points))
+            issues.append(dg.Issue(g.severity, f"{g.code}: {g.message}", attr, names[0] if names else None,
+                                   hint="double-click selects it" if names else ""))
+        del seen
+        return _located(m, issues)
+
+    def validate_model(self, quiet_if_clean: bool = False):
+        issues = self.model_check_issues()
+        for i in issues:
+            self.logger.log(f"{i.severity.upper()} {i.message}")
+        errors = sum(i.severity == "error" for i in issues)
+        warnings = sum(i.severity == "warning" for i in issues)
+        if issues:
+            self._last_issues = issues
+            self.show_analysis_issues(title=f"Check model: {errors} error(s), {warnings} warning(s), "
+                                            f"{len(issues) - errors - warnings} note(s)")
         else:
-            self.logger.log("Model is valid")
-            self.statusBar().showMessage("Model is valid", 5000)
+            self.logger.log("Check Model: no problems found")
+            self.statusBar().showMessage("Check Model: no problems found", 5000)
+        return issues
 
     def run_analysis(self):
         if self._worker is not None and self._worker.isRunning():
             return
-        errors = self.doc.model.validate()
-        if errors:
+        issues = self.model_check_issues()
+        if any(i.severity == "error" for i in issues):
             self.validate_model()
             return
+        warnings = [i for i in issues if i.severity == "warning"]
+        if warnings:
+            B = QtWidgets.QMessageBox
+            text = "\n".join(f"- {i.message}" for i in warnings[:8]) + \
+                (f"\n... and {len(warnings) - 8} more" if len(warnings) > 8 else "")
+            ans = B.question(self, "Check Model", f"Check Model found {len(warnings)} warning(s):\n\n{text}\n\n"
+                             "Run the analysis anyway?  (No shows the list.)", B.Yes | B.No, B.No)
+            if ans != B.Yes:
+                self._last_issues = issues
+                self.show_analysis_issues(title=f"Check model: {len(warnings)} warning(s)")
+                return
         self.statusBar().showMessage("Running analysis...")
         self.logger.log("Running analysis...")
         from .analysis_ui import AnalysisProgressDialog

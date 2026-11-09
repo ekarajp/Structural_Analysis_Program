@@ -77,6 +77,17 @@ def _draw(name: str, p: QtGui.QPainter):
     q = QtCore.QPointF
     if name == "select":
         _arrow(p)
+    elif name == "check_model":
+        # a small frame with a check mark: Analyze > Check Model
+        p.setPen(_pen(INK, 1.6))
+        p.setBrush(QtCore.Qt.NoBrush)
+        p.drawLine(q(5, 27), q(5, 9))
+        p.drawLine(q(19, 27), q(19, 9))
+        p.drawLine(q(3, 9), q(21, 9))
+        p.drawLine(q(3, 27), q(21, 27))
+        p.setPen(_pen(QtGui.QColor(40, 150, 80), 3.0))
+        p.drawLine(q(15, 19), q(20, 25))
+        p.drawLine(q(20, 25), q(29, 12))
     elif name == "check_mesh":
         # a slab mesh getting finer (coarse on the left, fine on the right) under a magnifier
         p.setPen(_pen(SLAB.darker(140), 1.0))
@@ -747,4 +758,4 @@ ICON_NAMES = ("joint_load", "frame_load", "area_load", "select", "select_window"
               "tables", "properties_panel", "copy", "rotate", "mirror", "offset", "trim", "extend",
               "file_new", "file_open", "file_save", "materials", "frame_sections", "slab_sections", "wall_sections",
               "load_patterns", "load_cases", "combos", "undeformed", "deformed", "reactions", "frame_forces",
-              "lock", "unlock", "check_mesh")
+              "lock", "unlock", "check_mesh", "check_model")

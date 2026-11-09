@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import json
-from typing import Callable, List, Optional
+import pickle
+from typing import Callable, List, Optional, Tuple
 
 from ..model import Model
 from ..model.base import ModelError
@@ -25,14 +26,50 @@ class Document:
         self.locked = False
         self.busy = False
         self.ask_unlock: Optional[Callable[[], bool]] = None  # the window's "unlock?" question
+        # revision: +1 on every change of the model object or its content (edit, undo / redo,
+        # units, new / open / import) - caches key on it, never on the undo stack length.
+        # generation: +1 when another document replaces this one (new / open / import):
+        # anything pending from the old one (a half-drawn line, picks) must be dropped.
+        self.revision = 0
+        self.generation = 0
+        self.notes: List[Tuple[str, str]] = []  # (level, text) said by the last command
+        # duplicate / overlapping members made by the last command (drawing, copy, move,
+        # mirror ...): the window warns and offers to undo it
+        self.check_duplicates = True
+        self.duplicates: list = []
+        self._geometry_before = None
+
+    # snapshots for undo / redo: a pickle of the model is ~10x faster to make than
+    # its JSON (the snapshot is taken before every edit) and gives the same model back
+    @staticmethod
+    def _snapshot(model: Model) -> bytes:
+        return pickle.dumps(model, protocol=pickle.HIGHEST_PROTOCOL)
+
+    @staticmethod
+    def _restore(snap) -> Model:
+        if isinstance(snap, (bytes, bytearray)):
+            return pickle.loads(snap)
+        return Model.from_json(snap)  # older snapshots (JSON text)
 
     # ------------------------------------------------------------- events
     def on_change(self, callback: Callable[[str], None]):
         self._listeners.append(callback)
 
     def _emit(self, what: str):
+        if what in ("model", "units", "replaced"):
+            self.revision += 1
         for cb in list(self._listeners):
             cb(what)
+
+    def note(self, text: str, level: str = "info"):
+        """A command tells the user something about what it did (shown by the window
+        after the edit: ``info`` in the log / status bar, ``warning`` in a message)."""
+        self.notes.append((level, text))
+
+    def _replaced(self):
+        """Another document took this one's place (new / open / import)."""
+        self.generation += 1
+        self._emit("replaced")
 
     # --------------------------------------------------------------- edits
     def check_editable(self):
@@ -64,20 +101,59 @@ class Document:
         """Snapshot before a change (call before mutating the model)."""
         if check:
             self.check_editable()
-        self._undo.append(self.model.to_json(indent=0))
+        self.notes = []
+        self.duplicates = []
+        self._geometry_before = self._geometry() if self.check_duplicates else None
+        self._undo.append(self._snapshot(self.model))
         if len(self._undo) > self.MAX_UNDO:
             self._undo.pop(0)
         self._redo.clear()
 
+    def _geometry(self):
+        m = self.model
+        P = {n: p.xyz for n, p in m.points.items()}
+        frames = {n: (f.point_i, f.point_j, P.get(f.point_i), P.get(f.point_j)) for n, f in m.frames.items()}
+        areas = {n: (tuple(a.points), tuple(P.get(q) for q in a.points)) for n, a in m.areas.items()}
+        return frames, areas
+
+    def _find_duplicates(self):
+        """Duplicate / overlapping members among the frames and shells this edit made
+        or moved."""
+        before = self._geometry_before
+        self._geometry_before = None
+        if before is None:
+            return
+        try:
+            from ..model.checks import duplicates_of
+            fb, ab = before
+            fa, aa = self._geometry()
+            frames = [n for n, v in fa.items() if fb.get(n) != v]
+            areas = [n for n, v in aa.items() if ab.get(n) != v]
+            if frames or areas:
+                self.duplicates = duplicates_of(self.model, frames, areas)
+        except Exception:  # a check must never break an edit
+            self.duplicates = []
+
     def end_edit(self, what: str = "model"):
+        self._find_duplicates()
         self.model.sync_panels()  # area-load panels follow the edited areas
         self.dirty = True
         self.results = None  # model edits invalidate results
+        if what not in ("model", "units", "replaced"):
+            self.revision += 1  # an edit is an edit whatever the windows are told
         self._emit(what)
 
     def edit(self, func: Callable[[Model], None], what: str = "model"):
+        """One command = one undo step.  If ``func`` fails half way the model is
+        put back exactly as it was (no partial edit, no extra undo step)."""
+        redo = list(self._redo)
         self.begin_edit()
-        func(self.model)
+        try:
+            func(self.model)
+        except BaseException:
+            self.model = self._restore(self._undo.pop())
+            self._redo = redo
+            raise
         self.end_edit(what)
 
     def replace_model(self, model: Model, what: str = "model"):
@@ -109,6 +185,7 @@ class Document:
         self.dirty = True
         self.results = res.in_units(new) if res is not None else None
         self.units_ratio = old.factor("length") / units.factor("length")  # new coordinates = old x this
+        self.units_change = (old, units)
         self._emit("units")
         self._emit("model")
 
@@ -116,8 +193,8 @@ class Document:
         if not self._undo:
             return False
         self.check_editable()
-        self._redo.append(self.model.to_json(indent=0))
-        self.model = Model.from_json(self._undo.pop())
+        self._redo.append(self._snapshot(self.model))
+        self.model = self._restore(self._undo.pop())
         self.results = None
         self.dirty = True
         self._emit("model")
@@ -127,8 +204,8 @@ class Document:
         if not self._redo:
             return False
         self.check_editable()
-        self._undo.append(self.model.to_json(indent=0))
-        self.model = Model.from_json(self._redo.pop())
+        self._undo.append(self._snapshot(self.model))
+        self.model = self._restore(self._redo.pop())
         self.results = None
         self.dirty = True
         self._emit("model")
@@ -151,6 +228,7 @@ class Document:
         self.results = None
         self._undo.clear()
         self._redo.clear()
+        self._replaced()
         self._emit("model")
 
     def open(self, path: str):
@@ -166,6 +244,7 @@ class Document:
             self.results = None
             self._undo.clear()
             self._redo.clear()
+            self._replaced()
             self._emit("model")
             return report
         from ..io.importers import import_model
@@ -182,6 +261,7 @@ class Document:
         self.results = None
         self._undo.clear()
         self._redo.clear()
+        self._replaced()
         self._emit("model")
         return report
 
@@ -207,7 +287,7 @@ class Document:
         None if the model cannot be meshed yet (incomplete)."""
         if self.results is not None:
             return self.results.am
-        key = id(self.model), len(self._undo), len(self._redo), self.dirty
+        key = id(self.model), self.revision
         cache = getattr(self, "_mesh_cache", None)
         if cache is not None and cache[0] == key:
             return cache[1]
