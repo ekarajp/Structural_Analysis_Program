@@ -109,12 +109,62 @@ def dashed_segments(coords: np.ndarray, dash: float) -> Tuple[np.ndarray, vtk.vt
     return (np.array(out) if out else np.zeros((0, 3))), lines
 
 
+# screen dashes: DASH_PX on, GAP_PX off, the same on the screen whatever the zoom and
+# the length of the line (a repeating texture along each segment; the window scales
+# it to its pixel size before every frame - see ModelViewport._screen_dashes)
+DASH_PX = 9
+GAP_PX = 5
+SCREEN_DASH = "screen_dash"
+
+
+def _dash_texture() -> vtk.vtkTexture:
+    from vtkmodules.util import numpy_support as ns
+    img = vtk.vtkImageData()
+    img.SetDimensions(DASH_PX + GAP_PX, 1, 1)
+    img.AllocateScalars(vtk.VTK_UNSIGNED_CHAR, 4)
+    a = ns.vtk_to_numpy(img.GetPointData().GetScalars())
+    a[:] = 255
+    a[DASH_PX:, 3] = 0  # the gap: transparent
+    tex = vtk.vtkTexture()
+    tex.SetInputData(img)
+    tex.InterpolateOff()
+    tex.RepeatOn()
+    tex.SetObjectName(SCREEN_DASH)
+    tex.SetTransform(vtk.vtkTransform())
+    return tex
+
+
+def set_dash_scale(tex: vtk.vtkTexture, world_per_px: float):
+    """Make one texture period (DASH_PX + GAP_PX pixels) that many world units."""
+    period = max(world_per_px, 1e-12) * (DASH_PX + GAP_PX)
+    tr = tex.GetTransform() or vtk.vtkTransform()
+    tr.Identity()
+    tr.Scale(1.0 / period, 1.0, 1.0)
+    tex.SetTransform(tr)
+
+
 def _dashed_lines_actor(model: Model, coords, color, width: float) -> vtk.vtkActor:
-    pts, lines = dashed_segments(np.asarray(coords, float), max(model_extent(model) * DASH_FRACTION, 1e-3))
+    """Dashed lines (selection, openings, reference lines): one line per segment with
+    its length along it as the texture coordinate - the dashes stay as dense on the
+    screen however long the line is or however far it is zoomed."""
+    from vtkmodules.util import numpy_support as ns
+    C = np.asarray(coords, float).reshape(-1, 3)
+    n = len(C) // 2
     poly = vtk.vtkPolyData()
-    poly.SetPoints(_points(pts))
-    poly.SetLines(lines)
-    return _actor_from_polydata(poly, color, width, lighting=False)
+    if n == 0:
+        return _actor_from_polydata(poly, color, width, lighting=False)
+    C = C[:2 * n]
+    L = np.linalg.norm(C[1::2] - C[0::2], axis=1)
+    tc = np.zeros((2 * n, 2))
+    tc[1::2, 0] = L
+    poly.SetPoints(_points(C))
+    poly.SetLines(_cells(np.arange(0, 2 * n + 1, 2), np.arange(2 * n)))
+    poly.GetPointData().SetTCoords(ns.numpy_to_vtk(tc, deep=True))
+    act = _actor_from_polydata(poly, color, width, lighting=False)
+    tex = _dash_texture()
+    set_dash_scale(tex, max(model_extent(model), 1.0) / 800.0)  # until the window sets its own
+    act.SetTexture(tex)
+    return act
 
 
 def _group_color(model: Model, obj, kind: str, default_key: str):

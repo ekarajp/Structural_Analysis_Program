@@ -322,6 +322,7 @@ class ModelViewport(QtWidgets.QWidget):
         self.vtk_widget.GetRenderWindow().SetMultiSamples(8)
         layout.addWidget(self.vtk_widget, 1)
         self.renderer = vtk.vtkRenderer()
+        self.renderer.AddObserver("StartEvent", lambda *_a: self._screen_dashes())
         self.renderer.GradientBackgroundOn()
         self.renderer.SetBackground(*scene.COLORS["background_bottom"])
         self.renderer.SetBackground2(*scene.COLORS["background_top"])
@@ -1371,6 +1372,24 @@ class ModelViewport(QtWidgets.QWidget):
             vis = (set(m.frames), set(m.areas), set(m.points))
         fr, ar, pt = vis
         return fr - hf, ar - ha, pt - hp
+
+    def _world_per_px(self) -> float:
+        cam = self.renderer.GetActiveCamera()
+        h = max(1, self.renderer.GetSize()[1] or self.vtk_widget.height())
+        if cam.GetParallelProjection():
+            return 2.0 * cam.GetParallelScale() / h
+        return 2.0 * cam.GetDistance() * math.tan(math.radians(cam.GetViewAngle()) / 2.0) / h
+
+    def _screen_dashes(self):
+        """Before every frame: the dashed lines' dashes at their pixel size for this zoom."""
+        wpp = self._world_per_px()
+        acts = self.renderer.GetActors()
+        acts.InitTraversal()
+        for _ in range(acts.GetNumberOfItems()):
+            a = acts.GetNextActor()
+            t = a.GetTexture() if a is not None else None
+            if t is not None and t.GetObjectName() == scene.SCREEN_DASH:
+                scene.set_dash_scale(t, wpp)
 
     def render(self):
         if self.isVisible() or not self._camera_set:
