@@ -267,7 +267,6 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
             ("Draw Columns (Plan, Elev, 3D)", "tool.column"),
             ("Quick Draw Columns (Plan, Elev)", "tool.quick_column"),
             ("Quick Draw Secondary Beams (Plan)", "tool.secondary_beams"),
-            ("Draw Braces (Plan, Elev, 3D)", "tool.brace"),
             ("Quick Draw Braces (Elev)", "tool.quick_brace")]),
         ("Draw Floor/Wall Objects", [
             ("Draw Floor/Wall (Plan, Elev, 3D)", "tool.slab"),

@@ -244,6 +244,7 @@ class ModelViewport(QtWidgets.QWidget):
         self._dirty: Set[str] = set()
         self._highlight_actors: List[vtk.vtkProp] = []
         self.highlight_story: Optional[str] = None  # story of the plan window, shaded in 3D
+        self.highlight_plane = None  # (kind, value, label) of the active plan / elevation, shaded in 3D
         # View > Show Selected Objects Only / Make Selected Objects Invisible (per window)
         self.hidden: Tuple[Set[str], Set[str], Set[str]] = (set(), set(), set())
         self._hidden_history: List[Tuple[Set[str], Set[str], Set[str]]] = []
@@ -282,7 +283,7 @@ class ModelViewport(QtWidgets.QWidget):
         fit.clicked.connect(self.fit)
         self.display_button = QtWidgets.QToolButton()
         self.display_button.setIcon(icon("display"))
-        self.display_button.setToolTip("Set Display Options of this window (Ctrl+W)")
+        self.display_button.setToolTip("Display Options")
         self.display_button.clicked.connect(lambda: self.display_requested.emit(self))
         # one story / grid line up or down (plans: next story above / below; elevations: the
         # next grid line) - also Page Up / Page Down in the window
@@ -362,6 +363,7 @@ class ModelViewport(QtWidgets.QWidget):
         self.text.GetTextProperty().SetFontSize(14)
         self.text.SetPosition(12, 12)
         self.renderer.AddActor(self.text)
+        self._style_axes_text()
         # CAD cursor tooltip: snap, length / angle, typed value
         self.tip = vtk.vtkTextActor()
         tp = self.tip.GetTextProperty()
@@ -472,7 +474,7 @@ class ModelViewport(QtWidgets.QWidget):
 
     def step_where(self, direction: int) -> bool:
         """Go to the story above (+1) / below (-1) in a plan, or to the next / previous
-        grid line in an elevation."""
+        grid line in an elevation; past the last one it wraps round to the first."""
         c = self.config
         if c.kind == "3d":
             return False
@@ -483,9 +485,10 @@ class ModelViewport(QtWidgets.QWidget):
         else:
             # plans list the levels top down; elevations the lines in increasing order
             i += -direction if c.kind == "plan" else direction
-        if not 0 <= i < n:
+        if n <= 0:
             return False
-        self.where_box.setCurrentIndex(i)
+        # past the top / last line: round to the first again (and back the other way)
+        self.where_box.setCurrentIndex(i % n)
         return True
 
     def _elevation_lines(self) -> List[Tuple[str, str, float]]:
@@ -610,9 +613,17 @@ class ModelViewport(QtWidgets.QWidget):
 
     def set_highlight_story(self, story: Optional[str]):
         """3D windows: shade the plane of ``story`` (the story of the plan window)."""
-        if story == self.highlight_story and self._highlight_actors:
+        m = self.doc.model
+        spec = ("plan", m.stories[story].elevation, story) if story and story in m.stories else None
+        self.set_highlight_plane(spec)
+
+    def set_highlight_plane(self, spec):
+        """3D windows: shade the plane ``spec`` = (kind, value, label) - the plan or
+        elevation the active window shows; None for none."""
+        if spec == self.highlight_plane and (self._highlight_actors or spec is None):
             return
-        self.highlight_story = story
+        self.highlight_plane = spec
+        self.highlight_story = spec[2] if spec and spec[0] == "plan" else None
         self._draw_highlight()
         self.render()
 
@@ -620,8 +631,9 @@ class ModelViewport(QtWidgets.QWidget):
         for a in self._highlight_actors:
             self.renderer.RemoveActor(a)
         self._highlight_actors = []
-        if self.config.kind == "3d" and self.display_options.story_plane and self.highlight_story:
-            self._highlight_actors = scene.build_story_plane(self.doc.model, self.highlight_story)
+        if self.config.kind == "3d" and self.display_options.story_plane and self.highlight_plane:
+            kind, value, label = self.highlight_plane
+            self._highlight_actors = scene.build_view_plane(self.doc.model, kind, value, label)
             for a in self._highlight_actors:
                 self.renderer.AddActor(a)
 
@@ -674,11 +686,29 @@ class ModelViewport(QtWidgets.QWidget):
         bg = scene.COLORS["background_top"]
         self.viewcube.apply_colors(dark=(0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2]) < 0.5)
         self._style_tip()
+        self._style_axes_text()
         for i in range(self.kind_box.count()):
             self.kind_box.setItemIcon(i, icon("view_" + self.kind_box.itemData(i)))
         self.set_active(self._active)
         self._clear_preview()
         self.invalidate("scene", "overlays")
+
+    def _style_axes_text(self):
+        """The X / Y / Z of the axes triad (bottom left) and the message line next to
+        it: dark text on a light background, light on a dark one (VTK draws white)."""
+        bg = scene.COLORS["background_top"]
+        dark = (0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2]) < 0.5
+        fg = (0.95, 0.96, 0.98) if dark else (0.10, 0.12, 0.16)
+        for cap in (self.axes.GetXAxisCaptionActor2D(), self.axes.GetYAxisCaptionActor2D(),
+                    self.axes.GetZAxisCaptionActor2D()):
+            tp = cap.GetCaptionTextProperty()
+            tp.SetColor(*fg)
+            tp.SetShadow(False)
+            tp.SetBold(True)
+            tp.SetItalic(False)
+        tp = self.text.GetTextProperty()
+        tp.SetBackgroundColor(*((0.12, 0.13, 0.16) if dark else (1.0, 1.0, 1.0)))
+        tp.SetBackgroundOpacity(0.85)
 
     def _style_tip(self):
         tp = self.tip.GetTextProperty()
@@ -2501,8 +2531,7 @@ class ModelViewport(QtWidgets.QWidget):
                                                           snap.kind if snap else "free", snapped))
         for track in (getattr(snap, "track", None), getattr(snap, "track2", None)):
             if track:
-                self._preview_actors.append(scene._dashed_lines_actor(self.doc.model, [track[0], track[1]],
-                                                                      scene.COLORS["snap"], 1.5))
+                self._preview_actors.append(self._tracking_line_actor(track))
         txt = pv.text
         tip = []
         if snapped:
@@ -2545,6 +2574,26 @@ class ModelViewport(QtWidgets.QWidget):
         for a in self._preview_actors:
             self.renderer.AddActor(a)
         self.render()
+
+    def _tracking_line_actor(self, track) -> vtk.vtkActor:
+        """A tracking / extension guide (CAD object snap tracking): dashed, from its base
+        point (the end of the line being extended, the previous point ...) through the
+        snapped point and on across the window, dashes of a fixed size on the screen.
+        Colour and line: Options > Graphics Colors (tracking, tracking_width)."""
+        a, b = np.asarray(track[0], float), np.asarray(track[1], float)
+        cam = self.renderer.GetActiveCamera()
+        h = max(1, self.vtk_widget.height())
+        w = max(1, self.vtk_widget.width())
+        per_px = 2.0 * cam.GetParallelScale() / h if cam.GetParallelProjection() else self._world_tolerance() / 10.0
+        d = b - a
+        L = float(np.linalg.norm(d))
+        far = b + (d / L) * per_px * 2.0 * max(w, h) if L > 1e-12 else b  # on past the cursor, off the screen
+        pts, lines = scene.dashed_segments(np.array([a, far]), max(per_px * 9.0, 1e-6))
+        poly = vtk.vtkPolyData()
+        poly.SetPoints(scene._points(pts))
+        poly.SetLines(lines)
+        color = scene.COLORS.get("tracking", scene.COLORS["snap"])
+        return scene._actor_from_polydata(poly, color, scene.gsize("tracking_width"), lighting=False)
 
     # ETABS draws a dot and a text at the snap location; here each snap kind has its
     # own marker shape so it can be told at a glance (CAD style)

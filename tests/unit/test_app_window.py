@@ -98,7 +98,10 @@ def test_default_two_windows_plan_and_3d(window):
     # ETABS order: select | draw (fly-outs per object type) | edit | selection | snap
     assert len([a for a in window.draw_toolbar.actions() if not a.isSeparator()]) >= 16
     from structstudio.app.mainwindow import DRAW_PALETTE, DRAW_TOOLS, MODIFY_TOOLS, SELECT_TOOLS
-    assert {k for _, keys in DRAW_PALETTE for k in keys} == {k for k, *_ in SELECT_TOOLS + DRAW_TOOLS + MODIFY_TOOLS}
+    # every tool has a palette button except Draw Braces (braces: the line tool; the
+    # tool stays as a command / shortcut)
+    assert {k for _, keys in DRAW_PALETTE for k in keys} == \
+        {k for k, *_ in SELECT_TOOLS + DRAW_TOOLS + MODIFY_TOOLS} - {"brace"}
     beams = window.palette_buttons["Draw Beams"]
     assert [a.text() for a in beams.menu_actions()][0].startswith("Draw Beam")
     quick = window.tool_actions["quick_beam"]
@@ -325,6 +328,28 @@ def test_display_options_grid_at_base_and_plan_story_in_3d(window, app):
     assert v3d.config.to_dict()["display"]["joint_labels"] is True
     window.views.apply_display(DisplayOptions(), v3d, all_windows=True)
     assert v3d._highlight_actors
+    # an elevation window made active: the 3D window shades that vertical plane instead
+    plan.set_view("xz")
+    window.views.set_active(plan)
+    app.processEvents()
+    kind, value, _label = v3d.highlight_plane
+    assert kind == "xz" and v3d.highlight_story is None
+    b = v3d._highlight_actors[0].GetMapper().GetInput().GetBounds()
+    assert b[2] == b[3] == value
+    # the arrows go round: past the last line back to the first
+    from structstudio.app.viewport import CUSTOM
+    n = sum(1 for i in range(plan.where_box.count()) if plan.where_box.itemData(i) != CUSTOM)
+    first = plan.where_box.currentIndex()
+    for _ in range(n):
+        assert plan.step_where(+1)
+    assert plan.where_box.currentIndex() == first
+    plan.set_view("plan", story="Story2")
+    window.views.set_active(plan)
+    top = plan.where_box.currentIndex()
+    plan.step_where(+1)
+    plan.step_where(-1)
+    assert plan.where_box.currentIndex() == top
+    assert plan.display_button.toolTip() == "Display Options"
     window.act_extrude.setChecked(False)
     window.toggle_extrude(False)
     assert not plan.display_options.extrude and not v3d.display_options.extrude
@@ -1303,6 +1328,21 @@ def test_model_explorer_title_and_right_click_actions(window, app, monkeypatch):
     assert got == [("only", "frames", beam)]
     tree._context_menu(tree.visualItemRect(item.parent()).center())
     assert got == [("only", "frames", beam)]  # a heading has no menu
+
+
+@gui
+def test_tracking_guide_runs_past_the_cursor_and_no_brace_button(window, app):
+    import numpy as np
+    from structstudio.app import mainwindow as mw, menus
+    vp = window.views.viewports[0]
+    vp.set_view("plan", story="Story2")
+    a = vp._tracking_line_actor(((0.0, 0.0, 7.0), (3.0, 3.0, 7.0)))
+    b = a.GetMapper().GetInput().GetBounds()
+    assert b[1] > 6.0 and b[3] > 6.0 and a.GetMapper().GetInput().GetNumberOfCells() > 10  # dashed, on past
+    assert all("brace" not in keys for _t, keys in mw.DRAW_PALETTE)
+    assert any("quick_brace" in keys for _t, keys in mw.DRAW_PALETTE)
+    flat = repr(menus.MENUS) if hasattr(menus, "MENUS") else open(menus.__file__).read()
+    assert '"tool.brace"' not in flat
 
 
 def _wait_analysis(window, app, timeout=240.0):

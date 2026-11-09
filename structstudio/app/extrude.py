@@ -148,6 +148,16 @@ class _MeshBuilder:
             j = (i + 1) % k
             self.cells.append([base + i, base + j, base + k + j, base + k + i])
 
+    def face(self, poly: np.ndarray, reverse: bool = False):
+        base = self.n
+        self.pts.append(np.asarray(poly, float))
+        self.n += len(poly)
+        ids = list(range(base, base + len(poly)))
+        self.cells.append(ids[::-1] if reverse else ids)
+
+    def quad(self, *corners):
+        self.face(np.array(corners, float))
+
     def polydata(self, triangulate: bool = False) -> Optional[vtk.vtkPolyData]:
         if not self.pts:
             return None
@@ -209,8 +219,14 @@ def frame_solids(model: Model, names: Iterable[str]) -> Tuple[Optional[vtk.vtkPo
 
 def area_solids(model: Model, areas: Iterable) -> Optional[vtk.vtkPolyData]:
     """Areas with their thickness: floors hang below their plane (top of slab at the
-    level, as in ETABS), walls are centred on theirs."""
+    level, as in ETABS), walls are centred on theirs.  Openings drawn in a floor or
+    a wall go right through the solid (the faces and the sides of the hole)."""
+    from ..mesh import openings as opn
+    from ..mesh import polygon2d as pg
+
     mb = _MeshBuilder()
+    index = None
+    tol = max(float(model.options.merge_tolerance or 1e-3), 1e-6)
     for a in areas:
         sec = model.shell_sections.get(a.section or "")
         t = float(sec.thickness) if sec is not None and sec.thickness else 0.0
@@ -224,5 +240,83 @@ def area_solids(model: Model, areas: Iterable) -> Optional[vtk.vtkPolyData]:
             lo, hi = -t * nrm, np.zeros(3)
         else:
             lo, hi = -0.5 * t * nrm, 0.5 * t * nrm
-        mb.prism(P + lo, P + hi)
+        if index is None:
+            index = opn.OpeningIndex(model)
+        holes = []
+        if index:
+            try:
+                fr = pg.plane_frame(P)
+                holes = index.holes(P, fr, tol, exclude=(a.name,))
+            except ValueError:
+                holes = []
+        if not holes:
+            mb.prism(P + lo, P + hi)
+            continue
+        # faces: the shell with the holes left out; sides: the outline and the hole
+        # edges inside the shell (an opening over the edge leaves a notch).  Every
+        # face is oriented outward here (no neighbour to copy it from at the T-joints)
+        up = (hi - lo) / np.linalg.norm(hi - lo)
+        for piece in opn.fill_polygons(P, holes, tol):
+            fn = polygon_normal(piece)
+            flip = float(fn @ up) < 0
+            mb.face(piece + lo, reverse=not flip)
+            mb.face(piece + hi, reverse=flip)
+        Q = pg.to_2d(P, fr)
+        if pg.signed_area(Q) < 0:
+            Q = Q[::-1]
+        for (u0, u1), outward in _hole_boundary(Q, [H for _, H in holes], tol):
+            p0, p1 = pg.to_3d([u0, u1], fr)
+            o3 = pg.to_3d([outward], fr)[0] - pg.to_3d([(0.0, 0.0)], fr)[0]
+            quad = np.array([p0 + lo, p1 + lo, p1 + hi, p0 + hi])
+            if float(np.cross(quad[1] - quad[0], quad[2] - quad[0]) @ o3) < 0:
+                quad = quad[::-1]
+            mb.face(quad)
     return mb.polydata(triangulate=True)
+
+
+def _split_at(seg, polys) -> List[float]:
+    """Parameters 0..1 where segment ``seg`` crosses the edges of ``polys``."""
+    a, b = seg
+    d = b - a
+    ts = [0.0, 1.0]
+    for Pq in polys:
+        n = len(Pq)
+        for i in range(n):
+            c, e = Pq[i], Pq[(i + 1) % n] - Pq[i]
+            den = d[0] * e[1] - d[1] * e[0]
+            if abs(den) < 1e-14:
+                continue
+            w = c - a
+            t = (w[0] * e[1] - w[1] * e[0]) / den
+            u = (w[0] * d[1] - w[1] * d[0]) / den
+            if 0.0 < t < 1.0 and -1e-12 <= u <= 1.0 + 1e-12:
+                ts.append(t)
+    return sorted(set(ts))
+
+
+def _hole_boundary(Q: np.ndarray, holes: Sequence[np.ndarray], tol: float):
+    """2-D edges of (shell minus holes) with their outward normal: the shell's edges
+    outside every hole and the hole edges inside the shell (and outside the other
+    holes).  ``Q`` and the holes run counter-clockwise."""
+    from ..mesh import polygon2d as pg
+
+    out = []
+    rings = [(Q, None)] + [(H, k) for k, H in enumerate(holes)]
+    for R, k in rings:
+        n = len(R)
+        others = [Q] + [H for j, H in enumerate(holes) if j != k] if k is not None else list(holes)
+        for i in range(n):
+            a, b = np.asarray(R[i], float), np.asarray(R[(i + 1) % n], float)
+            ts = _split_at((a, b), others)
+            for t0, t1 in zip(ts[:-1], ts[1:]):
+                if t1 - t0 < 1e-9:
+                    continue
+                m = a + (b - a) * (0.5 * (t0 + t1))
+                if any(pg.inside(m, H) for j, H in enumerate(holes) if j != k):
+                    continue  # inside another hole
+                if k is not None and not pg.inside(m, Q):
+                    continue  # this hole's edge lies outside the shell
+                e = b - a
+                outward = np.array([e[1], -e[0]]) if k is None else np.array([-e[1], e[0]])
+                out.append(((a + e * t0, a + e * t1), outward))
+    return out

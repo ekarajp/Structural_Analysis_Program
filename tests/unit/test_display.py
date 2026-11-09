@@ -160,3 +160,59 @@ def test_hidden_columns_leave_the_plan_window():
     acts = scene.build_model_actors(m, story=story, options=DisplayOptions(), hidden=hidden).actors
     assert not any(k.startswith("column_markers") for k in acts) and "supports" not in acts
     assert "frames_Beam" in acts
+
+
+def _with_wall_and_opening():
+    import numpy as np
+    m = _model()
+    st = sorted(m.stories.values(), key=lambda s: s.elevation)
+    z0, z1 = st[0].elevation, st[1].elevation
+    wall = m.add_area([m.add_point(0, 0, z0), m.add_point(6, 0, z0), m.add_point(6, 0, z1), m.add_point(0, 0, z1)],
+                      "W20", type="Wall")
+    fl = next(a for a in m.areas.values() if a.type == "Floor")
+    P = np.array([m.points[p].xyz for p in fl.points])
+    c, z = P.mean(0), P[0, 2]
+    m.add_area([m.add_point(c[0] - 1, c[1] - 1, z), m.add_point(c[0] + 1, c[1] - 1, z),
+                m.add_point(c[0] + 1, c[1] + 1, z), m.add_point(c[0] - 1, c[1] + 1, z)], None, type="Opening")
+    return m, wall, fl, st[1].name
+
+
+def test_walls_show_their_thickness_in_plan_only():
+    m, wall, _fl, story = _with_wall_and_opening()
+    fp = scene.wall_footprint(m, m.areas[wall.name])
+    xs, ys = sorted({round(x, 9) for x, _ in fp}), sorted({round(y, 9) for _, y in fp})
+    t = m.shell_sections["W20"].thickness
+    assert xs == [0.0, 6.0] and ys == [round(-t / 2, 9), round(t / 2, 9)]
+    plan = scene.build_model_actors(m, story=story, options=DisplayOptions()).actors
+    assert "wall_plan" in plan and "wall_plan_edges" in plan
+    assert not any(k.startswith("wall_plan") for k in scene.build_model_actors(m, options=DisplayOptions()).actors)
+    assert not any(k.startswith("wall_plan") for k in
+                   scene.build_model_actors(m, plane=("y", 0.0), options=DisplayOptions()).actors)
+
+
+def test_openings_go_through_floors_extruded_or_not():
+    import vtk
+    from structstudio.app.extrude import area_solids
+    m, _wall, fl, _story = _with_wall_and_opening()
+    acts = scene.build_model_actors(m, options=DisplayOptions()).actors
+    assert "areas_Opening" not in acts and "areas_Opening_edges" in acts  # no grey fill: a hole
+    solid = area_solids(m, [m.areas[fl.name]])
+    mp = vtk.vtkMassProperties()
+    mp.SetInputData(solid)
+    mp.Update()
+    import numpy as np
+    P = np.array([m.points[p].xyz for p in m.areas[fl.name].points])
+    t = m.shell_sections[fl.section].thickness
+    full = np.ptp(P[:, 0]) * np.ptp(P[:, 1]) * t
+    assert mp.GetVolume() == pytest.approx(full - 4.0 * t, rel=1e-9)  # the 2 x 2 hole is cut out
+
+
+def test_view_plane_of_plan_and_elevation():
+    m = _model()
+    plan = scene.build_view_plane(m, "plan", 3.0, "Story1")
+    b = plan[0].GetMapper().GetInput().GetBounds()
+    assert b[4] == b[5] == 3.0
+    elev = scene.build_view_plane(m, "xz", 5.0, "2")
+    b = elev[0].GetMapper().GetInput().GetBounds()
+    assert b[2] == b[3] == 5.0 and b[5] - b[4] > 6.0  # vertical, over the full height
+    assert scene.build_view_plane(m, "yz", 6.0, "B")[0].GetMapper().GetInput().GetBounds()[0] == 6.0

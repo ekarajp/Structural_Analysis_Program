@@ -179,6 +179,31 @@ def _visible(obj, story: Optional[str]) -> bool:
     return story is None or obj.story == story
 
 
+def wall_footprint(model: Model, area) -> Optional[List[Tuple[float, float]]]:
+    """Plan footprint of a wall: the rectangle (4 corners x, y) of its horizontal
+    extent and its section thickness, centred on the wall plane.  None for a wall
+    that is not vertical or has no thickness."""
+    sec = model.shell_sections.get(area.section or "")
+    t = float(sec.thickness) if sec is not None and sec.thickness else 0.0
+    if t <= 0 or len(area.points) < 3:
+        return None
+    P = np.array([model.points[p].xyz for p in area.points], float)
+    xy = P[:, :2]
+    c = xy.mean(axis=0)
+    # direction of the wall in plan: the longest horizontal spread of its corners
+    d = xy - c
+    _u, _s, vt = np.linalg.svd(d, full_matrices=False)
+    u = vt[0]
+    if not np.isfinite(u).all() or np.linalg.norm(u) < 1e-12:
+        return None
+    s = d @ u
+    if float(s.max() - s.min()) <= 1e-9 or float(np.abs(d @ np.array([-u[1], u[0]])).max()) > max(t, 1e-6) * 2:
+        return None  # a point in plan, or not a vertical wall
+    n = np.array([-u[1], u[0]]) * (0.5 * t)
+    a, b = c + u * s.min(), c + u * s.max()
+    return [tuple(a - n), tuple(b - n), tuple(b + n), tuple(a + n)]
+
+
 def visible_sets(model: Model, story: Optional[str] = None, plane: Optional[Tuple[str, float]] = None,
                  tol: Optional[float] = None):
     """Objects shown by a filtered window: ``story`` (plan view of one story)
@@ -389,7 +414,9 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
             poly = vtk.vtkPolyData()
             poly.SetPoints(_points(np.array(coords)))
             poly.SetLines(lines)
-            out.actors[key] = _actor_from_polydata(poly, color, line_width=width, lighting=False)
+            out.actors[key] = _actor_from_polydata(
+                poly, color, line_width=width, lighting=False,
+                opacity=gopacity("column_lines") if ftype == "Column" else 1.0)
             # selected frames highlighted
             if sel:
                 out.actors[key + "_sel"] = _frame_lines_actor(model, sel, COLORS["selection"], width + 2.5,
@@ -466,7 +493,9 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
                     out.actors[key + "_solid_edges"] = _actor_from_polydata(sedges.GetOutput(), COLORS["area_edge"],
                                                                             1.0, lighting=False)
                     continue
-            if opts.fill_areas:
+            # an opening is a hole: no fill of its own (the floor / wall around it is cut),
+            # only its outline - so it reads as open, extruded or not
+            if opts.fill_areas and color_key != "opening":
                 out.actors[key] = _actor_from_polydata(fill, color, opacity=opacity * (0.6 if story else 1.0))
             if not (opts.edges or not opts.fill_areas):
                 continue
@@ -510,7 +539,46 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
             poly.SetPoints(_points(np.array(coords, float)))
             poly.SetPolys(polys)
             key = "column_markers" if gkey == "column" else f"column_markers_{gkey}"
-            out.actors[key] = _actor_from_polydata(poly, color, lighting=False)
+            # a little see-through: the joints, line and area ends under it stay visible
+            # (is the beam really snapped to the column?)
+            out.actors[key] = _actor_from_polydata(poly, color, opacity=gopacity("column_plan"), lighting=False)
+    # ---- plan-view walls with their thickness (like the column outlines) ------
+    # a wall is an edge-on line in plan; its footprint rectangle (length x thickness)
+    # is drawn at the story level.  Only in plan windows: elevations / 3-D keep the
+    # wall as its mid-plane (Extrude shows the real solid everywhere).
+    if base_on and story is not None and not extruded and opts.shows_area_type("Wall"):
+        walls = [a for a in model.areas.values() if a.type == "Wall" and (vis_a is None or a.name in vis_a)]
+        z = model.stories[story].elevation if story in model.stories else 0.0
+        dz = _tube_radius(model) * 0.5
+        groups = {}
+        for a in walls:
+            fp = wall_footprint(model, a)
+            if fp is None:
+                continue
+            gkey, color = _group_color(model, a, "area", "wall")
+            groups.setdefault(gkey, (color, []))[1].append(fp)
+        for gkey, (color, fps) in groups.items():
+            coords, polys = [], vtk.vtkCellArray()
+            for fp in fps:
+                start = len(coords)
+                coords += [(x, y, z + dz) for x, y in fp]
+                polys.InsertNextCell(4)
+                for k in range(4):
+                    polys.InsertCellPoint(start + k)
+            poly = vtk.vtkPolyData()
+            poly.SetPoints(_points(np.array(coords, float)))
+            poly.SetPolys(polys)
+            key = "wall_plan" if gkey == "wall" else f"wall_plan_{gkey}"
+            out.actors[key] = _actor_from_polydata(poly, color, opacity=gopacity("wall_plan"), lighting=False)
+            edges = vtk.vtkFeatureEdges()
+            edges.SetInputData(poly)
+            edges.BoundaryEdgesOn()
+            edges.FeatureEdgesOff()
+            edges.ManifoldEdgesOff()
+            edges.NonManifoldEdgesOff()
+            edges.Update()
+            out.actors[key + "_edges"] = _actor_from_polydata(edges.GetOutput(), color,
+                                                              gsize("area_edge_width"), lighting=False)
     # ---- selected areas / points --------------------------------------------
     sel_areas = [model.areas[n] for n in selected_areas if n in model.areas] if sel_on else []
     if sel_areas:
@@ -655,19 +723,46 @@ def build_story_plane(model: Model, story: Optional[str]) -> List[vtk.vtkProp]:
     so the user sees which floor the plan window is showing."""
     if not story or story not in model.stories:
         return []
-    z = model.stories[story].elevation
+    return build_view_plane(model, "plan", model.stories[story].elevation, story)
+
+
+def _plan_box(model: Model):
     g = _grid_extent(model)
     if g is not None:
         xs, ys, x0, x1, y0, y1, ext = g
-        x0, x1, y0, y1 = x0 - ext * 0.5, x1 + ext * 0.5, y0 - ext * 0.5, y1 + ext * 0.5
-    elif model.points:
+        return x0 - ext * 0.5, x1 + ext * 0.5, y0 - ext * 0.5, y1 + ext * 0.5
+    if model.points:
         xyz = np.array([p.xyz for p in model.points.values()])
         (x0, y0), (x1, y1) = xyz[:, :2].min(0), xyz[:, :2].max(0)
         ext = max(x1 - x0, y1 - y0, 1.0) * 0.05
-        x0, x1, y0, y1 = x0 - ext, x1 + ext, y0 - ext, y1 + ext
+        return x0 - ext, x1 + ext, y0 - ext, y1 + ext
+    return None
+
+
+def build_view_plane(model: Model, kind: str, value: float, label: str = "") -> List[vtk.vtkProp]:
+    """The plane a plan / elevation window shows, as a faint shaded rectangle with an
+    outline and its name, for the 3D windows: ``kind`` "plan" (z = value), "xz"
+    (an elevation at y = value) or "yz" (x = value)."""
+    box = _plan_box(model)
+    if box is None:
+        return []
+    x0, x1, y0, y1 = box
+    if kind == "plan":
+        z = float(value)
+        corners = np.array([(x0, y0, z), (x1, y0, z), (x1, y1, z), (x0, y1, z)], float)
+    elif kind in ("xz", "yz"):
+        zs = [s.elevation for s in model.stories.values()] or [p.z for p in model.points.values()] or [0.0]
+        z0, z1 = min(zs), max(zs)
+        dz = max(z1 - z0, 1.0) * 0.06
+        z0, z1 = z0 - dz, z1 + dz
+        if kind == "xz":  # vertical, along X at y = value
+            y = float(value)
+            corners = np.array([(x0, y, z0), (x1, y, z0), (x1, y, z1), (x0, y, z1)], float)
+        else:  # along Y at x = value
+            x = float(value)
+            corners = np.array([(x, y0, z0), (x, y1, z0), (x, y1, z1), (x, y0, z1)], float)
     else:
         return []
-    corners = np.array([(x0, y0, z), (x1, y0, z), (x1, y1, z), (x0, y1, z)], float)
     poly = vtk.vtkPolyData()
     poly.SetPoints(_points(corners))
     cells = vtk.vtkCellArray()
@@ -676,7 +771,7 @@ def build_story_plane(model: Model, story: Optional[str]) -> List[vtk.vtkProp]:
         cells.InsertCellPoint(k)
     poly.SetPolys(cells)
     color = COLORS.get("story_plane", (0.2, 0.5, 0.9))
-    face = _actor_from_polydata(poly, color, opacity=0.13, lighting=False)
+    face = _actor_from_polydata(poly, color, opacity=gopacity("view_plane"), lighting=False)
     face.GetProperty().SetBackfaceCulling(False)
     lines = vtk.vtkCellArray()
     for k in range(4):
@@ -687,8 +782,11 @@ def build_story_plane(model: Model, story: Optional[str]) -> List[vtk.vtkProp]:
     outline.SetPoints(_points(corners))
     outline.SetLines(lines)
     edge = _actor_from_polydata(outline, color, 2.0, opacity=0.7, lighting=False)
-    label = _text_labels(_points_of([(x0, y0, z)]), _strings([story]), color, _text_pt(2))
-    return [face, edge, label]
+    out = [face, edge]
+    if label:
+        out.append(_text_labels(_points_of([corners[3] if kind != "plan" else corners[0]]), _strings([label]),
+                                color, _text_pt(2)))
+    return out
 
 
 def _points_of(coords) -> vtk.vtkPoints:

@@ -79,7 +79,8 @@ DRAW_PALETTE = [
     ("Draw Joints", ["point"]),
     ("Draw Beams", ["beam", "quick_beam", "secondary_beams"]),
     ("Draw Columns", ["column", "quick_column"]),
-    ("Draw Braces", ["brace", "quick_brace"]),
+    # braces: drawn with the line tool (Draw Beam / Column / Brace); only the bay click here
+    ("Quick Draw Braces", ["quick_brace"]),
     ("Draw Floors", ["slab", "rect_slab", "quick_slab"]),
     ("Draw Walls", ["wall", "quick_wall"]),
     ("Draw Openings", ["opening"]),

@@ -116,6 +116,7 @@ class ViewportArea(QtWidgets.QWidget):
             v.set_active(v is vp)
         if vp.config.kind != "3d":
             self.state.tool.set_plane(vp.plane())
+            self._last_2d = vp
         self.active_changed.emit(vp)
         self._update_highlight()
 
@@ -130,11 +131,28 @@ class ViewportArea(QtWidgets.QWidget):
                     return v.config.story
         return None
 
+    def highlight_target(self):
+        """(kind, value, label) of the plane the 3D windows shade: the active plan /
+        elevation window, else the 2-D window used last, else the first plan shown."""
+        cands = [self.active, getattr(self, "_last_2d", None)]
+        cands += [v for v in self.visible_viewports() if v.config.kind == "plan"]
+        for v in cands:
+            if v is None or v not in self.viewports or v.config.kind == "3d":
+                continue
+            p = v.plane()
+            if v.config.kind == "plan":
+                label = p.story or f"Z = {p.value:g}"
+            else:
+                axis = "Y" if v.config.kind == "xz" else "X"
+                label = f"{v.config.grid}  ({axis} = {p.value:g})" if v.config.grid else f"{axis} = {p.value:g}"
+            return (v.config.kind, float(p.value), label)
+        return None
+
     def _update_highlight(self):
-        story = self.plan_story()
+        spec = self.highlight_target()
         for v in self.viewports:
             if v.config.kind == "3d":
-                v.set_highlight_story(story)
+                v.set_highlight_plane(spec)
         self.save()
 
     def edit_display(self, vp: Optional[ModelViewport] = None):
