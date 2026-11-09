@@ -427,7 +427,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
                                       tip="Display Settings")
         self.act_grid = self._make("Show Grid Lines", lambda c: self.views.set_option_all("grid_lines", c),
                                    "Ctrl+D", checkable=True, checked=True, icon_name="grid",
-                                   tip="Show / hide the grid lines in every window (Ctrl+D)")
+                                   tip="Show / hide the grid lines (Ctrl+D)")
         self.act_bubbles = self._make("Show Grid Bubbles (A, B, 1, 2)",
                                       lambda c: self.views.set_option_all("grid_bubbles", c), checkable=True,
                                       checked=True)

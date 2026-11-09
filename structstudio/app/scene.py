@@ -768,6 +768,8 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
         for k, a in enumerate(_local_axes_actors(model, vis_frames)):
             out.actors[f"local_axes_{k}"] = a
     # ---- grids ----------------------------------------------------------------
+    # the grid names (bubbles) belong to the grid lines: hiding the lines hides them too
+    bubbles_on = opts.grid_bubbles and opts.grid_lines
     if not base_on:
         pass
     elif plane is not None and plane[0] == "z":  # free plan: the plan grid at that elevation
@@ -775,13 +777,13 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
             g = build_grid_actor(model, None, levels=[float(plane[1])])
             if g is not None:
                 out.actors["grids"] = g
-        if opts.grid_bubbles and model.grid_lines and model.stories:
+        if bubbles_on and model.grid_lines and model.stories:
             out.actors["grid_bubbles"] = build_grid_bubbles(model, None, z=float(plane[1]))
     elif plane is not None:
-        if opts.grid_lines or opts.grid_bubbles:
+        if opts.grid_lines:
             elev = build_elevation_grid(model, plane)
             for k, a in enumerate(elev):
-                if (k == 0 and opts.grid_lines) or (k > 0 and opts.grid_bubbles):
+                if (k == 0 and opts.grid_lines) or (k > 0 and bubbles_on):
                     out.actors[f"elev_grid_{k}"] = a
     else:
         levels = None if story is not None else grid_levels(model, opts.grid_3d)
@@ -808,7 +810,7 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
                 vert = build_vertical_grid_actor(model)
                 if vert is not None:
                     out.actors["grid_vertical"] = vert
-        if opts.grid_bubbles and model.grid_lines and model.stories:
+        if bubbles_on and model.grid_lines and model.stories:
             out.actors["grid_bubbles"] = build_grid_bubbles(model, story, z=levels[0] if levels else None)
     # ---- reference lines (CYPE 3D) --------------------------------------------
     if base_on and getattr(opts, "reference_lines", False):

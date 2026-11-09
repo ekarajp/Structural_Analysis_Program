@@ -248,3 +248,12 @@ def test_selected_wall_shows_in_plan():
     b = acts["areas_sel"].GetMapper().GetInput().GetBounds()
     z = m.stories[story].elevation
     assert b[4] >= z and b[1] - b[0] > 5.0 and b[3] - b[2] > 0.0  # the footprint outline at the story
+
+
+def test_grid_names_go_with_the_grid_lines():
+    m = _model()
+    for kw in ({}, {"story": next(iter(m.stories))}, {"plane": ("y", 0.0)}):
+        on = scene.build_model_actors(m, options=DisplayOptions(), **kw).actors
+        off = scene.build_model_actors(m, options=DisplayOptions(grid_lines=False), **kw).actors
+        assert any("bubble" in k or k.startswith("elev_grid_") for k in on)
+        assert not any("bubble" in k or k.startswith("elev_grid_") or k.startswith("grid") for k in off), kw
