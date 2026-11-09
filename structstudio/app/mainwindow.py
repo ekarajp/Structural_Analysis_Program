@@ -172,8 +172,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         self.views = ViewportArea(self.doc, self.state, settings)
         # Merge Joints / Move / grip drag onto a joint with different values: the user chooses
         from ..model import point_ops
-        from .merge_dialog import ask_merge_choices
-        point_ops.CONFLICT_RESOLVER = lambda items: ask_merge_choices(items, self)
+        point_ops.CONFLICT_RESOLVER = self._ask_merge_choices
         self.setCentralWidget(self.views)
         for vp in self.views.viewports:
             vp.object_info_requested.connect(self.show_object_info)
@@ -1536,7 +1535,14 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             event.ignore()
             return
         self.views.save()
+        from ..model import point_ops
+        if point_ops.CONFLICT_RESOLVER == self._ask_merge_choices:
+            point_ops.CONFLICT_RESOLVER = None  # never ask through a closed window
         super().closeEvent(event)
+
+    def _ask_merge_choices(self, items):
+        from .merge_dialog import ask_merge_choices
+        return ask_merge_choices(items, self)
 
     # ------------------------------------------------------------- define
     def _define(self, attr: str, title: str, factory):

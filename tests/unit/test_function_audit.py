@@ -28,6 +28,15 @@ from structstudio.model.base import ModelError  # noqa: E402
 from structstudio.model.nonlinear import LinkProperty  # noqa: E402
 from structstudio.model.objects import Frame, FrameLoad, GroundDisplacement, Group, LineSpring, PointLoad  # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def _no_merge_resolver():
+    """Each test starts with no merge dialog hooked (a window from an earlier test may have set one)."""
+    from structstudio.model import point_ops
+    point_ops.CONFLICT_RESOLVER = None
+    yield
+    point_ops.CONFLICT_RESOLVER = None
+
 CHILD = os.environ.get("STRUCTSTUDIO_GUI_CHILD") == "1"
 gui = pytest.mark.skipif(not CHILD, reason="runs in the child interpreter (test_window_cases_in_subprocess)")
 ASSIGN = ("restraints", "springs", "rotational_springs", "mass", "rotational_mass", "diaphragm", "local_axes",
@@ -764,9 +773,8 @@ def _conflicting_pair():
 @pytest.fixture
 def resolver():
     from structstudio.model import point_ops
-    old = point_ops.CONFLICT_RESOLVER
     yield point_ops
-    point_ops.CONFLICT_RESOLVER = old
+    point_ops.CONFLICT_RESOLVER = None
 
 
 def test_merge_asks_which_value_to_keep_and_uses_the_answer(resolver):
@@ -914,3 +922,11 @@ def test_gui_window_asks_merge_choices_in_a_dialog(window, monkeypatch, qapp):
     C.merge_joints(window.doc, [a.name, b.name], 0.001)
     assert shown == [1] and window.doc.model.points[a.name].mass == (2.0, 2.0, 2.0)
     assert point_ops.CONFLICT_RESOLVER is not None
+
+
+def test_gui_closed_window_unhooks_its_merge_dialog(window):
+    from structstudio.model import point_ops
+    assert point_ops.CONFLICT_RESOLVER == window._ask_merge_choices
+    window.doc.dirty = False
+    window.close()
+    assert point_ops.CONFLICT_RESOLVER is None
