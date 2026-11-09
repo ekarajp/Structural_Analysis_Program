@@ -47,7 +47,10 @@ class DataclassForm(QtWidgets.QWidget):
                 continue
             self.editors[f.name] = editor
             self.scales[f.name] = (k, editor.text() if isinstance(editor, QtWidgets.QLineEdit) else None)
-            self.form.addRow(f"{f.name} [{unit}]" if unit else f.name, editor)
+            from .symbols import rich
+            lab = QtWidgets.QLabel(rich(f"{f.name} [{unit}]" if unit else f.name))
+            lab.setTextFormat(QtCore.Qt.RichText)
+            self.form.addRow(lab, editor)
 
     def values(self) -> dict:
         from .panels import scaled

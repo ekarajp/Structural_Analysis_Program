@@ -81,7 +81,7 @@ def location_text(model: Model, attr: str, name: str) -> str:
     X = object_xyz(model, attr, name)
     if obj is None or X is None:
         return f"{name}: not in the model"
-    u = model.units.label("length")
+    u = model.units.shown("length")
     story = object_story(model, attr, name)
     at = f"{story}" if story else f"z = {X[:, 2].max():g} {u}"
     if attr == "points":

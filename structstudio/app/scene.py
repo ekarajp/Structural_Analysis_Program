@@ -179,6 +179,23 @@ def _visible(obj, story: Optional[str]) -> bool:
     return story is None or obj.story == story
 
 
+def opening_cross(P) -> list:
+    """The two diagonals (4 end points) of an opening: corner to opposite corner for a
+    quadrilateral, else the diagonals of its bounding rectangle in its plane."""
+    P = np.asarray(P, float)
+    if len(P) == 4:
+        return [P[0], P[2], P[1], P[3]]
+    from ..mesh import polygon2d as pg
+    try:
+        fr = pg.plane_frame(P)
+    except ValueError:
+        return []
+    Q = pg.to_2d(P, fr)
+    (u0, v0), (u1, v1) = Q.min(0), Q.max(0)
+    C = pg.to_3d([(u0, v0), (u1, v1), (u1, v0), (u0, v1)], fr)
+    return [C[0], C[1], C[2], C[3]]
+
+
 def inset_polygon(P: np.ndarray, model: Model) -> np.ndarray:
     """``P`` moved inward in its plane by a small distance (each edge parallel to
     itself): the dashed highlight of a selected floor / wall then sits inside the
@@ -197,10 +214,10 @@ def inset_polygon(P: np.ndarray, model: Model) -> np.ndarray:
     span = float(min(np.ptp(Q[:, 0]), np.ptp(Q[:, 1])))
     if span <= 0:
         return P
-    d = 0.04 * span
+    d = 0.08 * span
     typ = typical_member_length(model)
     if typ > 0:
-        d = min(d, 0.03 * typ)
+        d = min(d, 0.07 * typ)  # clear of the beams along the edges, even with many selected
     n = len(Q)
     out = []
     for i in range(n):
@@ -554,6 +571,14 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
             edges.Update()
             out.actors[key + "_edges"] = _actor_from_polydata(edges.GetOutput(), COLORS["area_edge"],
                                                               gsize("area_edge_width"), lighting=False)
+            if color_key == "opening" and (story is not None or plane is not None):
+                # the drawing symbol of an opening in plans / elevations: a dashed cross
+                seg = []
+                for a in areas:
+                    seg += opening_cross([pts[p].xyz for p in a.points])
+                if seg:
+                    out.actors[key + "_cross"] = _dashed_lines_actor(model, seg, COLORS["area_edge"],
+                                                                     max(1.0, gsize("area_edge_width") * 0.75))
     # ---- plan-view column markers (section outline at the story level) -------
     if base_on and story is not None and not extruded and opts.columns:
         cols = [f for f in model.frames.values() if f.type == "Column" and f.story == story
@@ -631,6 +656,15 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
     if sel_areas:
         seg = []
         for a in sel_areas:
+            if story is not None and a.type == "Wall":
+                # a wall is edge-on in plan: its footprint (thickness) outlined, dashed, at the story
+                fp = wall_footprint(model, a)
+                zs = model.stories[story].elevation if story in model.stories else 0.0
+                if fp is not None:
+                    C = [(x, y, zs + _tube_radius(model) * 0.6) for x, y in fp]
+                    for k in range(4):
+                        seg += [C[k], C[(k + 1) % 4]]
+                    continue
             P = inset_polygon(np.array([pts[p].xyz for p in a.points], float), model)
             n = len(P)
             for k in range(n):
@@ -951,25 +985,77 @@ def _joint_dots(points, radius: float = 0.0) -> vtk.vtkActor2D:
     return _screen_squares([p.xyz for p in points], COLORS.get("joint", COLORS["text"]), 6.0 * gsize("joint_size"))
 
 
+def spring_segments(p, size: float) -> List[np.ndarray]:
+    """Line segments (pairs of end points) of the spring support symbol of joint ``p``:
+    for every translational spring a zig-zag coil along that axis away from the joint,
+    ending on a ground bar with hatching (the structural-drawing spring support); for
+    every rotational spring a spiral round that axis at the joint.  The joint local
+    axes (an inclined support) turn the symbol with them."""
+    from .supports import _rot_from_local_axes
+    R = _rot_from_local_axes(getattr(p, "local_axes", None))  # columns: local 1, 2, 3 in global
+    c = np.array(p.xyz, float)
+    segs: List[np.ndarray] = []
+
+    def poly(pts):
+        for a, b in zip(pts[:-1], pts[1:]):
+            segs.extend([a, b])
+
+    for k in range(3):
+        if abs(float(p.springs[k])) <= 0:
+            continue
+        e = R[:, k]
+        # the coil leaves the joint downwards for UZ, towards -X / -Y for UX / UY
+        d = -e
+        side = R[:, (k + 1) % 3] if k != 2 else R[:, 0]
+        L = size * 1.3
+        lead = 0.18 * L
+        pts = [c, c + d * lead]
+        n = 6
+        for i in range(n):
+            t = lead + (L - 2 * lead) * (i + 0.5) / n
+            pts.append(c + d * t + side * (0.28 * size if i % 2 == 0 else -0.28 * size))
+        end = c + d * L
+        pts += [c + d * (L - lead), end]
+        poly(pts)
+        # ground: a bar across the coil and short hatch strokes behind it
+        bar = 0.45 * size
+        segs.extend([end - side * bar, end + side * bar])
+        for j in range(4):
+            q = end + side * (-bar + j * 2 * bar / 3)
+            segs.extend([q, q + d * 0.18 * size - side * 0.14 * size])
+    for k in range(3):
+        if abs(float(p.rotational_springs[k])) <= 0:
+            continue
+        e, u, v = R[:, k], R[:, (k + 1) % 3], R[:, (k + 2) % 3]
+        turns, m = 1.75, 36
+        pts = []
+        for i in range(m + 1):
+            th = 2 * math.pi * turns * i / m
+            r = size * (0.10 + 0.40 * i / m)
+            pts.append(c + e * 0.0 + (u * math.cos(th) + v * math.sin(th)) * r)
+        poly(pts)
+        tail = pts[-1]
+        segs.extend([tail, tail + v * 0.25 * size])  # anchored end
+    return segs
+
+
 def _spring_symbols(model: Model, points) -> vtk.vtkActor:
-    """Zig-zag under each joint with springs."""
+    """Spring supports (elastic): coils with a ground bar for translational springs,
+    spirals for rotational ones (see :func:`spring_segments`), so a spring reads
+    apart from a rigid restraint in every view - a horizontal spring shows in plan."""
     size = _tube_radius(model) * 5 * gsize("support_size")
-    coords, lines = [], vtk.vtkCellArray()
+    coords = []
     for p in points:
-        zz = [(p.x, p.y, p.z)]
-        for k in range(1, 7):
-            zz.append((p.x + (size * 0.3 if k % 2 else -size * 0.3), p.y, p.z - k * size / 6))
-        zz.append((p.x, p.y, p.z - size * 1.15))
-        start = len(coords)
-        coords += zz
-        for k in range(len(zz) - 1):
-            lines.InsertNextCell(2)
-            lines.InsertCellPoint(start + k)
-            lines.InsertCellPoint(start + k + 1)
+        coords += spring_segments(p, size)
+    lines = vtk.vtkCellArray()
+    for k in range(len(coords) // 2):
+        lines.InsertNextCell(2)
+        lines.InsertCellPoint(2 * k)
+        lines.InsertCellPoint(2 * k + 1)
     poly = vtk.vtkPolyData()
     poly.SetPoints(_points_of(coords))
     poly.SetLines(lines)
-    return _actor_from_polydata(poly, COLORS["support"], 2.0, lighting=False)
+    return _actor_from_polydata(poly, COLORS.get("spring", COLORS["support"]), gsize("spring_width"), lighting=False)
 
 
 RELEASE_RING_AT = 0.12  # pin symbol: this fraction of the member length in from the released end
@@ -2373,7 +2459,7 @@ def fmt_value(v: float) -> str:
 
 def _unit_text(model: Model, quantity: str) -> str:
     try:
-        u = model.units.label(quantity)
+        u = model.units.shown(quantity)
     except Exception:
         return ""
     return u.replace("^2", "²").replace("^3", "³")

@@ -229,3 +229,22 @@ def test_selected_area_highlight_sits_inside_the_area():
     assert np.all(R[:, :2] > lo + 1e-6) and np.all(R[:, :2] < hi - 1e-6)  # strictly inside
     assert np.allclose(R[:, 2], P[:, 2])  # in the floor's plane
     assert scene.build_model_actors(m, selected_areas={fl.name}, options=DisplayOptions()).actors["areas_sel"]
+
+
+def test_openings_carry_a_dashed_cross_in_plans_and_elevations():
+    m, _wall, fl, story = _with_wall_and_opening()
+    z = m.stories[story].elevation if story in m.stories else None
+    st = next(s for s, v in m.stories.items() if any(a.type == "Opening" and a.story == s for a in m.areas.values())) \
+        if any(a.story for a in m.areas.values() if a.type == "Opening") else story
+    plan = scene.build_model_actors(m, story=st, options=DisplayOptions()).actors
+    assert "areas_Opening_cross" in plan
+    assert "areas_Opening_cross" not in scene.build_model_actors(m, options=DisplayOptions()).actors  # not in 3D
+    assert len(scene.opening_cross([(0, 0, 0), (2, 0, 0), (2, 1, 0), (0, 1, 0)])) == 4
+
+
+def test_selected_wall_shows_in_plan():
+    m, wall, _fl, story = _with_wall_and_opening()
+    acts = scene.build_model_actors(m, story=story, selected_areas={wall.name}, options=DisplayOptions()).actors
+    b = acts["areas_sel"].GetMapper().GetInput().GetBounds()
+    z = m.stories[story].elevation
+    assert b[4] >= z and b[1] - b[0] > 5.0 and b[3] - b[2] > 0.0  # the footprint outline at the story

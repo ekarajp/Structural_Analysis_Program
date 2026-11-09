@@ -124,7 +124,7 @@ def _near(model: Model, p: np.ndarray, plan: bool, story: Optional[str], limit: 
         d = _dist_to(X, p, plan)
         out.append((round(d, 9), rank[attr], _natural(name), attr, name))
     out.sort()
-    u = model.units.label("length")
+    u = model.units.shown("length")
     return [Hit(attr, name, f"{_describe(model, attr, name)}   ({d:.3f} {u} away)",
                 tuple(p), score=d, query="location") for d, _r, _n, attr, name in out[:limit]]
 
@@ -183,7 +183,7 @@ def find_objects(model: Model, text: str, limit: int = 30) -> List[Hit]:
 
 def _location_hits(model, p, plan, story, limit, tol) -> List[Hit]:
     near = _near(model, p, plan, story, limit)
-    u = model.units.label("length")
+    u = model.units.shown("length")
     where = (f"x = {p[0]:g}, y = {p[1]:g}" + ("" if plan else f", z = {p[2]:g}") + f" {u}"
              + f"  ·  grid {locate.grid_ref(model, p)}" + (f"  ·  {story}" if story else ""))
     exact = [h for h in near if h.score <= tol]

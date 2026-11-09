@@ -9,7 +9,8 @@ from dataclasses import asdict, dataclass, fields
 from typing import Dict, List, Tuple
 
 GRID_3D = ("all", "base", "top")
-VERSION = 4  # v2: line view by default, vertical grid lines in 3D; v3: 3D grid at every story; v4: joints shown
+VERSION = 5  # v2: line view by default, vertical grid lines in 3D; v3: 3D grid at every story; v4: joints shown;
+# v5: spring supports shown
 GRID_3D_LABELS = {"base": "At the base level", "all": "At every story / level", "top": "At the top level"}
 
 
@@ -27,7 +28,7 @@ class DisplayOptions:
     openings: bool = True
     # ---- assignments
     supports: bool = True
-    springs: bool = False
+    springs: bool = True  # spring supports (elastic): drawn like the rigid supports
     releases: bool = True  # pins / releases: rings near the released ends
     local_axes: bool = False
     # ---- labels
@@ -69,6 +70,8 @@ class DisplayOptions:
                     continue
                 if ver < 4 and f.name in ("joints", "releases"):
                     continue  # older windows were saved with the joints hidden by default  # v1/v2 windows were saved with the grid at the base only
+                if ver < 5 and f.name == "springs":
+                    continue  # older windows were saved with the spring supports hidden
                 if f.name in d:
                     v = d[f.name]
                     if f.type in ("bool", bool):

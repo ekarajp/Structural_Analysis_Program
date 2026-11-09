@@ -245,6 +245,7 @@ class ModelViewport(QtWidgets.QWidget):
         self._highlight_actors: List[vtk.vtkProp] = []
         self.highlight_story: Optional[str] = None  # story of the plan window, shaded in 3D
         self.highlight_plane = None  # (kind, value, label) of the active plan / elevation, shaded in 3D
+        self.axes_frames: set = set()  # members whose local axes are shown (right-click)
         # View > Show Selected Objects Only / Make Selected Objects Invisible (per window)
         self.hidden: Tuple[Set[str], Set[str], Set[str]] = (set(), set(), set())
         self._hidden_history: List[Tuple[Set[str], Set[str], Set[str]]] = []
@@ -682,7 +683,6 @@ class ModelViewport(QtWidgets.QWidget):
         """Re-read the active colours (theme switch / colour edit) and redraw."""
         self.renderer.SetBackground(*scene.COLORS["background_bottom"])
         self.renderer.SetBackground2(*scene.COLORS["background_top"])
-        self.text.GetTextProperty().SetColor(*scene.COLORS["preview"])
         bg = scene.COLORS["background_top"]
         self.viewcube.apply_colors(dark=(0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2]) < 0.5)
         self._style_tip()
@@ -710,8 +710,10 @@ class ModelViewport(QtWidgets.QWidget):
             tp.SetBold(True)
             tp.SetItalic(False)
         tp = self.text.GetTextProperty()
-        tp.SetBackgroundColor(*((0.12, 0.13, 0.16) if dark else (1.0, 1.0, 1.0)))
-        tp.SetBackgroundOpacity(0.85)
+        tp.SetColor(*fg)  # the guide line: the theme's text colour (pink was hard to read)
+        tp.SetBold(True)
+        tp.SetBackgroundColor(*((0.24, 0.23, 0.13) if dark else (1.0, 0.96, 0.76)))
+        tp.SetBackgroundOpacity(0.92)
 
     def _style_tip(self):
         tp = self.tip.GetTextProperty()
@@ -829,10 +831,12 @@ class ModelViewport(QtWidgets.QWidget):
         sel_only = menu.addAction("Show only the selected objects") if (st.frames or st.areas or st.points) else None
         hide = menu.addAction("Hide this object")
         show_all = menu.addAction("Show all objects") if any(self.hidden) else None
-        menu.addSeparator()
-        axes = menu.addAction("Show local axes 1 2 3")
-        axes.setCheckable(True)
-        axes.setChecked(self.display_options.local_axes)
+        axes = None
+        if kind == "frame":  # joints / supports have no member axes; areas: Display Options
+            menu.addSeparator()
+            axes = menu.addAction("Show local axes 1 2 3 of this member")
+            axes.setCheckable(True)
+            axes.setChecked(name in self.axes_frames)
         h = self.vtk_widget.height()
         r = self.vtk_widget.devicePixelRatioF() or 1.0
         a = menu.exec(self.vtk_widget.mapToGlobal(QtCore.QPoint(int(x / r), int(h - y / r))))
@@ -850,10 +854,14 @@ class ModelViewport(QtWidgets.QWidget):
             self.hide_object(kind, name)
         elif show_all is not None and a is show_all:
             self.show_all_objects()
-        elif a is axes:
-            o = self.display_options
-            o.local_axes = not o.local_axes
-            self.set_display_options(o)
+        elif axes is not None and a is axes:
+            self.toggle_member_axes(name)
+
+    def toggle_member_axes(self, name: str):
+        """Local axes of one member on / off (right-click), not of every member."""
+        self.axes_frames ^= {name}
+        self.invalidate("overlays")
+        self.flush() if self.isVisible() else None
 
     def invert_visibility(self):
         m = self.doc.model
@@ -1250,6 +1258,12 @@ class ModelViewport(QtWidgets.QWidget):
         extr = bool(getattr(self.display_options, "extrude", False))
         shown, fcol, contour_on = self._result_flags(rd)
         self._style_scene(rd)
+        # right-click > Show local axes: the axes of those members only (all members:
+        # Set Display Options > Frame local axes)
+        axes_of = [n for n in getattr(self, "axes_frames", set()) if n in self.doc.model.frames]
+        if axes_of and not self.display_options.local_axes:
+            self._overlay_actors += scene._local_axes_actors(self.doc.model,
+                                                             [self.doc.model.frames[n] for n in axes_of])
         if getattr(self.display_options, "analysis_mesh", False) and res is not None:
             # Set Display Options > Analysis mesh: the mesh the analysis used (nothing
             # before an analysis)

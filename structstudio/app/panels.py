@@ -112,7 +112,7 @@ class ModelTree(QtWidgets.QTreeWidget):
         root = self._node(None, f"{m.info.name}  [{m.units.force}-{m.units.length}]", data=("model", ""), key="model")
         # --- Structure Layout
         lay = self._node(None, "Structure Layout", key="layout")
-        u = m.units.label("length")
+        u = m.units.shown("length")
         title = "Levels (Z grid)" if m.grid_mode == "xyz" else "Stories"
         sto = self._node(lay, title, len(m.stories), data=("stories", ""), key="stories")
         for name in self._story_order():
@@ -692,7 +692,8 @@ class _RowsModel(QtCore.QAbstractTableModel):
         if role != QtCore.Qt.DisplayRole:
             return None
         if orientation == QtCore.Qt.Horizontal:
-            return self.cols[section] if section < len(self.cols) else None
+            from .symbols import pretty
+            return pretty(self.cols[section]) if section < len(self.cols) else None
         return str(section + 1)
 
 

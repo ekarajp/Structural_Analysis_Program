@@ -480,7 +480,6 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
         ("Dark / Light Mode", "window.theme"),
         ("Customize Toolbars...", "options.toolbars"),
         ("Graphics", [
-            ("Graphics Preferences", "options.theme_menu"),
             ("Color Objects By", "options.color_by_menu"),
             ("Graphics Colors", [("Display Colors...", "options.colors_display"),
                                  ("Output Colors...", "options.colors_output")]),

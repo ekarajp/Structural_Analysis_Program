@@ -110,7 +110,7 @@ class UnitsDialog(QtWidgets.QDialog):
         self.table.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
         for r, (label, q) in enumerate(ITEMS):
             self.table.setItem(r, 0, QtWidgets.QTableWidgetItem(label))
-            self.table.setItem(r, 1, QtWidgets.QTableWidgetItem(units.label(q)))
+            self.table.setItem(r, 1, QtWidgets.QTableWidgetItem(units.shown(q)))
             self.table.setItem(r, 2, QtWidgets.QTableWidgetItem(""))
         l1.addWidget(self.table, 1)
         n1 = QtWidgets.QLabel(

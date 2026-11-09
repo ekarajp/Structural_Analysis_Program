@@ -631,7 +631,7 @@ class MenuCommandsMixin:
             _, _, rep = panel_loads_to_members(m)
         except Exception as exc:
             return QtWidgets.QMessageBox.warning(self, "Load report", str(exc))
-        u = m.units.label("force")
+        u = m.units.shown("force")
         lines = [f"{'Panel':<8} {'On':<10} {'Distribution':<9} {'Pattern':<10} {'Applied':>12} {'Carried':>12}"]
         totals = {}
         for name, per in rep.items():
@@ -793,8 +793,14 @@ class MenuCommandsMixin:
         if not self._need("point"):
             return
         p = self._first("point")
-        fields = [(f"k{i}", f"{lab} stiffness", float(val)) for i, (lab, val) in
-                  enumerate(zip(DOF_LABELS, tuple(p.springs) + tuple(p.rotational_springs)))]
+        u = self.doc.model.units
+        ku, kr = u.label("translational_stiffness"), u.label("rotational_stiffness")
+        fields = [("-", f"Translational springs ({ku})")]
+        vals = tuple(p.springs) + tuple(p.rotational_springs)
+        for i, lab in enumerate(DOF_LABELS):
+            if i == 3:
+                fields.append(("-", f"Rotational springs ({kr})"))
+            fields.append((f"k{i}", f"{lab} stiffness  [{ku if i < 3 else kr}]", float(vals[i])))
         v = ask(self, "Assign Joint Springs", fields)
         if v:
             k = [v[f"k{i}"] for i in range(6)]
@@ -804,10 +810,14 @@ class MenuCommandsMixin:
         if not self._need("point"):
             return
         p = self._first("point")
+        mu = self.doc.model.units.shown("mass")
+        mi = f"{mu}·{self.doc.model.units.shown('length')}²"
         v = ask(self, "Assign Joint Additional Mass", [
-            ("ux", "Mass UX", float(p.mass[0])), ("uy", "Mass UY", float(p.mass[1])),
-            ("uz", "Mass UZ", float(p.mass[2])), ("rx", "Mass moment RX", float(p.rotational_mass[0])),
-            ("ry", "Mass moment RY", float(p.rotational_mass[1])), ("rz", "Mass moment RZ", float(p.rotational_mass[2]))])
+            ("ux", f"Mass UX  [{mu}]", float(p.mass[0])), ("uy", f"Mass UY  [{mu}]", float(p.mass[1])),
+            ("uz", f"Mass UZ  [{mu}]", float(p.mass[2])),
+            ("rx", f"Mass moment RX  [{mi}]", float(p.rotational_mass[0])),
+            ("ry", f"Mass moment RY  [{mi}]", float(p.rotational_mass[1])),
+            ("rz", f"Mass moment RZ  [{mi}]", float(p.rotational_mass[2]))])
         if v:
             C.assign(self.doc, "point", self._names("point"), mass=(v["ux"], v["uy"], v["uz"]),
                      rotational_mass=(v["rx"], v["ry"], v["rz"]))

@@ -150,6 +150,14 @@ class UnitSystem:
             out += part if part.startswith("/") else "-" + part
         return out
 
+    def shown(self, quantity: str) -> str:
+        """:meth:`label` as it is printed on screen: powers as superscripts and a
+        middle dot between units (``kN·m``, ``kN/m²``, ``kN·s²/m``)."""
+        sup = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
+        import re
+        out = re.sub(r"\^(-?\d+)", lambda m: m.group(1).translate(sup), self.label(quantity))
+        return out.replace("-", "·") if out != "-" else out
+
     @classmethod
     def parse(cls, text: str) -> "UnitSystem":
         """Parse strings like ``"kN-m"``, ``"kip in"``, ``"KIP,IN,F"``."""

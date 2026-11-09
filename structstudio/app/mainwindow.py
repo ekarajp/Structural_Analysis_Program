@@ -1174,7 +1174,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
                 vp.flash(X)
                 vp.zoom_to(np.vstack([X - 2.0, X + 2.0]))
                 shown += 1
-        u = m.units.label("length")
+        u = m.units.shown("length")
         x, y, z = hit.xyz
         text = (f"Location x = {x:g}, y = {y:g}, z = {z:g} {u}  ·  grid {locate.grid_ref(m, X[0])}"
                 + (f"  ·  {st.name}" if st else "") + ("" if shown else "   (not in the open windows)"))
@@ -1212,10 +1212,10 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         """Bottom left: what to do next in the current command (every tool)."""
         self.hint_label = QtWidgets.QLabel("")
         self.hint_label.setObjectName("commandHint")
-        self.hint_label.setStyleSheet("QLabel#commandHint { padding: 0 6px; font-weight: 600; }")
+        self._style_hint_label()
         self.hint_label.setTextInteractionFlags(QtCore.Qt.NoTextInteraction)
         self.statusBar().addWidget(self.hint_label, 1)
-        self.state.hint_changed.connect(self.hint_label.setText)
+        self.state.hint_changed.connect(self._set_hint)
         self.state.update_hint()
         # Esc / Enter reach the command even when the keyboard focus is on a panel
         # (Model tree, the section list of Properties of Object ...), not the model window
@@ -1333,6 +1333,29 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         theme.apply(settings)
         theme.apply_qt(QtWidgets.QApplication.instance(), settings)
         icons.set_ink(settings.ui()["ink"])
+        self._style_hint_label(settings.theme)
+
+    def _set_hint(self, text: str):
+        self.hint_label.setText(text)
+        empty = not (text or "").strip()
+        if self.hint_label.property("empty") != empty:
+            self.hint_label.setProperty("empty", empty)
+            self.hint_label.style().unpolish(self.hint_label)
+            self.hint_label.style().polish(self.hint_label)
+
+    def _style_hint_label(self, which: Optional[str] = None):
+        """The command guide in the status bar ("Next: pick the base point ..."): dark
+        text on a pale yellow chip (light mode), light on a deep one (dark mode), so it
+        reads whatever the window colour behind it."""
+        lab = getattr(self, "hint_label", None)
+        if lab is None:
+            return
+        which = which or getattr(getattr(self, "color_settings", None), "theme", "light")
+        bg, fg, edge = (("#3d3a22", "#fff3b0", "#6b6532") if which == "dark"
+                        else ("#fff4c2", "#1d2633", "#d9c56a"))
+        lab.setStyleSheet(f"QLabel#commandHint {{ padding: 1px 8px; font-weight: 600; color: {fg};"
+                          f" background: {bg}; border: 1px solid {edge}; border-radius: 3px; }}"
+                          "QLabel#commandHint[empty=\"true\"] { background: transparent; border: none; }")
 
     def _style_grid_switch(self):
         u = self.color_settings.ui()

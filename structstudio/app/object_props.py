@@ -16,6 +16,7 @@ from PySide6 import QtCore, QtWidgets
 
 from .document import Document
 from .forms import display_units
+from .symbols import pretty
 from .state import ViewState
 from .tools import TOOL_PROPERTIES
 
@@ -115,14 +116,14 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
         for label, value in rows:
             r = self.table.rowCount()
             self.table.insertRow(r)
-            it = QtWidgets.QTableWidgetItem(label)
+            it = QtWidgets.QTableWidgetItem(pretty(label))  # m², I₃₃, f′c, φ ...
             self.table.setItem(r, 0, it)
             if label in edits:
                 self.table.setCellWidget(r, 1, edits[label])
                 self.editors["sel:" + label] = edits[label]
                 continue
-            v = QtWidgets.QTableWidgetItem(value)
-            v.setToolTip(value)
+            v = QtWidgets.QTableWidgetItem(pretty(value))
+            v.setToolTip(pretty(value))
             if label.startswith("  "):
                 it.setForeground(QtCore.Qt.gray)
             if value.startswith("!"):
@@ -387,8 +388,8 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
             du = display_units()
             if item and du is not None:
                 label = f"{label} [{du.label(item)}]"
-            it = QtWidgets.QTableWidgetItem(label)
-            it.setToolTip(str(extra) if isinstance(extra, str) else "")
+            it = QtWidgets.QTableWidgetItem(pretty(label))
+            it.setToolTip(pretty(str(extra)) if isinstance(extra, str) else "")
             self.table.setItem(r, 0, it)
             w = self._editor(key, kind, extra, s, m)
             self.table.setCellWidget(r, 1, w)

@@ -157,3 +157,16 @@ def test_local_axes_colours_and_sizes_are_settings():
     for t in th.THEMES:
         assert {"axis_1", "axis_2", "axis_3"} <= set(th.DEFAULTS[t])
     assert {"local_axes_length", "local_axes_width", "local_axes_text", "local_axes_gap"} <= set(th.SIZE_KEYS)
+
+
+def test_object_colours_are_distinct_and_the_page_is_flat():
+    """Columns, supports, beams, braces, walls, loads and the selection read apart."""
+    from structstudio.app import theme as th
+    keys = ("beam", "column", "brace", "wall", "support", "load", "selection")
+    for t in th.THEMES:
+        c = th.DEFAULTS[t]
+        for i, a in enumerate(keys):
+            for b in keys[i + 1:]:
+                assert sum(abs(x - y) for x, y in zip(c[a], c[b])) > 0.45, (t, a, b)
+        assert c["background_top"] == c["background_bottom"]  # one flat colour
+    assert th.DEFAULTS["light"]["background_top"] == (1.0, 1.0, 1.0)

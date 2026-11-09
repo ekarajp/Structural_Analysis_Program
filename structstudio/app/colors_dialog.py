@@ -127,8 +127,9 @@ class GraphicsColorsDialog(QtWidgets.QDialog):
                     for key, label, default, values in CHOICE_ITEMS:
                         grid.addWidget(QtWidgets.QLabel("   " + label), row, 0)
                         box = QtWidgets.QComboBox()
+                        box.setIconSize(QtCore.QSize(26, 26))
                         for v, text in values:
-                            box.addItem(text, v)
+                            box.addItem(self._shape_icon(v), text, v)
                         box.currentIndexChanged.connect(lambda _i, k=key, bx=box: self._set_choice(k, bx.currentData()))
                         grid.addWidget(box, row, 1)
                         rb = _default_button(f"Back to the default ({dict(values)[default]})")
@@ -303,6 +304,7 @@ class GraphicsColorsDialog(QtWidgets.QDialog):
             cb.setChecked(self.settings.option(key))
             cb.blockSignals(False)
             self.option_resets[key].setEnabled(key in self.settings.options)
+        self._refresh_shape_icons()
         for key, box in self.choice_boxes.items():
             box.blockSignals(True)
             box.setCurrentIndex(max(0, box.findData(self.settings.choice(key))))
@@ -320,6 +322,8 @@ class GraphicsColorsDialog(QtWidgets.QDialog):
     def _set(self, key, rgb):
         self.settings.set_color(key, rgb)
         self.custom_marks[key].setEnabled(self.settings.is_custom(key))
+        if key in ("free_point", "background_top"):
+            self._refresh_shape_icons()
 
     def _set_opacity(self, key, percent):
         self.settings.set_opacity(key, percent / 100.0)
@@ -332,6 +336,34 @@ class GraphicsColorsDialog(QtWidgets.QDialog):
     def _set_option(self, key, on):
         self.settings.set_option(key, on)
         self.option_resets[key].setEnabled(key in self.settings.options)
+
+    def _shape_icon(self, shape: str):
+        """A picture of the drawing-cursor shape, in its colour on the window background."""
+        from PySide6 import QtGui
+        from .snap_icons import FREE_SHAPES
+        from .theme import to_hex
+        cols = self.settings.colors()
+        size = 26
+        pm = QtGui.QPixmap(size, size)
+        pm.fill(QtGui.QColor(to_hex(cols["background_top"])))
+        p = QtGui.QPainter(pm)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        pen = QtGui.QPen(QtGui.QColor(to_hex(cols["free_point"])), 2.0)
+        pen.setCapStyle(QtCore.Qt.RoundCap)
+        p.setPen(pen)
+        r, c = size * 0.36, size / 2.0
+        for st in FREE_SHAPES.get(shape, FREE_SHAPES["cross"]):
+            path = QtGui.QPainterPath(QtCore.QPointF(c + r * st[0][0], c - r * st[0][1]))
+            for x, y in st[1:]:
+                path.lineTo(c + r * x, c - r * y)
+            p.drawPath(path)
+        p.end()
+        return QtGui.QIcon(pm)
+
+    def _refresh_shape_icons(self):
+        for key, box in self.choice_boxes.items():
+            for i in range(box.count()):
+                box.setItemIcon(i, self._shape_icon(box.itemData(i)))
 
     def _set_choice(self, key, value):
         self.settings.set_choice(key, value)

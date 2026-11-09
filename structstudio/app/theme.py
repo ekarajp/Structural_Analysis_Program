@@ -43,6 +43,7 @@ COLOR_ITEMS: List[Tuple[str, str, str]] = [
     ("opening", "Openings / null areas", "Objects"),
     ("area_edge", "Area edges", "Objects"),
     ("support", "Supports", "Objects"),
+    ("spring", "Spring supports", "Objects"),
     ("axis_1", "Local axis 1 (arrow and number)", "Objects"),
     ("axis_2", "Local axis 2 (arrow and number)", "Objects"),
     ("axis_3", "Local axis 3 (arrow and number)", "Objects"),
@@ -95,6 +96,7 @@ SIZE_ITEMS: List[Tuple[str, str, float, float, float, float, str]] = [
     ("label_text", "Object labels and grid bubbles (text)", 11.0, 6.0, 36.0, 1.0, " pt"),
     ("bubble_size", "Grid bubble circle (diameter)", 1.0, 0.25, 4.0, 0.25, " x"),
     ("bubble_gap", "Grid bubble distance from the grid line", 1.0, 0.0, 6.0, 0.25, " x"),
+    ("spring_width", "Spring support symbols (line)", 2.0, 0.5, 8.0, 0.5, " px"),
     ("free_point_size", "Drawing cursor - point with no snap (size)", 1.4, 0.25, 5.0, 0.25, " x"),
     ("free_point_width", "Drawing cursor - point with no snap (line)", 2.5, 0.5, 8.0, 0.5, " px"),
     ("tracking_width", "Tracking / extension guide lines (dashed)", 1.5, 0.5, 6.0, 0.5, " px"),
@@ -130,21 +132,23 @@ SIZE_RANGES = {it[0]: (it[3], it[4]) for it in SIZE_ITEMS}
 DEFAULTS: Dict[str, Dict[str, RGB]] = {
     # dark background (the classic black CSI model window)
     "dark": {
-        "background_top": (0.16, 0.18, 0.22),
-        "background_bottom": (0.07, 0.08, 0.10),
+        # one flat colour (no gradient): the dark counterpart of the white page
+        "background_top": (0.12, 0.13, 0.16),
+        "background_bottom": (0.12, 0.13, 0.16),
         "grid": (0.45, 0.47, 0.52),
         "grid_text": (0.75, 0.78, 0.85),
         "text": (0.92, 0.93, 0.95),
         "story_plane": (0.35, 0.65, 1.00),
         "beam": (0.36, 0.68, 1.00),
-        "column": (1.00, 0.62, 0.18),
+        "column": (0.76, 0.56, 1.00),  # lavender: apart from the red supports and the blue beams
         "brace": (0.50, 0.88, 0.42),
         "null_line": (0.55, 0.57, 0.62),
         "floor": (0.75, 0.80, 0.86),
-        "wall": (0.45, 0.82, 0.80),  # teal: not the orange of the columns
+        "wall": (0.25, 0.82, 0.72),  # teal: not the orange of the columns
         "opening": (0.40, 0.40, 0.40),
         "area_edge": (0.66, 0.70, 0.78),
         "support": (1.00, 0.42, 0.42),
+        "spring": (0.82, 0.64, 0.46),  # tan: an elastic support, apart from the red rigid ones and the loads
         "selection": (1.00, 1.00, 0.30),
         "select_box": (0.45, 0.70, 1.00),
         "preview": (1.00, 0.45, 0.78),
@@ -156,7 +160,7 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "mesh": (0.62, 0.68, 0.78),
         "moment_pos": (0.30, 0.85, 0.62),
         "moment_neg": (1.00, 0.42, 0.38),
-        "load": (1.00, 0.50, 0.88),
+        "load": (1.00, 0.60, 0.05),  # orange: apart from the yellow selection and the red supports
         "axis_1": (1.00, 0.32, 0.32),
         "axis_2": (0.35, 0.90, 0.42),
         "axis_3": (0.40, 0.62, 1.00),
@@ -164,14 +168,15 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
     # white background (the light model window of the newer CSI releases):
     # deeper, more saturated colours so thin lines stay visible on white
     "light": {
+        # a white page, like a drawing sheet (no grey gradient)
         "background_top": (1.00, 1.00, 1.00),
-        "background_bottom": (0.93, 0.95, 0.97),
+        "background_bottom": (1.00, 1.00, 1.00),
         "grid": (0.66, 0.69, 0.74),
         "grid_text": (0.25, 0.29, 0.36),
         "text": (0.10, 0.12, 0.16),
         "story_plane": (0.15, 0.45, 0.90),
         "beam": (0.02, 0.30, 0.80),
-        "column": (0.88, 0.30, 0.00),
+        "column": (0.50, 0.20, 0.78),  # violet: apart from the red supports and the blue beams
         "brace": (0.05, 0.52, 0.14),
         "null_line": (0.50, 0.52, 0.56),
         "floor": (0.66, 0.76, 0.90),
@@ -179,6 +184,7 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "opening": (0.62, 0.62, 0.62),
         "area_edge": (0.22, 0.28, 0.40),
         "support": (0.80, 0.10, 0.12),
+        "spring": (0.48, 0.30, 0.14),  # brown
         "selection": (0.90, 0.08, 0.55),
         "select_box": (0.00, 0.47, 0.84),  # the Windows / CAD selection-window blue
         "preview": (0.93, 0.20, 0.62),  # pink: green circles are the pin symbols
@@ -190,7 +196,7 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "mesh": (0.30, 0.34, 0.42),
         "moment_pos": (0.00, 0.58, 0.42),
         "moment_neg": (0.86, 0.16, 0.16),
-        "load": (0.62, 0.05, 0.62),
+        "load": (0.76, 0.42, 0.00),  # amber
         "axis_1": (0.85, 0.12, 0.12),
         "axis_2": (0.10, 0.60, 0.20),
         "axis_3": (0.15, 0.35, 0.90),
