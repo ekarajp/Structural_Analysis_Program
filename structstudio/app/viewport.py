@@ -786,7 +786,7 @@ class ModelViewport(QtWidgets.QWidget):
         st = self.state
         what = {"frame": "Frame", "area": "Shell", "point": "Joint", "panel": "Load panel"}.get(kind, kind)
         menu = QtWidgets.QMenu(self.vtk_widget)
-        info = menu.addAction(f"{what} {name} - Information...")
+        info = menu.addAction(f"{what} {name} - Show Information and Properties...")
         f = menu.font()
         f.setBold(True)
         info.setFont(f)

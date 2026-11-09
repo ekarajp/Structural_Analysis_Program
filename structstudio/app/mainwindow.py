@@ -225,7 +225,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         # the drawing gets the room: Results / Log (bottom) start hidden; the toolbar
         # button and Options > Panels bring them back.  There is no right-hand raw
         # property panel: the common items are in Properties of Object (left), the
-        # full list in right-click > Information.
+        # full list in right-click > Show Information and Properties.
         for dock in (self.dock_results, self.dock_log):
             dock.hide()
         self.panel_actions = {}

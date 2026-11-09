@@ -36,7 +36,7 @@ class ModelTree(QtWidgets.QTreeWidget):
 
     #: right-click > what (menu text, action key); the same choices as right-click on the drawing
     OBJECT_ACTIONS = (("Select", "select"),
-                      ("Show information and properties...", "info"),
+                      ("Show Information and Properties...", "info"),
                       ("Edit section...", "section"),
                       ("Show only this object (active window)", "only"))
 

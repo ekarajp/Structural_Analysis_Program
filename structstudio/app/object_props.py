@@ -95,7 +95,7 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
     # ------------------------------------------------------- selection summary
     def _selection_summary(self) -> bool:
         """With the select tool: the main properties of the selected object(s), in
-        short (the full list: right-click > Information).  False if nothing selected."""
+        short (the full list: right-click > Show Information and Properties).  False if nothing selected."""
         st = self.state
         try:
             title, rows = selection_summary(self.doc.model, sorted(st.frames), sorted(st.areas), sorted(st.points))
@@ -105,7 +105,7 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
             return False
         self.title.setText(title)
         self.hint.setText("Change the values in place (drop-downs / numbers); right-click an object > "
-                          "Information for every property.")
+                          "Show Information and Properties for every property.")
         edits = self._selection_edits(sorted(st.frames), sorted(st.areas), sorted(st.points))
         labels = [lb for lb, _ in rows]
         for lb in edits:  # editable items the summary leaves out (no local angle set ...)
