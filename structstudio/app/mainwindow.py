@@ -368,11 +368,16 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
                                            tip="Switch between dark and light display (Window menu)")
         self.layout_actions = {}
         group = QtGui.QActionGroup(self)
+        group.setExclusionPolicy(QtGui.QActionGroup.ExclusionPolicy.ExclusiveOptional)  # none: own arrangement
         for key, label in LAYOUT_LABELS.items():
             a = self._make(label, lambda _=False, k=key: self.views.set_layout(k), checkable=True,
                            checked=(key == self.views.layout_name), icon_name="layout_" + key)
             group.addAction(a)
             self.layout_actions[key] = a
+        self.act_new_window = self._make("New Model Window", self.new_model_window, icon_name="layout_1",
+                                         tip="Open one more model window (up to 9) beside the active one; "
+                                             "drag its title to place it, double-click it to take it out")
+        self.views.layout_changed.connect(self._layout_changed)
         self.grid_mode_actions = {}
         gm_group = QtGui.QActionGroup(self)
         for mode, label in dialogs.GRID_MODE_LABELS.items():
@@ -1476,7 +1481,20 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
 
     def arrange_windows(self):
         if WindowsDialog(self.views, self).exec():
-            self.layout_actions[self.views.layout_name].setChecked(True)
+            self._layout_changed(self.views.layout_name)
+
+    def new_model_window(self):
+        if self.views.add_window() is None:
+            self.statusBar().showMessage("Nine model windows are open (the most); close one first", 8000)
+        self._layout_changed(self.views.layout_name)
+
+    def _layout_changed(self, name: str):
+        """Tick the quick layout in use; none after the windows were dragged into an
+        arrangement of the user's own."""
+        for k, a in getattr(self, "layout_actions", {}).items():
+            a.blockSignals(True)
+            a.setChecked(k == name)
+            a.blockSignals(False)
 
     def toggle_labels(self, checked: bool):
         self.views.set_option_all("frame_labels", checked)

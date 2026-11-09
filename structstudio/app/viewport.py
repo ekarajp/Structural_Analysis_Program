@@ -44,6 +44,12 @@ class _SharpVTKWidget(QVTKRenderWindowInteractor):
             return 1.0
 
     def event(self, ev):  # moved to a screen of another scale: re-render at its density
+        if ev.type() == QtCore.QEvent.KeyPress and ev.key() in (QtCore.Qt.Key_Tab, QtCore.Qt.Key_Backtab):
+            vp = self.parent()
+            while vp is not None and not hasattr(vp, "_on_tab"):
+                vp = vp.parent()
+            if vp is not None and vp._on_tab(ev.key() == QtCore.Qt.Key_Backtab):
+                return True  # dynamic input: Tab goes to the next box, not to the next widget
         handled = super().event(ev)
         if ev.type() in _DPR_EVENTS:
             self.resizeEvent(QtGui.QResizeEvent(self.size(), self.size()))
@@ -376,6 +382,14 @@ class ModelViewport(QtWidgets.QWidget):
         self.renderer.AddActor(self.tip)
         self._style_tip()
         self._typed = ""  # CAD dynamic input being typed (distance, d<angle, dx,dy)
+        # CAD "From" / object snap tracking: rest the cursor on a snap point for
+        # REF_HOLD_MS and it becomes the reference the next point is typed from
+        self._ref = None  # (xyz, label) of the reference point
+        self._hover = None  # (xyz, label) of the snap point under the resting cursor
+        self._ref_timer = QtCore.QTimer(self)
+        self._ref_timer.setSingleShot(True)
+        self._ref_timer.timeout.connect(self._acquire_ref)
+        self.state.tool_changed.connect(lambda _n: self.drop_reference())
         self._last_cursor = None  # last snapped cursor point (typed distances follow its direction)
         self._last_xy = (0, 0)
         self._drag = None  # select tool: {"mode": "move" | "grip", ...} while dragging objects / a grip
@@ -1806,6 +1820,7 @@ class ModelViewport(QtWidgets.QWidget):
                 done = st.tool.click(pt, snap)
             st.snap_override = None  # a one-shot snap is used up by the point
             self._snap_pick, self._snap_index = None, 0
+            self.drop_reference(redraw=False)
         except Exception as exc:
             st.report(exc)
             st.tool.cancel()
@@ -2211,9 +2226,17 @@ class ModelViewport(QtWidgets.QWidget):
     def _apply_typed(self):
         st = self.state
         text, self._typed = self._typed, ""
+        text = self._fill_boxes(text)
         text = self._typed_to_model(text)
         try:
-            pt = st.tool.typed(text, self._last_cursor)
+            pt = None
+            if self._ref is not None and self._point_tool() and not text.strip().startswith("#"):
+                # typed from the reference point (CAD "From"): 1.5 towards the cursor, or dx,dy
+                from .modify import parse_typed
+                pt = parse_typed(text.strip().lstrip("@"), self._ref[0], self._last_cursor, st.tool.plane)
+                self.drop_reference(redraw=False)
+            else:
+                pt = st.tool.typed(text, self._last_cursor)
             if pt is not None:
                 st.tool.click(pt, None)
         except Exception as exc:
@@ -2243,6 +2266,9 @@ class ModelViewport(QtWidgets.QWidget):
             if key == "Escape" and self._typed:
                 self._typed = ""
                 self._update_preview(*self._last_xy, keep_index=True)
+                return
+            if key == "Escape" and self._ref is not None:
+                self.drop_reference()
                 return
         arrows = {"Left": (-1, 0), "Right": (1, 0), "Up": (0, 1), "Down": (0, -1)}
         if key in arrows:
@@ -2549,6 +2575,13 @@ class ModelViewport(QtWidgets.QWidget):
         for track in (getattr(snap, "track", None), getattr(snap, "track2", None)):
             if track:
                 self._preview_actors.append(self._tracking_line_actor(track))
+        self._track_hover(snap if snapped else None)
+        base = self._dim_base()
+        if self._ref is not None:
+            self._preview_actors += self._ref_marker(self._ref[0])
+        cur = self._last_cursor
+        if base is not None and cur is not None and self.config.kind != "3d":
+            self._preview_actors += self._dimension_actors(base, cur)
         txt = pv.text
         tip = []
         if snapped:
@@ -2576,7 +2609,10 @@ class ModelViewport(QtWidgets.QWidget):
             pv.text = re.sub(r"\b(L =|dX|dY|dZ|trim)\s+([-+]?\d+(?:\.\d+)?)",
                              lambda m: f"{m.group(1)} {float(m.group(2)) * uf:.4g} {unit}", pv.text)
             tip.append(pv.text)
-        if self._typed:
+        dyn = self._dyn_text(unit, uf)
+        if dyn:
+            tip += dyn
+        elif self._typed:
             tip.append(f"> {self._typed}_ {unit}   (Enter)")
         elif self._accepts_typing():
             if getattr(self.state.tool, "points", None):
@@ -2586,11 +2622,206 @@ class ModelViewport(QtWidgets.QWidget):
         self.text.SetInput(txt)
         if tip and (x or y):
             self.tip.SetInput("\n".join(tip))
-            self.tip.SetPosition(x + 18, max(4, y - 22 - 16 * len(tip)))
+            # beside the cursor, flipped to its left / below so it stays inside the window
+            bb = [0.0, 0.0, 0.0, 0.0]
+            try:
+                self.tip.GetBoundingBox(self.renderer, bb)
+            except Exception:
+                bb = [0.0, 300.0, 0.0, 16.0 * len(tip)]
+            tw, th = bb[1] - bb[0], bb[3] - bb[2]
+            W, H = self.renderer.GetSize()
+            tx = x + 18 if x + 18 + tw <= W - 4 else max(4, x - 18 - tw)
+            ty = y - 22 - th if y - 22 - th >= 4 else min(max(4, H - th - 4), y + 22)
+            self.tip.SetPosition(tx, ty)
             self.tip.SetVisibility(1)
         for a in self._preview_actors:
             self.renderer.AddActor(a)
         self.render()
+
+    # ------------------------------------------------ reference point / dynamic input
+    REF_HOLD_MS = 500
+    REF_KINDS = ("end", "joint", "midpoint", "center", "node", "intersection", "grid", "perpendicular")
+
+    def _point_tool(self) -> bool:
+        """A tool that places points and reads typed points the standard way."""
+        tool = self.state.tool
+        return bool(getattr(tool, "takes_typed_points", False)) and type(tool).typed is Tool.typed \
+            and not getattr(tool, "picks_frames", False)
+
+    def _track_hover(self, snap):
+        """Rest the cursor on a snap point: after REF_HOLD_MS it becomes the reference."""
+        if snap is None or snap.kind not in self.REF_KINDS or not self._point_tool():
+            self._hover = None
+            self._ref_timer.stop()
+            return
+        key = (tuple(round(float(c), 9) for c in snap.xyz), getattr(snap, "label", snap.kind))
+        if self._ref is not None and np.allclose(self._ref[0], key[0]):
+            return
+        if self._hover is None or self._hover[0] != key[0]:
+            self._hover = key
+            self._ref_timer.start(self.REF_HOLD_MS)
+
+    def _acquire_ref(self):
+        if self._hover is None or not self._point_tool():
+            return
+        self._ref = (tuple(self._hover[0]), self._hover[1])
+        unit, uf = self._length_unit()
+        x, y, z = (c * uf for c in self._ref[0])
+        self.state.status.emit(f"Reference point: {self._ref[1]} ({x:.3f}, {y:.3f}, {z:.3f} {unit}) - "
+                               "type the distance from it (1.5 towards the cursor, or dx,dy; Tab: next box); "
+                               "Esc clears it")
+        if self._last_xy:
+            self._update_preview(*self._last_xy, keep_index=True)
+
+    def drop_reference(self, redraw: bool = True):
+        had = self._ref is not None
+        self._ref = None
+        self._hover = None
+        self._ref_timer.stop()
+        if had and redraw and self._last_xy:
+            self._update_preview(*self._last_xy, keep_index=True)
+
+    def _dim_base(self):
+        """Where the dimension lines start: the reference point, else the last point."""
+        if self._ref is not None:
+            return self._ref[0]
+        tool = self.state.tool
+        if self._point_tool() and getattr(tool, "points", None):
+            last = getattr(tool, "_raw_last", None)
+            return tuple(last if last is not None else tool.points[-1])
+        return None
+
+    def _axis_names(self):
+        return {"plan": ("dx", "dy"), "xz": ("dx", "dz"), "yz": ("dy", "dz")}.get(self.config.kind, ("dx", "dy"))
+
+    def _offsets(self, base, cur):
+        pl = self.plane()
+        ub, vb = pl.to2(tuple(base))
+        uc, vc = pl.to2(tuple(cur))
+        return uc - ub, vc - vb
+
+    def _dimension_actors(self, base, cur) -> list:
+        """CAD temporary dimensions from ``base`` to the cursor: the two legs along the
+        window axes, dashed, each with its length (display unit) on a label box."""
+        du, dv = self._offsets(base, cur)
+        if abs(du) < 1e-9 and abs(dv) < 1e-9:
+            return []
+        pl = self.plane()
+        ub, vb = pl.to2(tuple(base))
+        corner = pl.to3((ub + du, vb))
+        b3, c3 = np.asarray(base, float), np.asarray(cur, float)
+        corner = np.asarray(corner, float)
+        color = scene.COLORS.get("tracking", scene.COLORS["snap"])
+        segs = []
+        if abs(du) > 1e-9:
+            segs += [b3, corner]
+        if abs(dv) > 1e-9:
+            segs += [corner, c3]
+        cam = self.renderer.GetActiveCamera()
+        h = max(1, self.vtk_widget.height())
+        per_px = 2.0 * cam.GetParallelScale() / h if cam.GetParallelProjection() else self._world_tolerance() / 10.0
+        pts, lines = scene.dashed_segments(np.array(segs, float), max(per_px * 6.0, 1e-6))
+        poly = vtk.vtkPolyData()
+        poly.SetPoints(scene._points(pts))
+        poly.SetLines(lines)
+        out = [scene._actor_from_polydata(poly, color, max(1.0, scene.gsize("tracking_width")), lighting=False)]
+        unit, uf = self._length_unit()
+        nu, nv = self._axis_names()
+        spots, texts = [], []
+        if abs(du) > 1e-9:
+            spots.append(0.5 * (b3 + corner))
+            texts.append(f"{nu} {du * uf:.3f}")
+        if abs(dv) > 1e-9:
+            spots.append(0.5 * (corner + c3))
+            texts.append(f"{nv} {dv * uf:.3f}")
+        out.append(scene._text_labels(scene._points_of(spots), scene._strings(texts), color,
+                                      scene._text_pt(0), background=True))
+        return out
+
+    def _ref_marker(self, xyz) -> list:
+        """The reference point: a ring with a cross (CAD tracking point)."""
+        r = self._world_tolerance() * 0.9
+        c = np.asarray(xyz, float)
+        cam = self.renderer.GetActiveCamera()
+        vu = np.asarray(cam.GetViewUp(), float)
+        vr = np.cross(np.asarray(cam.GetDirectionOfProjection(), float), vu)
+        coords = []
+        n = 24
+        for k in range(n):
+            a0, a1 = 2 * np.pi * k / n, 2 * np.pi * (k + 1) / n
+            coords += [c + r * (np.cos(a0) * vr + np.sin(a0) * vu), c + r * (np.cos(a1) * vr + np.sin(a1) * vu)]
+        coords += [c - 1.6 * r * vr, c + 1.6 * r * vr, c - 1.6 * r * vu, c + 1.6 * r * vu]
+        lines = vtk.vtkCellArray()
+        for k in range(len(coords) // 2):
+            lines.InsertNextCell(2)
+            lines.InsertCellPoint(2 * k)
+            lines.InsertCellPoint(2 * k + 1)
+        poly = vtk.vtkPolyData()
+        poly.SetPoints(scene._points(np.array(coords, float)))
+        poly.SetLines(lines)
+        return [scene._actor_from_polydata(poly, scene.COLORS.get("tracking", scene.COLORS["snap"]), 2.0,
+                                           lighting=False)]
+
+    def _boxes(self):
+        """The two dynamic-input boxes (first, second) from the typed text."""
+        t = self._typed
+        if "<" in t or t.startswith("#") or t.count(",") > 1:
+            return None
+        a, sep, b = t.partition(",")
+        return a, b, bool(sep)
+
+    def _dyn_text(self, unit: str, uf: float) -> list:
+        """Tip lines of the dynamic input: the reference, and the dx / dy boxes (the live
+        offsets of the cursor while a box is empty; [ ] marks the box being typed)."""
+        base = self._dim_base()
+        if base is None or not self._accepts_typing() or self.config.kind == "3d":
+            return []
+        boxes = self._boxes()
+        if boxes is None:
+            return []
+        a, b, second = boxes
+        cur = self._last_cursor
+        du, dv = self._offsets(base, cur) if cur is not None else (0.0, 0.0)
+        nu, nv = self._axis_names()
+        fa = f"[{a}_]" if not second else (a or f"{du * uf:.3f}")
+        fb = f"[{b}_]" if second else f"{dv * uf:.3f}"
+        head = f"From {self._ref[1]}" if self._ref is not None else "From the last point"
+        lines = [f"{head}:  {nu} {fa}   {nv} {fb}  {unit}"]
+        lines.append("Tab: next box   Enter: place   (one value: distance towards the cursor;"
+                     " #x,y,z absolute)" if not second else "Enter: place   Tab: back to the first box")
+        return lines
+
+    def _fill_boxes(self, text: str) -> str:
+        """``1.5,`` or ``,0.8``: an empty box takes the cursor's present offset."""
+        if "," not in text or "<" in text or text.strip().startswith("#") or text.count(",") > 1:
+            return text
+        a, _, b = text.partition(",")
+        if a.strip() and b.strip():
+            return text
+        base, cur = self._dim_base(), self._last_cursor
+        if base is None or cur is None:
+            return text.strip(",")
+        du, dv = self._offsets(base, cur)
+        _unit, uf = self._length_unit()
+        a = a.strip() or f"{du * uf:.12g}"
+        b = b.strip() or f"{dv * uf:.12g}"
+        return f"{a},{b}"
+
+    def _on_tab(self, back: bool = False) -> bool:
+        """Tab in the dynamic input: from the first box (dx) to the second (dy) and back."""
+        if not self._accepts_typing() or self._dim_base() is None:
+            return False
+        boxes = self._boxes()
+        if boxes is None:
+            return False
+        a, b, second = boxes
+        if second:
+            if back or not b:
+                self._typed = a  # Shift+Tab (or Tab on an empty second box): back to the first box
+        else:
+            self._typed = a + ","
+        self._update_preview(*self._last_xy, keep_index=True)
+        return True
 
     def _tracking_line_actor(self, track) -> vtk.vtkActor:
         """A tracking / extension guide (CAD object snap tracking): dashed, from its base

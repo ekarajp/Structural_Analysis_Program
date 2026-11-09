@@ -1345,6 +1345,111 @@ def test_tracking_guide_runs_past_the_cursor_and_no_brace_button(window, app):
     assert '"tool.brace"' not in flat
 
 
+@gui
+def test_reference_point_dimensions_and_dynamic_input(window, app):
+    """CAD "From": rest on a joint -> reference; dx / dy dimension lines; type 1.5,0.8
+    (Tab between the boxes) -> the point is placed that far from the joint."""
+    m = _with_objects(window, app)
+    vp, z = _plan(window, "Story1")
+    st = window.state
+    st.set_tool("point")
+    j = next(p for p in m.points.values() if abs(p.z - z) < 1e-9 and p.x == 0.0 and p.y == 0.0)
+    _move_to(vp, j.x, j.y, j.z)
+    app.processEvents()
+    assert vp._hover is not None and np.allclose(vp._hover[0], j.xyz)
+    vp._acquire_ref()  # (the 0.5 s timer)
+    assert vp._ref is not None and np.allclose(vp._ref[0], j.xyz)
+    _move_to(vp, j.x + 2.0, j.y + 1.0, z)
+    app.processEvents()
+    assert vp._dim_base() == tuple(vp._ref[0])
+    dims = vp._dimension_actors(vp._ref[0], (j.x + 2.0, j.y + 1.0, z))
+    assert len(dims) == 2  # the dashed legs and their two labels
+    for key in ("1", "period", "5"):
+        vp.interactor.SetKeySym(key)
+        vp._on_key(None, None)
+    # a real Tab key on the window: the dy box (Qt must not move the focus instead)
+    QtTest.QTest.keyClick(vp.vtk_widget, QtCore.Qt.Key_Tab)
+    assert vp._typed == "1.5,"
+    assert any("[_]" in line for line in vp._dyn_text("m", 1.0))
+    for key in ("0", "period", "8"):
+        vp.interactor.SetKeySym(key)
+        vp._on_key(None, None)
+    n0 = len(m.points)
+    vp.interactor.SetKeySym("Return")
+    vp._on_key(None, None)
+    m = window.doc.model
+    assert len(m.points) == n0 + 1
+    new = max(m.points.values(), key=lambda p: int("".join(c for c in p.name if c.isdigit()) or 0))
+    assert np.allclose(new.xyz, (j.x + 1.5, j.y + 0.8, z))
+    assert vp._ref is None  # used up by the point
+    # one box only: the cursor's offset fills the other
+    vp._ref = (j.xyz, "J")
+    vp._last_cursor = (j.x + 3.0, j.y + 2.0, z)
+    assert vp._fill_boxes(",0.5") == "3,0.5"
+    vp.interactor.SetKeySym("Escape")
+    vp._on_key(None, None)
+    assert vp._ref is None  # Esc clears the reference
+    st.set_tool("select")
+
+
+@gui
+def test_model_windows_dock_anywhere_and_are_remembered(window, app, tmp_path):
+    from structstudio.app.workspace import MAX_WINDOWS, ViewportArea
+    views = window.views
+    views.set_layout("4")
+    app.processEvents()
+    assert len(views.visible_viewports()) == 4
+    # any number of windows in a grid, up to nine
+    views.arrange(5)
+    app.processEvents()
+    assert len(views.visible_viewports()) == 5 and len(views.viewports) >= 5
+    views.arrange(9)
+    app.processEvents()
+    assert len(views.visible_viewports()) == MAX_WINDOWS
+    assert views.add_window() is None  # no tenth
+    views.set_layout("2")
+    app.processEvents()
+    assert len(views.visible_viewports()) == 2
+    # a new window opens beside the active one; the arrangement is the user's own now
+    vp = views.add_window()
+    app.processEvents()
+    assert vp in views.visible_viewports() and views.active is vp and views.layout_name == "custom"
+    assert not window.layout_actions["2"].isChecked()
+    # stacked as tabs: both stay open (one behind the other)
+    d0, d2 = views.docks[0], views.docks[views.viewports.index(vp)]
+    views.host.tabifyDockWidget(d0, d2)
+    app.processEvents()
+    assert views.viewports[0] in views.visible_viewports() and vp in views.visible_viewports()
+    # taken out as a window of its own and back: still drawn
+    d2.setFloating(True)
+    app.processEvents()
+    assert d2.isFloating()
+    d2.setFloating(False)
+    app.processEvents()
+    # closed with its x: hidden, not destroyed; the active window moves on
+    views.set_active(vp)
+    d2.close()
+    app.processEvents()
+    assert vp not in views.visible_viewports() and vp in views.viewports
+    # remembered: a new area with the same settings opens the same windows
+    settings = QtCore.QSettings(str(tmp_path / "w.ini"), QtCore.QSettings.IniFormat)
+    views.qsettings, old = settings, views.qsettings
+    try:
+        views.arrange(3)
+        views.viewports[2].set_view("yz")
+        views.save()
+        again = ViewportArea(window.doc, window.state, settings)
+        app.processEvents()
+        assert len(again.visible_viewports()) == 3
+        assert again.viewports[2].config.kind == "yz"
+        again.finalize()
+        again.deleteLater()
+    finally:
+        views.qsettings = old
+    views.set_layout("2")
+    app.processEvents()
+
+
 def _wait_analysis(window, app, timeout=240.0):
     import time
     t0 = time.time()

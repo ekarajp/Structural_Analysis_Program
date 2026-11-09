@@ -393,7 +393,16 @@ def _draw(name: str, p: QtGui.QPainter):
             "2v": [(3, 5, 26, 10.5), (3, 16.5, 26, 10.5)],
             "3": [(3, 5, 12.5, 22), (16.5, 5, 12.5, 10.5), (16.5, 16.5, 12.5, 10.5)],
             "4": [(3, 5, 12.5, 10.5), (16.5, 5, 12.5, 10.5), (3, 16.5, 12.5, 10.5), (16.5, 16.5, 12.5, 10.5)],
-        }.get(n, [(3, 5, 26, 22)])
+        }.get(n)
+        if rects is None and n.isdigit():  # n windows in a grid (6, 9 ...)
+            import math as _m
+            k = int(n)
+            cols = max(1, _m.ceil(_m.sqrt(k)))
+            rows = max(1, _m.ceil(k / cols))
+            w, h = (26 - (cols - 1) * 2) / cols, (22 - (rows - 1) * 2) / rows
+            rects = [(3 + c * (w + 2), 5 + r * (h + 2), w, h) for r in range(rows) for c in range(cols)
+                     if r * cols + c < k]
+        rects = rects or [(3, 5, 26, 22)]
         for r in rects:
             p.drawRect(QtCore.QRectF(*r))
     elif name.startswith("snap_"):

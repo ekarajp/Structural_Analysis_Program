@@ -678,10 +678,9 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
         out.actors["points_sel"] = _front_marks([p.xyz for p in sel_pts], COLORS["selection"], 15.0,
                                                 "square", 2.0, inner=5.0)
     # ---- supports -----------------------------------------------------------
-    sup = [p for p in pts.values() if any(p.restraints) and (vis_p is None or p.name in vis_p or (
-        story is not None and any(f.story == story and (vis_f is None or f.name in vis_f)
-                                  for f in model.frames.values() if p.name in (f.point_i, f.point_j))))
-           ] if base_on else []
+    # a plan shows the supports of its own level only (ETABS): the base supports
+    # under the columns of an upper story are not drawn through the column squares
+    sup = [p for p in pts.values() if any(p.restraints) and (vis_p is None or p.name in vis_p)] if base_on else []
     if base_on and sup and opts.supports:
         from .supports import support_polydata
         size = _tube_radius(model) * 4 * gsize("support_size")

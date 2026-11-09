@@ -140,15 +140,15 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "text": (0.92, 0.93, 0.95),
         "story_plane": (0.35, 0.65, 1.00),
         "beam": (0.36, 0.68, 1.00),
-        "column": (0.12, 0.66, 0.28),  # deep green: strong, apart from the red supports and the blue beams
+        "column": (1.00, 0.62, 0.18),  # orange
         "brace": (0.80, 0.55, 1.00),  # violet
         "null_line": (0.55, 0.57, 0.62),
         "floor": (0.75, 0.80, 0.86),
         "wall": (0.86, 0.74, 0.46),  # sand: not green, apart from the floors, loads and supports
         "opening": (0.40, 0.40, 0.40),
         "area_edge": (0.66, 0.70, 0.78),
-        "support": (1.00, 0.42, 0.42),
-        "spring": (1.00, 0.42, 0.42),  # the support colour: the coil tells it from a rigid support
+        "support": (0.12, 0.66, 0.28),  # deep green: apart from the orange columns
+        "spring": (0.12, 0.66, 0.28),  # the support colour: the coil tells it from a rigid support
         "selection": (1.00, 1.00, 0.30),
         "select_box": (0.45, 0.70, 1.00),
         "preview": (1.00, 0.45, 0.78),
@@ -160,7 +160,7 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "mesh": (0.62, 0.68, 0.78),
         "moment_pos": (0.30, 0.85, 0.62),
         "moment_neg": (1.00, 0.42, 0.38),
-        "load": (1.00, 0.60, 0.05),  # orange: apart from the yellow selection and the red supports
+        "load": (0.95, 0.25, 0.25),  # red: apart from the orange columns and the green supports
         "axis_1": (1.00, 0.32, 0.32),
         "axis_2": (0.35, 0.90, 0.42),
         "axis_3": (0.40, 0.62, 1.00),
@@ -176,15 +176,15 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "text": (0.10, 0.12, 0.16),
         "story_plane": (0.15, 0.45, 0.90),
         "beam": (0.02, 0.30, 0.80),
-        "column": (0.00, 0.40, 0.13),  # deep green: strong, apart from the red supports and the blue beams
+        "column": (0.88, 0.30, 0.00),  # orange
         "brace": (0.50, 0.20, 0.78),  # violet
         "null_line": (0.50, 0.52, 0.56),
         "floor": (0.66, 0.76, 0.90),
         "wall": (0.70, 0.56, 0.28),  # sand / ochre
         "opening": (0.62, 0.62, 0.62),
         "area_edge": (0.22, 0.28, 0.40),
-        "support": (0.80, 0.10, 0.12),
-        "spring": (0.80, 0.10, 0.12),  # the support colour: the coil tells it from a rigid support
+        "support": (0.00, 0.40, 0.13),  # deep green: apart from the orange columns
+        "spring": (0.00, 0.40, 0.13),  # the support colour: the coil tells it from a rigid support
         "selection": (0.90, 0.08, 0.55),
         "select_box": (0.00, 0.47, 0.84),  # the Windows / CAD selection-window blue
         "preview": (0.93, 0.20, 0.62),  # pink: green circles are the pin symbols
@@ -196,7 +196,7 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "mesh": (0.30, 0.34, 0.42),
         "moment_pos": (0.00, 0.58, 0.42),
         "moment_neg": (0.86, 0.16, 0.16),
-        "load": (0.76, 0.42, 0.00),  # amber
+        "load": (0.75, 0.05, 0.10),  # red: apart from the orange columns and the green supports
         "axis_1": (0.85, 0.12, 0.12),
         "axis_2": (0.10, 0.60, 0.20),
         "axis_3": (0.15, 0.35, 0.90),

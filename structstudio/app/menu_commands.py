@@ -213,6 +213,8 @@ class MenuCommandsMixin:
             self._fill_snap_menu(menu)
 
         def windows(menu):
+            menu.addAction(self.act_new_window)
+            menu.addSeparator()
             for a in self.layout_actions.values():
                 menu.addAction(a)
 
