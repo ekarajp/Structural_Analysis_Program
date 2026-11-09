@@ -1370,6 +1370,16 @@ def test_reference_point_dimensions_and_dynamic_input(window, app):
     # a real Tab key on the window: the dy box (Qt must not move the focus instead)
     QtTest.QTest.keyClick(vp.vtk_widget, QtCore.Qt.Key_Tab)
     assert vp._typed == "1.5,"
+    # Tab goes back and forth; what was typed in each box stays
+    vp.interactor.SetKeySym("9")
+    vp._on_key(None, None)
+    QtTest.QTest.keyClick(vp.vtk_widget, QtCore.Qt.Key_Tab)
+    assert vp._typed == "1.5" and vp._held_second == "9"
+    QtTest.QTest.keyClick(vp.vtk_widget, QtCore.Qt.Key_Tab)
+    assert vp._typed == "1.5,9" and vp._held_second == ""
+    vp.interactor.SetKeySym("BackSpace")
+    vp._on_key(None, None)
+    assert vp._typed == "1.5,"
     assert any("[_]" in line for line in vp._dyn_text("m", 1.0))
     for key in ("0", "period", "8"):
         vp.interactor.SetKeySym(key)
@@ -1389,6 +1399,39 @@ def test_reference_point_dimensions_and_dynamic_input(window, app):
     vp.interactor.SetKeySym("Escape")
     vp._on_key(None, None)
     assert vp._ref is None  # Esc clears the reference
+    # drawing a line on from its first point: Length and Angle boxes (CAD Dynamic Input)
+    st.set_tool("beam")
+    _click(vp, 0.0, 0.0, z)
+    _move_to(vp, 3.0, 3.0, z)
+    app.processEvents()
+    assert vp._box_mode() == "polar"
+    assert any(line.startswith("Length") for line in vp._dyn_text("m", 1.0))
+    nf = len(window.doc.model.frames)
+    for key in ("4",):
+        vp.interactor.SetKeySym(key)
+        vp._on_key(None, None)
+    QtTest.QTest.keyClick(vp.vtk_widget, QtCore.Qt.Key_Tab)
+    assert vp._typed == "4<"
+    vp.interactor.SetKeySym("0")
+    vp._on_key(None, None)  # 4<0: 4 m along +X
+    vp.interactor.SetKeySym("Return")
+    vp._on_key(None, None)
+    m = window.doc.model
+    assert len(m.frames) == nf + 1
+    f = list(m.frames.values())[-1]
+    P = sorted([m.points[f.point_i].xyz, m.points[f.point_j].xyz])
+    assert np.allclose(P[0], (0.0, 0.0, z)) and np.allclose(P[1], (4.0, 0.0, z))
+    # one value: that length towards the cursor
+    _move_to(vp, 4.0, 9.0, z)
+    app.processEvents()
+    vp.interactor.SetKeySym("2")
+    vp._on_key(None, None)
+    vp.interactor.SetKeySym("Return")
+    vp._on_key(None, None)
+    m = window.doc.model
+    f = list(m.frames.values())[-1]
+    ends = {tuple(np.round(m.points[f.point_i].xyz, 6)), tuple(np.round(m.points[f.point_j].xyz, 6))}
+    assert (4.0, 2.0, round(z, 6)) in ends
     st.set_tool("select")
 
 

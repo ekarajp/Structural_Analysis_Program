@@ -1821,6 +1821,7 @@ class ModelViewport(QtWidgets.QWidget):
             st.snap_override = None  # a one-shot snap is used up by the point
             self._snap_pick, self._snap_index = None, 0
             self.drop_reference(redraw=False)
+            self._held_second = ""
         except Exception as exc:
             st.report(exc)
             st.tool.cancel()
@@ -2226,6 +2227,9 @@ class ModelViewport(QtWidgets.QWidget):
     def _apply_typed(self):
         st = self.state
         text, self._typed = self._typed, ""
+        held, self._held_second = getattr(self, "_held_second", ""), ""
+        if held and self._boxes_sep() not in text and not text.strip().startswith(("#", "@")):
+            text = text + self._boxes_sep() + held  # Enter in the first box: the second keeps its value
         text = self._fill_boxes(text)
         text = self._typed_to_model(text)
         try:
@@ -2265,6 +2269,7 @@ class ModelViewport(QtWidgets.QWidget):
                 return
             if key == "Escape" and self._typed:
                 self._typed = ""
+                self._held_second = ""
                 self._update_preview(*self._last_xy, keep_index=True)
                 return
             if key == "Escape" and self._ref is not None:
@@ -2706,6 +2711,14 @@ class ModelViewport(QtWidgets.QWidget):
         du, dv = self._offsets(base, cur)
         if abs(du) < 1e-9 and abs(dv) < 1e-9:
             return []
+        if self._box_mode() == "polar":
+            # drawing on from the last point: the length and the angle of the line (CAD)
+            unit, uf = self._length_unit()
+            mid = 0.5 * (np.asarray(base, float) + np.asarray(cur, float))
+            text = f"{math.hypot(du, dv) * uf:.3f}   {math.degrees(math.atan2(dv, du)):.1f}°"
+            color = scene.COLORS.get("tracking", scene.COLORS["snap"])
+            return [scene._text_labels(scene._points_of([mid]), scene._strings([text]), color,
+                                       scene._text_pt(0), background=True)]
         pl = self.plane()
         ub, vb = pl.to2(tuple(base))
         corner = pl.to3((ub + du, vb))
@@ -2762,17 +2775,43 @@ class ModelViewport(QtWidgets.QWidget):
         return [scene._actor_from_polydata(poly, scene.COLORS.get("tracking", scene.COLORS["snap"]), 2.0,
                                            lighting=False)]
 
+    def _boxes_sep(self) -> str:
+        return "<" if self._box_mode() == "polar" else ","
+
+    def _box_mode(self) -> str:
+        """The two input boxes: "polar" (Length, Angle - drawing on from the last point,
+        as CAD Dynamic Input) or "xy" (dx, dy - typing from a reference point)."""
+        tool = self.state.tool
+        if self._ref is None and getattr(tool, "points", None):
+            return "polar"
+        return "xy"
+
     def _boxes(self):
-        """The two dynamic-input boxes (first, second) from the typed text."""
+        """(first box, second box, typing in the second) from the typed text."""
         t = self._typed
-        if "<" in t or t.startswith("#") or t.count(",") > 1:
+        if t.startswith("#") or t.startswith("@"):
             return None
-        a, sep, b = t.partition(",")
-        return a, b, bool(sep)
+        sep = "<" if self._box_mode() == "polar" else ","
+        other = "," if sep == "<" else "<"
+        if other in t or t.count(sep) > 1:
+            return None  # typed in the other form (3,4 / 6<30): shown as typed
+        a, has, b = t.partition(sep)
+        return a, b, bool(has)
+
+    def _live(self):
+        """The cursor's live values in the two boxes (display units / degrees)."""
+        base, cur = self._dim_base(), self._last_cursor
+        if base is None or cur is None:
+            return 0.0, 0.0
+        du, dv = self._offsets(base, cur)
+        _unit, uf = self._length_unit()
+        if self._box_mode() == "polar":
+            return math.hypot(du, dv) * uf, math.degrees(math.atan2(dv, du))
+        return du * uf, dv * uf
 
     def _dyn_text(self, unit: str, uf: float) -> list:
-        """Tip lines of the dynamic input: the reference, and the dx / dy boxes (the live
-        offsets of the cursor while a box is empty; [ ] marks the box being typed)."""
+        """Tip lines of the dynamic input: two boxes, the live values of the cursor
+        while a box is empty; [ ] marks the box being typed."""
         base = self._dim_base()
         if base is None or not self._accepts_typing() or self.config.kind == "3d":
             return []
@@ -2780,46 +2819,69 @@ class ModelViewport(QtWidgets.QWidget):
         if boxes is None:
             return []
         a, b, second = boxes
-        cur = self._last_cursor
-        du, dv = self._offsets(base, cur) if cur is not None else (0.0, 0.0)
-        nu, nv = self._axis_names()
-        fa = f"[{a}_]" if not second else (a or f"{du * uf:.3f}")
-        fb = f"[{b}_]" if second else f"{dv * uf:.3f}"
-        head = f"From {self._ref[1]}" if self._ref is not None else "From the last point"
-        lines = [f"{head}:  {nu} {fa}   {nv} {fb}  {unit}"]
-        lines.append("Tab: next box   Enter: place   (one value: distance towards the cursor;"
-                     " #x,y,z absolute)" if not second else "Enter: place   Tab: back to the first box")
+        held = getattr(self, "_held_second", "")
+        la, lb = self._live()
+        if self._box_mode() == "polar":
+            na, nb, ua, ub = "Length", "Angle", f" {unit}", "°"
+            head = ""
+        else:
+            na, nb = self._axis_names()
+            ua = ub = f" {unit}"
+            head = f"From {self._ref[1]}:  " if self._ref is not None else "From the last point:  "
+        fa = f"[{a}_]" if not second else (a or f"{la:.3f}")
+        fb = f"[{b}_]" if second else (held or (f"{lb:.1f}" if ub == "°" else f"{lb:.3f}"))
+        lines = [f"{head}{na} {fa}{ua}   {nb} {fb}{ub}"]
+        if second:
+            lines.append("Enter: place   Tab: back to " + na)
+        elif self._box_mode() == "polar":
+            lines.append("Type the length, Enter (towards the cursor)   Tab: angle   (@dx,dy or #x,y,z also)")
+        else:
+            lines.append("Tab: next box   Enter: place   (one value: distance towards the cursor; #x,y,z absolute)")
         return lines
 
     def _fill_boxes(self, text: str) -> str:
-        """``1.5,`` or ``,0.8``: an empty box takes the cursor's present offset."""
-        if "," not in text or "<" in text or text.strip().startswith("#") or text.count(",") > 1:
-            return text
-        a, _, b = text.partition(",")
-        if a.strip() and b.strip():
-            return text
-        base, cur = self._dim_base(), self._last_cursor
-        if base is None or cur is None:
-            return text.strip(",")
-        du, dv = self._offsets(base, cur)
-        _unit, uf = self._length_unit()
-        a = a.strip() or f"{du * uf:.12g}"
-        b = b.strip() or f"{dv * uf:.12g}"
-        return f"{a},{b}"
+        """An empty box takes the cursor's present value: ``5<`` -> ``5<{angle}``,
+        ``1.5,`` -> ``1.5,{dy}``.  ``@dx,dy``: relative to the last point."""
+        t = text.strip()
+        if t.startswith("@"):
+            return t[1:]
+        if t.startswith("#"):
+            return t
+        for sep in ("<", ","):
+            if t.count(sep) == 1 and ("<" if sep == "," else ",") not in t:
+                a, _, b = t.partition(sep)
+                if a.strip() and b.strip():
+                    return t
+                base, cur = self._dim_base(), self._last_cursor
+                if base is None or cur is None:
+                    return t.strip(sep)
+                du, dv = self._offsets(base, cur)
+                _unit, uf = self._length_unit()
+                if sep == "<":
+                    a = a.strip() or f"{math.hypot(du, dv) * uf:.12g}"
+                    b = b.strip() or f"{math.degrees(math.atan2(dv, du)):.12g}"
+                else:
+                    a = a.strip() or f"{du * uf:.12g}"
+                    b = b.strip() or f"{dv * uf:.12g}"
+                return f"{a}{sep}{b}"
+        return t
 
     def _on_tab(self, back: bool = False) -> bool:
-        """Tab in the dynamic input: from the first box (dx) to the second (dy) and back."""
-        if not self._accepts_typing() or self._dim_base() is None:
+        """Tab in the dynamic input: first box <-> second box; what was typed in each
+        box stays (CAD)."""
+        if not self._accepts_typing() or self._dim_base() is None or self.config.kind == "3d":
             return False
         boxes = self._boxes()
         if boxes is None:
             return False
         a, b, second = boxes
+        sep = "<" if self._box_mode() == "polar" else ","
         if second:
-            if back or not b:
-                self._typed = a  # Shift+Tab (or Tab on an empty second box): back to the first box
+            self._held_second = b  # back to the first box; the second keeps its value
+            self._typed = a
         else:
-            self._typed = a + ","
+            self._typed = a + sep + getattr(self, "_held_second", "")
+            self._held_second = ""
         self._update_preview(*self._last_xy, keep_index=True)
         return True
 
