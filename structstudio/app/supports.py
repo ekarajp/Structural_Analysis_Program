@@ -127,7 +127,7 @@ def paint_support(painter, key: str, size: int = 56, ink=None, accent=None):
     elif key == "pinned":
         member()
         cone()
-        hatch(ground)
+        hatch(42)  # just under the triangle (was the scaled ground: scaled twice, it crossed the triangle)
     elif key == "roller_z":
         member()
         cone(base_y=34)
@@ -183,7 +183,7 @@ def paint_support(painter, key: str, size: int = 56, ink=None, accent=None):
     else:  # custom: cone with "?"
         member()
         cone()
-        hatch(ground)
+        hatch(42)  # just under the triangle (was the scaled ground: scaled twice, it crossed the triangle)
         p.setPen(QtGui.QPen(accent, 1.5 * s))
         p.drawText(QtCore.QRectF(38 * s, 6 * s, 16 * s, 16 * s), QtCore.Qt.AlignCenter, "*")
         p.setPen(pen)
