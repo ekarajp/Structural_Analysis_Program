@@ -22,6 +22,8 @@ class ModelTree(QtWidgets.QTreeWidget):
 
     Click an object: it is selected and located (status bar: story, grid, size;
     the plan windows go to its story, it flashes).  Double-click: zoom to it.
+    Right-click an object: Select / Show information and properties / Edit section /
+    Show only this object (in the active window).
     Click a group / story heading of objects: select all of them.  Click a story
     under Structure Layout: the active plan window shows it.  Type in the box
     above the tree to find objects by name or section."""
@@ -30,6 +32,13 @@ class ModelTree(QtWidgets.QTreeWidget):
     object_activated = QtCore.Signal(str, str)  # double-click on an object: zoom to it
     set_clicked = QtCore.Signal(object)  # {"frames": [...], "areas": [...], "points": [...]}
     story_clicked = QtCore.Signal(str)
+    object_action = QtCore.Signal(str, str, str)  # right-click menu: action, collection attr, name
+
+    #: right-click > what (menu text, action key); the same choices as right-click on the drawing
+    OBJECT_ACTIONS = (("Select", "select"),
+                      ("Show information and properties...", "info"),
+                      ("Edit section...", "section"),
+                      ("Show only this object (active window)", "only"))
 
     def __init__(self, document: Document, parent=None):
         super().__init__(parent)
@@ -38,6 +47,8 @@ class ModelTree(QtWidgets.QTreeWidget):
         self.setUniformRowHeights(True)
         self.itemClicked.connect(self._clicked)
         self.itemDoubleClicked.connect(self._double_clicked)
+        self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._context_menu)
         self.doc.on_change(lambda what: self.refresh() if what == "model" else None)
         self._filter = ""
         self.refresh()
@@ -197,6 +208,43 @@ class ModelTree(QtWidgets.QTreeWidget):
         data = item.data(0, QtCore.Qt.UserRole)
         if data and data[0] in ("points", "frames", "areas", "panel_loads") and data[1]:
             self.object_activated.emit(data[0], data[1])
+
+    def object_actions(self, attr: str, name: str) -> List[tuple]:
+        """The right-click choices for one object: (menu text, action key, enabled)."""
+        m = self.doc.model
+        has_section = bool(getattr(getattr(m, attr, {}).get(name), "section", None)) and attr in ("frames", "areas")
+        out = []
+        for text, key in self.OBJECT_ACTIONS:
+            if key == "section" and attr not in ("frames", "areas"):
+                continue  # joints and load panels have no section
+            if key == "only" and attr == "panel_loads":
+                continue  # a load panel is not something a window can isolate
+            out.append((text, key, has_section if key == "section" else True))
+        return out
+
+    def object_menu(self, attr: str, name: str):
+        """The right-click menu of one object and its actions ({QAction: key})."""
+        menu = QtWidgets.QMenu(self)
+        what = {"points": "Joint", "frames": "Frame", "areas": "Shell", "panel_loads": "Load panel"}[attr]
+        menu.addAction(f"{what} {name}").setEnabled(False)
+        menu.addSeparator()
+        actions = {}
+        for text, key, enabled in self.object_actions(attr, name):
+            a = menu.addAction(text)
+            a.setEnabled(enabled)
+            actions[a] = key
+        return menu, actions
+
+    def _context_menu(self, pos):
+        item = self.itemAt(pos)
+        data = item.data(0, QtCore.Qt.UserRole) if item is not None else None
+        if not data or data[0] not in ("points", "frames", "areas", "panel_loads") or not data[1]:
+            return
+        attr, name = data
+        menu, actions = self.object_menu(attr, name)
+        chosen = menu.exec(self.viewport().mapToGlobal(pos))
+        if chosen in actions:
+            self.object_action.emit(actions[chosen], attr, name)
 
     def find_item(self, attr: str, name: str):
         it = QtWidgets.QTreeWidgetItemIterator(self)

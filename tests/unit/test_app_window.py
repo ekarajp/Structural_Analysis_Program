@@ -1237,6 +1237,74 @@ def test_model_explorer_lists_objects_by_type_and_story_and_locates_them(window,
     assert vp.config.story == other
 
 
+@gui
+def test_model_explorer_title_and_right_click_actions(window, app, monkeypatch):
+    m = _with_objects(window, app)
+    # the dock reads "Model Explorer"; its object name (saved layouts) is unchanged
+    assert window.dock_model.windowTitle() == "Model Explorer"
+    assert window.dock_model.objectName() == "Model"
+    assert "Model Explorer" in window.dock_model.toggleViewAction().text()
+    tree = window.tree
+    beam = next(n for n, f in m.frames.items() if f.type == "Beam")
+    # the choices: frames and shells have all four, joints no section, nothing for headings
+    keys = lambda attr, name: [k for _t, k, _e in tree.object_actions(attr, name)]
+    assert keys("frames", beam) == ["select", "info", "section", "only"]
+    area = next(iter(m.areas))
+    assert keys("areas", area) == ["select", "info", "section", "only"]
+    assert keys("points", next(iter(m.points))) == ["select", "info", "only"]
+    # Select
+    vp = window.views.viewports[0]
+    window.views.set_active(vp)
+    window.state.set_selection([])
+    tree.object_action.emit("select", "frames", beam)
+    assert window.state.frames == {beam}
+    # Show information and properties: the same form as right click on the drawing
+    opened = []
+    monkeypatch.setattr(window, "show_object_info", lambda kind, name: opened.append((kind, name)))
+    tree.object_action.emit("info", "frames", beam)
+    assert opened == [("frame", beam)]
+    # Show only: only this member remains visible in the active window (another plan story -> its story)
+    story = m.frames[beam].story
+    vp.set_view("plan", story=next(s for s in m.stories if s != story and s != "Base"))
+    tree.object_action.emit("only", "frames", beam)
+    hf, ha, hp = vp.hidden
+    assert beam not in hf and hf == set(m.frames) - {beam} and ha == set(m.areas)
+    assert vp.config.story == story
+    # Edit section: the frame section form of the member's section / the shell section list on its section
+    seen = {}
+    from structstudio.app import section_manager as sm
+    monkeypatch.setattr(sm.FrameSectionsDialog, "edit_section",
+                        lambda self, sec, new: seen.setdefault("frame", sec.name) and None)
+    tree.object_action.emit("section", "frames", beam)
+    assert seen["frame"] == m.frames[beam].section
+    from structstudio.app import dialogs
+    monkeypatch.setattr(dialogs.DefineDialog, "exec",
+                        lambda self: seen.setdefault("shell", self.list.currentItem().text()) and 0)
+    tree.object_action.emit("section", "areas", area)
+    assert seen["shell"] == m.areas[area].section
+    # the menu: titled with the object, then the actions; right click on a heading shows nothing
+    menu, acts = tree.object_menu("frames", beam)
+    assert [x.text() for x in menu.actions()][0] == f"Frame {beam}"
+    assert list(acts.values()) == ["select", "info", "section", "only"]
+    got = []
+    tree.object_action.connect(lambda *a: got.append(a))
+    real = tree.object_menu
+
+    def fake_menu(attr, name):  # the real menu, but exec() picks "Show only" at once
+        menu, acts = real(attr, name)
+        only = next(a for a, k in acts.items() if k == "only")
+        menu.exec = lambda *a: only
+        return menu, acts
+
+    monkeypatch.setattr(tree, "object_menu", fake_menu)
+    item = tree.find_item("frames", beam)
+    tree.scrollToItem(item)
+    tree._context_menu(tree.visualItemRect(item).center())
+    assert got == [("only", "frames", beam)]
+    tree._context_menu(tree.visualItemRect(item.parent()).center())
+    assert got == [("only", "frames", beam)]  # a heading has no menu
+
+
 def _wait_analysis(window, app, timeout=240.0):
     import time
     t0 = time.time()

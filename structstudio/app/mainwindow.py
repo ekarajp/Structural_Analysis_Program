@@ -211,7 +211,9 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             ("Results", self.results, QtCore.Qt.BottomDockWidgetArea),
             ("Log", self.logger, QtCore.Qt.BottomDockWidgetArea),
         ):
-            dock = QtWidgets.QDockWidget(title, self)
+            # the object name stays "Model" (saved window layouts and dock_model use it);
+            # the title the user reads is "Model Explorer"
+            dock = QtWidgets.QDockWidget("Model Explorer" if title == "Model" else title, self)
             dock.setWidget(widget)
             dock.setObjectName(title)
             self.addDockWidget(area, dock)
@@ -239,6 +241,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         self.tree.object_activated.connect(lambda attr, name: self.locate_object(attr, name, zoom=True))
         self.tree.set_clicked.connect(self._tree_set_clicked)
         self.tree.story_clicked.connect(self._tree_story_clicked)
+        self.tree.object_action.connect(self._tree_object_action)
 
     def _make(self, text, slot, shortcut=None, checkable=False, checked=False, icon_name=None, tip=None):
         a = QtGui.QAction(text, self)
@@ -1067,6 +1070,54 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             self.state.toggle("panel", name, False)
         if attr in ("frames", "areas", "points", "panel_loads"):
             self.locate_object(attr, name)
+
+    def _tree_object_action(self, action: str, attr: str, name: str):
+        """Right-click on an object in the Model Explorer."""
+        kind = {"points": "point", "frames": "frame", "areas": "area", "panel_loads": "panel"}.get(attr)
+        if kind is None or name not in getattr(self.doc.model, attr, {}):
+            return
+        if action == "select":
+            self._tree_selected(attr, name)
+        elif action == "info":
+            self.show_object_info(kind, name)
+        elif action == "section":
+            self.edit_member_section(attr, name)
+        elif action == "only":
+            self.show_only_in_active_window(attr, name)
+
+    def edit_member_section(self, attr: str, name: str):
+        """Open the section form of a frame / shell (the section it uses)."""
+        m = self.doc.model
+        obj = getattr(m, attr).get(name)
+        sec = getattr(obj, "section", None)
+        if attr == "frames" and sec in m.frame_sections:
+            from .section_manager import FrameSectionsDialog
+            manager = FrameSectionsDialog(self.doc, self)
+            manager.select_names([sec])
+            manager.modify()  # straight into the Edit Section form of that section
+        elif attr == "areas" and sec in m.shell_sections:
+            d = dialogs.DefineDialog(self.doc, "shell_sections", "Slab / Wall Sections",
+                                     dialogs.shell_section_factory, parent=self)
+            items = d.list.findItems(sec, QtCore.Qt.MatchExactly)
+            if items:
+                d.list.setCurrentItem(items[0])
+            d.exec()
+        else:
+            self.statusBar().showMessage(f"{name} has no section to edit", 8000)
+
+    def show_only_in_active_window(self, attr: str, name: str):
+        """Hide everything but this object in the active model window (View > Show All restores)."""
+        from . import locate
+        kind = {"points": "point", "frames": "frame", "areas": "area"}.get(attr)
+        vp = self.viewport
+        if kind is None or vp is None:
+            return
+        X = locate.object_xyz(self.doc.model, attr, name)
+        story = locate.object_story(self.doc.model, attr, name)
+        if X is not None and vp.config.kind == "plan" and story and vp.config.story != story and not vp.shows_points(X):
+            vp.set_story(story)  # a plan window on another story would show nothing
+        vp.show_only(kind, name)
+        self.statusBar().showMessage(f"Showing only {name} in this window  (View > Show All Objects restores)", 10000)
 
     def locate_object(self, attr: str, name: str, zoom: bool = False):
         """Show where an object is: plan windows go to its story, it flashes in
