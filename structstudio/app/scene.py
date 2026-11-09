@@ -214,10 +214,10 @@ def inset_polygon(P: np.ndarray, model: Model) -> np.ndarray:
     span = float(min(np.ptp(Q[:, 0]), np.ptp(Q[:, 1])))
     if span <= 0:
         return P
-    d = 0.08 * span
+    d = 0.24 * span  # well inside: clear of the beams along the edges, even with many selected
     typ = typical_member_length(model)
     if typ > 0:
-        d = min(d, 0.07 * typ)  # clear of the beams along the edges, even with many selected
+        d = min(d, 0.21 * typ)
     n = len(Q)
     out = []
     for i in range(n):

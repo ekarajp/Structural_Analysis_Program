@@ -349,7 +349,7 @@ def test_display_options_grid_at_base_and_plan_story_in_3d(window, app):
     plan.step_where(+1)
     plan.step_where(-1)
     assert plan.where_box.currentIndex() == top
-    assert plan.display_button.toolTip() == "Display Options"
+    assert plan.display_button.toolTip() == "Display Settings"
     window.act_extrude.setChecked(False)
     window.toggle_extrude(False)
     assert not plan.display_options.extrude and not v3d.display_options.extrude

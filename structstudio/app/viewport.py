@@ -290,7 +290,7 @@ class ModelViewport(QtWidgets.QWidget):
         fit.clicked.connect(self.fit)
         self.display_button = QtWidgets.QToolButton()
         self.display_button.setIcon(icon("display"))
-        self.display_button.setToolTip("Display Options")
+        self.display_button.setToolTip("Display Settings")
         self.display_button.clicked.connect(lambda: self.display_requested.emit(self))
         # one story / grid line up or down (plans: next story above / below; elevations: the
         # next grid line) - also Page Up / Page Down in the window
