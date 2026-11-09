@@ -424,8 +424,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
                                           "thickness (Ctrl+E)")
         self.act_display = self._make("Set Display Options...", lambda: self.views.edit_display(), "Ctrl+W",
                                       icon_name="display",
-                                      tip="What the active window shows: objects, assignments, labels, grid, "
-                                          "extrusion (Ctrl+W)")
+                                      tip="Display Settings")
         self.act_grid = self._make("Show Grid Lines", lambda c: self.views.set_option_all("grid_lines", c),
                                    "Ctrl+D", checkable=True, checked=True, icon_name="grid",
                                    tip="Show / hide the grid lines in every window (Ctrl+D)")
