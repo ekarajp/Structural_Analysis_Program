@@ -791,13 +791,13 @@ class ModelViewport(QtWidgets.QWidget):
         f.setBold(True)
         info.setFont(f)
         menu.addSeparator()
-        sel = menu.addAction("Select it")
+        sel = menu.addAction("Select")
         only = menu.addAction("Show only this object")
         sel_only = menu.addAction("Show only the selected objects") if (st.frames or st.areas or st.points) else None
         hide = menu.addAction("Hide this object")
         show_all = menu.addAction("Show all objects") if any(self.hidden) else None
         menu.addSeparator()
-        axes = menu.addAction("Show local axes (1 red, 2 green, 3 blue)")
+        axes = menu.addAction("Show local axes 1 2 3")
         axes.setCheckable(True)
         axes.setChecked(self.display_options.local_axes)
         h = self.vtk_widget.height()
@@ -2555,9 +2555,12 @@ class ModelViewport(QtWidgets.QWidget):
         vu = np.asarray(cam.GetViewUp(), float)
         vd = np.asarray(cam.GetDirectionOfProjection(), float)
         vr = np.cross(vd, vu)
-        from .snap_icons import strokes
+        from .snap_icons import FREE_SHAPES, strokes
+        if not snapped:  # the free point: shape and size from Options > Graphics Colors / Sizes
+            r *= scene.gsize("free_point_size")
+        shape = strokes(kind) if snapped else FREE_SHAPES.get(scene.gchoice("free_point_shape"), FREE_SHAPES["cross"])
         coords = []
-        for st in strokes(kind):
+        for st in shape:
             for k in range(len(st) - 1):
                 coords += [c + r * (st[k][0] * vr + st[k][1] * vu), c + r * (st[k + 1][0] * vr + st[k + 1][1] * vu)]
         lines = vtk.vtkCellArray()
@@ -2568,9 +2571,11 @@ class ModelViewport(QtWidgets.QWidget):
         poly = vtk.vtkPolyData()
         poly.SetPoints(scene._points(np.array(coords, float)))
         poly.SetLines(lines)
-        # no snap: a green cross (circles are the pin symbols); the line drawn is pink
-        color = scene.COLORS["snap"] if snapped else scene.COLORS.get("free_point", (0.00, 0.62, 0.32))
-        return scene._actor_from_polydata(poly, color, 2.5, lighting=False)
+        # no snap: the free-point marker (pink X cross by default; colour, shape, size and
+        # line set in Options > Graphics Colors); a snap: the snap kind's own symbol
+        color = scene.COLORS["snap"] if snapped else scene.COLORS.get("free_point", (0.93, 0.20, 0.62))
+        width = 2.5 if snapped else scene.gsize("free_point_width")
+        return scene._actor_from_polydata(poly, color, width, lighting=False)
 
     # ------------------------------------------------------------ capture
     def screenshot(self, path: str):

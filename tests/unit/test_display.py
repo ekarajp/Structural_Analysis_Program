@@ -119,3 +119,44 @@ def test_joint_and_area_labels_and_grid_bubbles_build():
         assert hier.GetInput().GetPointData().GetAbstractArray("labels") is not None
     bub = sc.actors.get("grid_bubbles")
     assert isinstance(bub, vtk.vtkActor) and bub.GetMapper().GetInput().GetNumberOfCells() > 0
+
+
+def test_local_axes_numbers_sit_past_the_arrow_heads():
+    import numpy as np
+    from structstudio.app import theme as th
+    m = _model()
+    beam = next(f for f in m.frames.values() if f.type == "Beam")
+    acts = scene._local_axes_actors(m, [beam])
+    assert len(acts) == 6  # per axis: the arrow (shaft + head) and its number
+    for k in range(3):
+        arrow, label = acts[2 * k], acts[2 * k + 1]
+        assert arrow.GetProperty().GetColor() == pytest.approx(scene.COLORS[f"axis_{k + 1}"])
+        pts = arrow.GetMapper().GetInput().GetPoints()
+        P = np.array([pts.GetPoint(i) for i in range(pts.GetNumberOfPoints())])
+        mid, tip = P[0], P[1]
+        spot = np.array(label.GetMapper().GetInputConnection(0, 0).GetProducer().GetInput().GetPoint(0))
+        # the number is beyond the tip, on the axis, by the "distance past the arrow tip" setting
+        assert np.linalg.norm(spot - mid) > np.linalg.norm(tip - mid) * 1.3
+    # bigger with the length setting
+    s = th.ColorSettings()
+    s.set_size("local_axes_length", 3.0)
+    th.apply(s)
+    try:
+        big = scene._local_axes_actors(m, [beam])[0].GetMapper().GetInput().GetPoints()
+        assert np.linalg.norm(np.subtract(big.GetPoint(1), big.GetPoint(0))) == pytest.approx(
+            2.0 * np.linalg.norm(np.subtract(pts.GetPoint(1), pts.GetPoint(0))))
+    finally:
+        th.apply(th.ColorSettings())
+
+
+def test_hidden_columns_leave_the_plan_window():
+    """Show only this object: a hidden column's plan marker and support go too."""
+    m = _model()
+    story = next(s for s in m.stories if s != "Base")
+    beam = next(f.name for f in m.frames.values() if f.type == "Beam" and f.story == story)
+    plain = scene.build_model_actors(m, story=story, options=DisplayOptions()).actors
+    assert "column_markers" in plain
+    hidden = (set(m.frames) - {beam}, set(m.areas), set(m.points) - {m.frames[beam].point_i, m.frames[beam].point_j})
+    acts = scene.build_model_actors(m, story=story, options=DisplayOptions(), hidden=hidden).actors
+    assert not any(k.startswith("column_markers") for k in acts) and "supports" not in acts
+    assert "frames_Beam" in acts

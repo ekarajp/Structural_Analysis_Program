@@ -8,6 +8,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from ..model import Model
 from . import theme as th
+from .theme import CHOICE_ITEMS
 from .theme import (COLOR_BY, COLOR_BY_LABELS, COLOR_ITEMS, OPACITY_ITEMS, OPTION_ITEMS, SIZE_ITEMS, THEME_LABELS,
                     THEMES, ColorSettings)
 
@@ -98,6 +99,8 @@ class GraphicsColorsDialog(QtWidgets.QDialog):
         self.custom_marks: Dict[str, QtWidgets.QLabel] = {}
         self.option_checks: Dict[str, QtWidgets.QCheckBox] = {}
         self.option_resets: Dict[str, QtWidgets.QToolButton] = {}
+        self.choice_boxes: Dict[str, QtWidgets.QComboBox] = {}
+        self.choice_resets: Dict[str, QtWidgets.QToolButton] = {}
         for tab_name, groups in (("Display", ("Window", "Objects", "Interaction")), ("Output", ("Output",))):
             page = QtWidgets.QWidget()
             grid = QtWidgets.QGridLayout(page)
@@ -120,6 +123,20 @@ class GraphicsColorsDialog(QtWidgets.QDialog):
                     self.buttons[key] = b
                     self.custom_marks[key] = mark
                     row += 1
+                if group == "Interaction":  # the shape of the drawing cursor next to its colour
+                    for key, label, default, values in CHOICE_ITEMS:
+                        grid.addWidget(QtWidgets.QLabel("   " + label), row, 0)
+                        box = QtWidgets.QComboBox()
+                        for v, text in values:
+                            box.addItem(text, v)
+                        box.currentIndexChanged.connect(lambda _i, k=key, bx=box: self._set_choice(k, bx.currentData()))
+                        grid.addWidget(box, row, 1)
+                        rb = _default_button(f"Back to the default ({dict(values)[default]})")
+                        rb.clicked.connect(lambda _=False, k=key: self._reset_choice(k))
+                        grid.addWidget(rb, row, 2)
+                        self.choice_boxes[key] = box
+                        self.choice_resets[key] = rb
+                        row += 1
             if tab_name == "Display":
                 head = QtWidgets.QLabel("Transparency")
                 head.setStyleSheet("font-weight: 600; padding-top: 6px")
@@ -286,6 +303,11 @@ class GraphicsColorsDialog(QtWidgets.QDialog):
             cb.setChecked(self.settings.option(key))
             cb.blockSignals(False)
             self.option_resets[key].setEnabled(key in self.settings.options)
+        for key, box in self.choice_boxes.items():
+            box.blockSignals(True)
+            box.setCurrentIndex(max(0, box.findData(self.settings.choice(key))))
+            box.blockSignals(False)
+            self.choice_resets[key].setEnabled(key in self.settings.choices)
         for key, sp in getattr(self, "size_spins", {}).items():
             sp.blockSignals(True)
             sp.setValue(self.settings.size(key))
@@ -311,6 +333,14 @@ class GraphicsColorsDialog(QtWidgets.QDialog):
         self.settings.set_option(key, on)
         self.option_resets[key].setEnabled(key in self.settings.options)
 
+    def _set_choice(self, key, value):
+        self.settings.set_choice(key, value)
+        self.choice_resets[key].setEnabled(key in self.settings.choices)
+
+    def _reset_choice(self, key):
+        self.settings.choices.pop(key, None)
+        self._fill()
+
     def _reset_option(self, key):
         self.settings.options.pop(key, None)
         self._fill()
@@ -333,6 +363,7 @@ class GraphicsColorsDialog(QtWidgets.QDialog):
         if name == "Display":
             self.settings.reset_colors([k for k, _, g in COLOR_ITEMS if g != "Output"])
             self.settings.opacities = {}
+            self.settings.choices = {}
         elif name == "Output":
             self.settings.reset_colors([k for k, _, g in COLOR_ITEMS if g == "Output"])
             self.settings.options = {}

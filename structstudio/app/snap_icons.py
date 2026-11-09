@@ -50,6 +50,17 @@ SHAPES["polar"] = [[(-1, -1), (1, -1)], [(-1, -1), (0.8, 0.6)],
 # a point with no snap (where the next joint goes): a diagonal cross - not a circle,
 # circles are the pin (release) symbols
 SHAPES["free"] = [[(-0.7, -0.7), (0.7, 0.7)], [(-0.7, 0.7), (0.7, -0.7)]]
+# the free point (no snap) in the shape chosen in Options > Graphics Colors (free_point_shape)
+FREE_SHAPES: Dict[str, List[Stroke]] = {
+    "cross": SHAPES["free"],
+    "plus": [[(-1, 0), (1, 0)], [(0, -1), (0, 1)]],
+    "cross_circle": [_circle(0.85), [(-0.6, -0.6), (0.6, 0.6)], [(-0.6, 0.6), (0.6, -0.6)]],
+    "plus_circle": [_circle(0.85), [(-1.1, 0), (1.1, 0)], [(0, -1.1), (0, 1.1)]],
+    "square": [[(-0.7, -0.7), (0.7, -0.7), (0.7, 0.7), (-0.7, 0.7), (-0.7, -0.7)]],
+    "diamond": [[(0, -0.9), (0.9, 0), (0, 0.9), (-0.9, 0), (0, -0.9)]],
+    "circle": [_circle(0.8)],
+    "dot": [_circle(0.25, 10), _circle(0.12, 8)],
+}
 for _k in ("increment", "fine_grid"):
     SHAPES.setdefault(_k, [_circle(0.6)])
 

@@ -54,6 +54,12 @@ def goption(key: str) -> bool:
     return bool(DISPLAY.get("options", {}).get(key, OPTION_DEFAULTS[key]))
 
 
+def gchoice(key: str) -> str:
+    """Active pick-one drawing setting of theme.CHOICE_ITEMS."""
+    from .theme import CHOICE_DEFAULTS
+    return str(DISPLAY.get("choices", {}).get(key, CHOICE_DEFAULTS[key]))
+
+
 def _text_pt(offset: int = 0) -> int:
     """Font size of object labels / grid text: the user's size + ``offset`` pt."""
     return max(6, int(round(gsize("label_text"))) + offset)
@@ -474,7 +480,8 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
                                                               gsize("area_edge_width"), lighting=False)
     # ---- plan-view column markers (section outline at the story level) -------
     if base_on and story is not None and not extruded and opts.columns:
-        cols = [f for f in model.frames.values() if f.type == "Column" and f.story == story]
+        cols = [f for f in model.frames.values() if f.type == "Column" and f.story == story
+                and (vis_f is None or f.name in vis_f)]  # hidden columns (Show only / Make invisible) too
         groups: Dict[str, Tuple[tuple, list]] = {}
         for f in cols:
             gkey, color = _group_color(model, f, "frame", "column")
@@ -522,7 +529,8 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
                                                 "square", 2.0, inner=5.0)
     # ---- supports -----------------------------------------------------------
     sup = [p for p in pts.values() if any(p.restraints) and (vis_p is None or p.name in vis_p or (
-        story is not None and any(f.story == story for f in model.frames.values() if p.name in (f.point_i, f.point_j))))
+        story is not None and any(f.story == story and (vis_f is None or f.name in vis_f)
+                                  for f in model.frames.values() if p.name in (f.point_i, f.point_j))))
            ] if base_on else []
     if base_on and sup and opts.supports:
         from .supports import support_polydata
@@ -849,13 +857,19 @@ def _release_dots(model: Model, frames) -> Optional[vtk.vtkPropAssembly]:
 
 
 def _local_axes_actors(model: Model, frames) -> List[vtk.vtkActor]:
-    """Local axes 1 (red), 2 (green), 3 (blue) at member mid-points."""
+    """Local axes 1, 2, 3 (Options > Graphics Colors axis_1..3) at member mid-points:
+    an arrow per axis and its number placed past the arrow head, so the number
+    never sits on the arrow.  Length, line, text size and the number's distance are
+    Options > Graphics Sizes (local_axes_*)."""
     from ..mesh.geometry import frame_axes
 
     L = model_extent(model) * 0.03
     typ = typical_member_length(model)
     if typ > 0:
         L = min(L, typ * 0.15)  # local axes: not metres long on a tall building
+    L *= gsize("local_axes_length")
+    head = 0.22 * L  # arrow head: length along the axis, half width 0.4 x that
+    label_at = L * (1.0 + 0.35 * gsize("local_axes_gap")) + 0.5 * head
     sets = ([], [], [])
     for f in frames:
         a, b = np.array(model.points[f.point_i].xyz, float), np.array(model.points[f.point_j].xyz, float)
@@ -865,24 +879,32 @@ def _local_axes_actors(model: Model, frames) -> List[vtk.vtkActor]:
             continue
         mid = 0.5 * (a + b)
         for k in range(3):
-            sets[k].append((mid, mid + ax[k] * L))
+            side = ax[(k + 1) % 3]  # the arrow head opens in a plane through the axis
+            sets[k].append((mid, ax[k], side))
     out = []
-    for segs, color in zip(sets, ((0.9, 0.2, 0.2), (0.2, 0.75, 0.3), (0.25, 0.45, 0.95))):
+    width = gsize("local_axes_width")
+    for k, segs in enumerate(sets):
         if not segs:
             continue
+        color = COLORS.get(f"axis_{k + 1}", ((0.9, 0.2, 0.2), (0.2, 0.75, 0.3), (0.25, 0.45, 0.95))[k])
         coords, lines = [], vtk.vtkCellArray()
-        for k, (p, q) in enumerate(segs):
-            coords += [p, q]
-            lines.InsertNextCell(2)
-            lines.InsertCellPoint(2 * k)
-            lines.InsertCellPoint(2 * k + 1)
+        n = 0
+        for p, d, side in segs:
+            tip = p + d * L
+            back = tip - d * head
+            for q0, q1 in ((p, tip), (tip, back + side * 0.4 * head), (tip, back - side * 0.4 * head)):
+                coords += [q0, q1]
+                lines.InsertNextCell(2)
+                lines.InsertCellPoint(2 * n)
+                lines.InsertCellPoint(2 * n + 1)
+                n += 1
         poly = vtk.vtkPolyData()
         poly.SetPoints(_points_of(coords))
         poly.SetLines(lines)
-        out.append(_actor_from_polydata(poly, color, 2.5, lighting=False))
-        tips = [q for _, q in segs]
-        lab = {(0.9, 0.2, 0.2): "1", (0.2, 0.75, 0.3): "2", (0.25, 0.45, 0.95): "3"}[color]
-        out.append(_text_labels(_points_of(tips), _strings([lab] * len(tips)), color, _text_pt(0), bold=True))
+        out.append(_actor_from_polydata(poly, color, width, lighting=False))
+        spots = [p + d * label_at for p, d, _ in segs]
+        out.append(_text_labels(_points_of(spots), _strings([str(k + 1)] * len(spots)), color,
+                                max(6, int(round(gsize("local_axes_text")))), bold=True))
     return out
 
 

@@ -43,10 +43,13 @@ COLOR_ITEMS: List[Tuple[str, str, str]] = [
     ("opening", "Openings / null areas", "Objects"),
     ("area_edge", "Area edges", "Objects"),
     ("support", "Supports", "Objects"),
+    ("axis_1", "Local axis 1 (arrow and number)", "Objects"),
+    ("axis_2", "Local axis 2 (arrow and number)", "Objects"),
+    ("axis_3", "Local axis 3 (arrow and number)", "Objects"),
     ("selection", "Selected objects (dashed highlight)", "Interaction"),
     ("select_box", "Selection box (drag)", "Interaction"),
     ("preview", "Drawing preview (the line / outline being drawn)", "Interaction"),
-    ("free_point", "Point with no snap (cross)", "Interaction"),
+    ("free_point", "Drawing cursor - point with no snap", "Interaction"),
     ("snap", "Snap marker", "Interaction"),
     ("reference", "Reference lines (through joints)", "Window"),
     ("deformed", "Deformed shape", "Output"),
@@ -87,6 +90,12 @@ SIZE_ITEMS: List[Tuple[str, str, float, float, float, float, str]] = [
     ("label_text", "Object labels and grid bubbles (text)", 11.0, 6.0, 36.0, 1.0, " pt"),
     ("bubble_size", "Grid bubble circle (diameter)", 1.0, 0.25, 4.0, 0.25, " x"),
     ("bubble_gap", "Grid bubble distance from the grid line", 1.0, 0.0, 6.0, 0.25, " x"),
+    ("free_point_size", "Drawing cursor - point with no snap (size)", 1.4, 0.25, 5.0, 0.25, " x"),
+    ("free_point_width", "Drawing cursor - point with no snap (line)", 2.5, 0.5, 8.0, 0.5, " px"),
+    ("local_axes_length", "Local axes arrows (length)", 1.5, 0.25, 6.0, 0.25, " x"),
+    ("local_axes_width", "Local axes arrows (line)", 2.5, 0.5, 10.0, 0.5, " px"),
+    ("local_axes_text", "Local axes numbers 1 2 3 (text)", 16.0, 6.0, 40.0, 1.0, " pt"),
+    ("local_axes_gap", "Local axes numbers: distance past the arrow tip", 1.0, 0.0, 4.0, 0.25, " x"),
 ]
 # on / off drawing options (theme independent): (key, label, default)
 OPTION_ITEMS: List[Tuple[str, str, bool]] = [
@@ -96,6 +105,16 @@ OPTION_ITEMS: List[Tuple[str, str, bool]] = [
                             "members and right of vertical ones (off: above / left)", True),
 ]
 OPTION_KEYS = tuple(k for k, _, _ in OPTION_ITEMS)
+
+# pick-one drawing settings (theme independent): (key, label, default, ((value, text), ...))
+CHOICE_ITEMS: List[Tuple[str, str, str, Tuple[Tuple[str, str], ...]]] = [
+    ("free_point_shape", "Drawing cursor - point with no snap: shape", "cross",
+     (("cross", "X cross"), ("plus", "+ plus"), ("cross_circle", "X in a circle"), ("plus_circle", "+ in a circle"),
+      ("square", "Square"), ("diamond", "Diamond"), ("circle", "Circle"), ("dot", "Dot"))),
+]
+CHOICE_KEYS = tuple(it[0] for it in CHOICE_ITEMS)
+CHOICE_DEFAULTS = {it[0]: it[2] for it in CHOICE_ITEMS}
+CHOICE_VALUES = {it[0]: tuple(v for v, _ in it[3]) for it in CHOICE_ITEMS}
 OPTION_DEFAULTS = {k: v for k, _, v in OPTION_ITEMS}
 
 SIZE_KEYS = tuple(it[0] for it in SIZE_ITEMS)
@@ -123,7 +142,7 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "selection": (1.00, 1.00, 0.30),
         "select_box": (0.45, 0.70, 1.00),
         "preview": (1.00, 0.45, 0.78),
-        "free_point": (0.40, 0.95, 0.60),
+        "free_point": (1.00, 0.45, 0.78),
         "snap": (1.00, 1.00, 0.30),
         "reference": (0.35, 0.80, 0.85),
         "deformed": (0.98, 0.85, 0.30),
@@ -131,6 +150,9 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "moment_pos": (0.30, 0.85, 0.62),
         "moment_neg": (1.00, 0.42, 0.38),
         "load": (1.00, 0.50, 0.88),
+        "axis_1": (1.00, 0.32, 0.32),
+        "axis_2": (0.35, 0.90, 0.42),
+        "axis_3": (0.40, 0.62, 1.00),
     },
     # white background (the light model window of the newer CSI releases):
     # deeper, more saturated colours so thin lines stay visible on white
@@ -153,7 +175,7 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "selection": (0.90, 0.08, 0.55),
         "select_box": (0.00, 0.47, 0.84),  # the Windows / CAD selection-window blue
         "preview": (0.93, 0.20, 0.62),  # pink: green circles are the pin symbols
-        "free_point": (0.00, 0.62, 0.32),
+        "free_point": (0.93, 0.20, 0.62),
         "snap": (0.90, 0.08, 0.55),
         "reference": (0.00, 0.60, 0.65),
         "deformed": (0.18, 0.18, 0.22),
@@ -161,6 +183,9 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "moment_pos": (0.00, 0.58, 0.42),
         "moment_neg": (0.86, 0.16, 0.16),
         "load": (0.62, 0.05, 0.62),
+        "axis_1": (0.85, 0.12, 0.12),
+        "axis_2": (0.10, 0.60, 0.20),
+        "axis_3": (0.15, 0.35, 0.90),
     },
 }
 
@@ -211,6 +236,7 @@ class ColorSettings:
     opacities: Dict[str, float] = field(default_factory=dict)  # theme independent
     sizes: Dict[str, float] = field(default_factory=dict)  # theme independent
     options: Dict[str, bool] = field(default_factory=dict)  # theme independent, non-defaults only
+    choices: Dict[str, str] = field(default_factory=dict)  # theme independent, non-defaults only
 
     def __post_init__(self):
         if self.theme not in THEMES:
@@ -222,6 +248,18 @@ class ColorSettings:
         self.opacities = {k: float(v) for k, v in self.opacities.items() if k in OPACITY_KEYS}
         self.sizes = {k: float(v) for k, v in self.sizes.items() if k in SIZE_KEYS}
         self.options = {k: bool(v) for k, v in self.options.items() if k in OPTION_KEYS}
+        self.choices = {k: str(v) for k, v in self.choices.items() if k in CHOICE_KEYS and v in CHOICE_VALUES[k]}
+
+    def choice(self, key: str) -> str:
+        return self.choices.get(key, CHOICE_DEFAULTS[key])
+
+    def set_choice(self, key: str, value: str):
+        if key not in CHOICE_KEYS or value not in CHOICE_VALUES[key]:
+            raise KeyError(f"{key}={value}")
+        if value == CHOICE_DEFAULTS[key]:
+            self.choices.pop(key, None)
+        else:
+            self.choices[key] = value
 
     def option(self, key: str) -> bool:
         return bool(self.options.get(key, OPTION_DEFAULTS[key]))
@@ -288,6 +326,7 @@ class ColorSettings:
         self.opacities = {}
         self.sizes = {}
         self.options = {}
+        self.choices = {}
 
     def reset_all(self):
         """Colours of every theme, transparencies, sizes and options back to the defaults."""
@@ -312,7 +351,7 @@ class ColorSettings:
 
     def is_default(self) -> bool:
         return (not any(self.overrides.get(t) for t in THEMES) and not self.opacities and not self.sizes
-                and not self.options)
+                and not self.options and not self.choices)
 
     def size_is_custom(self, key: str) -> bool:
         return key in self.sizes
@@ -333,7 +372,7 @@ class ColorSettings:
     def to_json(self) -> str:
         return json.dumps({"theme": self.theme, "color_by": self.color_by, "overrides": self.overrides,
                            "opacities": self.opacities, "sizes": self.sizes,
-                           "options": self.options})
+                           "options": self.options, "choices": self.choices})
 
     @classmethod
     def from_json(cls, text: Optional[str]) -> "ColorSettings":
@@ -352,8 +391,10 @@ class ColorSettings:
         sizes = {k: float(v) for k, v in sz.items() if k in SIZE_KEYS and isinstance(v, (int, float))}
         oo = d.get("options") if isinstance(d.get("options"), dict) else {}
         options = {k: bool(v) for k, v in oo.items() if k in OPTION_KEYS and isinstance(v, bool)}
+        ch = d.get("choices") if isinstance(d.get("choices"), dict) else {}
+        choices = {k: v for k, v in ch.items() if k in CHOICE_KEYS and v in CHOICE_VALUES[k]}
         return cls(theme=str(d.get("theme", "light")), color_by=str(d.get("color_by", "object")), overrides=overrides,
-                   opacities=opacities, sizes=sizes, options=options)
+                   opacities=opacities, sizes=sizes, options=options, choices=choices)
 
 
 # ----------------------------------------------------------------------------
@@ -377,6 +418,7 @@ def apply(settings: ColorSettings) -> None:
     scene.DISPLAY["opacity"] = {k: settings.opacity(k) for k in OPACITY_KEYS}
     scene.DISPLAY["sizes"] = {k: settings.size(k) for k in SIZE_KEYS}
     scene.DISPLAY["options"] = {k: settings.option(k) for k in OPTION_KEYS}
+    scene.DISPLAY["choices"] = {k: settings.choice(k) for k in CHOICE_KEYS}
 
 
 def object_color(name: str, explicit: Optional[str], theme: Optional[str] = None,

@@ -22,7 +22,7 @@ class ModelTree(QtWidgets.QTreeWidget):
 
     Click an object: it is selected and located (status bar: story, grid, size;
     the plan windows go to its story, it flashes).  Double-click: zoom to it.
-    Right-click an object: Select / Show information and properties / Edit section /
+    Right-click an object: Show information and properties / Edit section /
     Show only this object (in the active window).
     Click a group / story heading of objects: select all of them.  Click a story
     under Structure Layout: the active plan window shows it.  Type in the box
@@ -35,8 +35,8 @@ class ModelTree(QtWidgets.QTreeWidget):
     object_action = QtCore.Signal(str, str, str)  # right-click menu: action, collection attr, name
 
     #: right-click > what (menu text, action key); the same choices as right-click on the drawing
-    OBJECT_ACTIONS = (("Select", "select"),
-                      ("Show Information and Properties...", "info"),
+    #: (clicking the object in the tree already selects it, so there is no Select here)
+    OBJECT_ACTIONS = (("Show Information and Properties...", "info"),
                       ("Edit section...", "section"),
                       ("Show only this object (active window)", "only"))
 

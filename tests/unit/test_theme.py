@@ -125,3 +125,35 @@ def test_dark_and_light_palettes_keep_contrast():
         # diagrams are not drawn in the member colours
         for a, b in (("moment_pos", "beam"), ("moment_neg", "column"), ("deformed", "moment_neg")):
             assert sum(abs(x - y) for x, y in zip(c[a], c[b])) > 0.3, (t, a, b)
+
+
+def test_drawing_cursor_shape_choice_and_pink_default():
+    from structstudio.app import scene, theme as th
+    from structstudio.app.snap_icons import FREE_SHAPES
+    s = th.ColorSettings()
+    # the point with no snap is pink in both themes (green circles are the pin symbols)
+    for t in th.THEMES:
+        r, g, b = s.colors(t)["free_point"]
+        assert r > 0.8 and g < 0.5 and b > 0.5
+    assert s.choice("free_point_shape") == "cross"
+    assert set(th.CHOICE_VALUES["free_point_shape"]) <= set(FREE_SHAPES)
+    s.set_choice("free_point_shape", "plus")
+    with pytest.raises(KeyError):
+        s.set_choice("free_point_shape", "banana")
+    again = th.ColorSettings.from_json(s.to_json())
+    assert again.choice("free_point_shape") == "plus" and not again.is_default()
+    assert th.ColorSettings.from_json('{"choices": {"free_point_shape": "banana"}}').choice("free_point_shape") == "cross"
+    th.apply(again)
+    try:
+        assert scene.gchoice("free_point_shape") == "plus"
+    finally:
+        th.apply(th.ColorSettings())
+    s.set_choice("free_point_shape", "cross")  # the default is not stored
+    assert s.is_default()
+
+
+def test_local_axes_colours_and_sizes_are_settings():
+    from structstudio.app import theme as th
+    for t in th.THEMES:
+        assert {"axis_1", "axis_2", "axis_3"} <= set(th.DEFAULTS[t])
+    assert {"local_axes_length", "local_axes_width", "local_axes_text", "local_axes_gap"} <= set(th.SIZE_KEYS)
