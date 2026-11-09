@@ -746,3 +746,171 @@ def test_gui_check_model_button_and_pre_analysis_question(window, monkeypatch, q
     assert asked and "warning" in shown[-1] and window._worker is None
     issues = window.validate_model()
     assert any("DUPLICATE_FRAME" in i.message for i in issues)
+
+
+# ------------------------------------------- merge choices (user's request, 2026-11-10)
+def _conflicting_pair():
+    d = doc()
+    m = d.model
+    m.add_diaphragm("D2")
+    a = m.add_point(0, 0, 3)
+    b = m.add_point(0.0001, 0, 3, merge=False)
+    a.springs, b.springs = (1.0, 1.0, 1.0), (5.0, 5.0, 5.0)
+    a.diaphragm, b.diaphragm = "D1", "D2"
+    a.mass, b.mass = (1.0, 1.0, 1.0), (1.0, 1.0, 1.0)  # identical: not asked
+    return d, m, a, b
+
+
+@pytest.fixture
+def resolver():
+    from structstudio.model import point_ops
+    old = point_ops.CONFLICT_RESOLVER
+    yield point_ops
+    point_ops.CONFLICT_RESOLVER = old
+
+
+def test_merge_asks_which_value_to_keep_and_uses_the_answer(resolver):
+    d, m, a, b = _conflicting_pair()
+    asked = []
+
+    def answer(items):
+        asked.extend(items)
+        return {(i.keep, i.gone, i.group): (i.gone if i.group == "springs" else i.keep) for i in items}
+    resolver.CONFLICT_RESOLVER = answer
+    C.merge_joints(d, [a.name, b.name], 0.001)
+    assert sorted(i.group for i in asked) == ["diaphragm", "springs"]
+    q = d.model.points[a.name]
+    assert q.springs == (5.0, 5.0, 5.0) and q.diaphragm == "D1" and q.mass == (1.0, 1.0, 1.0)
+    assert b.name not in d.model.points and len(d._undo) == 1
+
+
+def test_merge_cancelled_or_unanswered_changes_nothing(resolver):
+    d, m, a, b = _conflicting_pair()
+    before = m.to_json()
+    resolver.CONFLICT_RESOLVER = lambda items: None
+    with pytest.raises(ModelError, match="cancelled"):
+        C.merge_joints(d, [a.name, b.name], 0.001)
+    resolver.CONFLICT_RESOLVER = None
+    with pytest.raises(resolver.MergeConflict) as e:
+        C.merge_joints(d, [a.name, b.name], 0.001)
+    assert {i.group for i in e.value.items} == {"springs", "diaphragm"}
+    assert d.model.to_json() == before and not d._undo
+
+
+def test_merge_choice_for_different_local_axes_takes_the_whole_set(resolver):
+    d, m, a, b = _two_joints()
+    a.local_axes, a.restraints, a.springs = (30.0, 0.0, 0.0), (True, False, False, False, False, False), (0, 9, 0)
+    b.restraints = (False, True, False, False, False, False)
+    resolver.CONFLICT_RESOLVER = lambda items: {(i.keep, i.gone, i.group): i.gone for i in items}
+    C.merge_joints(d, [a.name, b.name], 0.001)
+    q = d.model.points[a.name]
+    assert q.local_axes is None and q.restraints == (False, True, False, False, False, False) and q.springs == (0, 0, 0)
+
+
+def test_grip_drag_onto_a_joint_with_different_values_asks_too(resolver):
+    d = doc()
+    m = d.model
+    a, b = m.add_point(0, 0, 3), m.add_point(2, 0, 3)
+    a.mass, b.mass = (1.0, 1.0, 1.0), (2.0, 2.0, 2.0)
+    resolver.CONFLICT_RESOLVER = lambda items: {(i.keep, i.gone, i.group): i.gone for i in items}
+    M.move_joint(d, b.name, a.xyz)
+    assert d.model.points[a.name].mass == (2.0, 2.0, 2.0) and len(d.model.points) == 1
+
+
+# -------------------------------- copies turn with Replicate Radial / Mirror (2026-11-10)
+def test_radial_copy_turns_joint_loads_supports_springs_and_mass():
+    d = doc()
+    m = d.model
+    p = m.add_point(5, 0, 3)
+    p.restraints, p.springs = (True, False, False, False, False, False), (100.0, 0.0, 0.0)
+    p.loads = [PointLoad("Live", (10.0, 0.0, -5.0), (0.0, 2.0, 0.0))]
+    p.mass = (4.0, 1.0, 1.0)
+    C.replicate_transform(d, [], [], [p.name], C.radial_transforms(0, 0, 90, 1))
+    q = d.model.find_point(0, 5, 3)
+    assert q.loads[0].force == pytest.approx((0.0, 10.0, -5.0)) and q.loads[0].moment == pytest.approx((-2.0, 0.0, 0.0))
+    assert q.local_axes == pytest.approx((90.0, 0.0, 0.0))  # the X support / spring now acts along Y
+    assert q.restraints == p.restraints and q.springs == p.springs and q.mass == pytest.approx((1.0, 4.0, 1.0))
+
+
+def test_mirror_copy_mirrors_joint_loads_and_moments():
+    d = doc()
+    m = d.model
+    p = m.add_point(15, 2, 3)
+    p.loads = [PointLoad("Live", (10.0, 3.0, -5.0), (1.0, 2.0, 4.0))]
+    M.copy_transformed(d, [], [], [p.name], M.mirror((20, 0, 0), (20, 1, 0), (0, 0, 1)))
+    q = d.model.find_point(25, 2, 3)
+    assert q.loads[0].force == pytest.approx((-10.0, 3.0, -5.0))
+    assert q.loads[0].moment == pytest.approx((1.0, -2.0, -4.0))  # a moment is an axial vector
+
+
+@pytest.mark.parametrize("angle", [90.0, 45.0, 30.0])
+def test_radial_copy_turns_global_frame_loads_and_keeps_their_resultant(angle):
+    d = doc()
+    m = d.model
+    f = m.add_frame((5, 0, 3), (8, 0, 3), "B30x60")
+    f.loads = [FrameLoad("Live", direction="X", value_a=3, value_b=3), FrameLoad("Live", value_a=2, value_b=2)]
+    made = C.replicate_transform(d, [f.name], [], [], C.radial_transforms(0, 0, angle, 1))
+    g = d.model.frames[made[0]]
+    fx = sum(ld.value_a for ld in g.loads if ld.direction == "X")
+    fy = sum(ld.value_a for ld in g.loads if ld.direction == "Y")
+    a = math.radians(angle)
+    assert (fx, fy) == pytest.approx((3 * math.cos(a), 3 * math.sin(a)), abs=1e-9)
+    assert [ld.value_a for ld in g.loads if ld.direction == "Gravity"] == [2]
+
+
+def test_radial_copy_turns_column_axes_and_rotate_in_place_turns_loads():
+    d = doc()
+    m = d.model
+    c = m.add_frame((5, 0, 0), (5, 0, 3), "C40x40", type="Column", angle=10)
+    made = C.replicate_transform(d, [c.name], [], [], C.radial_transforms(0, 0, 90, 1))
+    assert d.model.frames[made[0]].angle == pytest.approx(100.0)
+    p = d.model.add_point(20, 0, 3)
+    p.loads = [PointLoad("Live", (10.0, 0.0, 0.0))]
+    M.transform_in_place(d, [], [], [p.name], M.rotation((0, 0, 0), (0, 0, 1), 90))
+    q = d.model.points[p.name]
+    assert (q.x, q.y) == pytest.approx((0.0, 20.0)) and q.loads[0].force == pytest.approx((0.0, 10.0, 0.0))
+
+
+def test_a_copy_turned_out_of_plan_keeps_loads_as_assigned():
+    d = doc()
+    p = d.model.add_point(5, 0, 3)
+    p.loads = [PointLoad("Live", (0.0, 0.0, -10.0))]
+    M.copy_transformed(d, [], [], [p.name], M.rotation((0, 0, 0), (0, 1, 0), 90))
+    q = d.model.find_point(3, 0, -5)
+    assert q.loads[0].force == (0.0, 0.0, -10.0)  # gravity stays gravity
+
+
+@gui
+def test_gui_merge_choice_dialog(qapp):
+    from structstudio.app.merge_dialog import MergeChoiceDialog
+    from structstudio.model.point_ops import merge_conflicts
+    d, m, a, b = _conflicting_pair()
+    items = merge_conflicts(a, b)
+    dlg = MergeChoiceDialog(items)
+    assert dlg.table.rowCount() == 2
+    assert dlg.choices() == {(a.name, b.name, i.group): a.name for i in items}
+    dlg.choose(0, True)
+    got = dlg.choices()
+    assert got[(a.name, b.name, items[0].group)] == b.name
+    dlg.close()
+    dlg.deleteLater()  # a parentless Qt dialog must go before the application does
+    qapp.processEvents()
+
+
+@gui
+def test_gui_window_asks_merge_choices_in_a_dialog(window, monkeypatch, qapp):
+    from structstudio.app import merge_dialog
+    from structstudio.model import point_ops
+    shown = []
+
+    def fake_exec(self):
+        shown.append(self.table.rowCount())
+        self.choose(0, True)
+        return 1
+    monkeypatch.setattr(merge_dialog.MergeChoiceDialog, "exec", fake_exec)
+    m = window.doc.model
+    a, b = m.add_point(30, 0, 3), m.add_point(30.0001, 0, 3, merge=False)
+    a.mass, b.mass = (1.0, 1.0, 1.0), (2.0, 2.0, 2.0)
+    C.merge_joints(window.doc, [a.name, b.name], 0.001)
+    assert shown == [1] and window.doc.model.points[a.name].mass == (2.0, 2.0, 2.0)
+    assert point_ops.CONFLICT_RESOLVER is not None

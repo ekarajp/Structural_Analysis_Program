@@ -152,3 +152,97 @@ def copy_frame_loads(loads: List[FrameLoad]) -> List[FrameLoad]:
 
 
 __all__ = ["span", "reversed_load", "reverse_frame", "piece_loads", "joined_loads", "resultant"]
+
+
+# ---------------------------------------------------------- turning with a copy
+_GLOBAL_PLAN = {"X": (1.0, 0.0), "Y": (0.0, 1.0), "XProjected": (1.0, 0.0), "YProjected": (0.0, 1.0)}
+
+
+def _turned_direction(direction: str, A):
+    """[(new direction, factor)] of a load in global X / Y turned with the plan map A."""
+    import numpy as np
+    proj = "Projected" if direction.endswith("Projected") else ""
+    d = np.asarray(A, float) @ np.array(_GLOBAL_PLAN[direction])
+    out = []
+    for name, comp in (("X", d[0]), ("Y", d[1])):
+        if abs(comp) > 1e-9:
+            out.append((name + proj, float(comp)))
+    return out
+
+
+def turn_loads(loads, A, kind: str = "frame"):
+    """Loads of a copied / moved frame or shell turned with the plan map A: global
+    X / Y loads turn (a load between the axes becomes its X and Y parts); with a
+    mirror, local loads across the member (axis 3 forces, axis 1 / 2 moments,
+    gradients across 3) change sign because axis 3 turns over."""
+    import numpy as np
+    A = np.asarray(A, float)
+    det = float(np.linalg.det(A))
+    out = []
+    for ld in loads:
+        direction = str(getattr(ld, "direction", "Gravity"))
+        moment = getattr(ld, "load_type", "Force") == "Moment"
+        if direction in _GLOBAL_PLAN:
+            parts = _turned_direction(direction, A)
+            for name, f in parts:
+                q = dataclasses.replace(ld, direction=name)
+                f = f * (det if moment else 1.0)
+                if kind == "frame":
+                    q.value_a, q.value_b = ld.value_a * f, ld.value_b * f
+                else:
+                    q.value = ld.value * f
+                out.append(q)
+            continue
+        q = dataclasses.replace(ld)
+        if det < 0:
+            flip = (direction in ("1", "2")) if moment else (direction == "3")
+            if direction == "Z" and moment:
+                flip = True
+            if getattr(ld, "load_type", "") == "Gradient3":
+                flip = True
+            if flip:
+                if kind == "frame":
+                    q.value_a, q.value_b = -ld.value_a, -ld.value_b
+                elif kind == "area" and direction != "3":  # area pressure follows the reversed corners
+                    q.value = -ld.value
+        out.append(q)
+    return out
+
+
+def mirror_frame_axes(f) -> None:
+    """A mirrored copy of a frame: the rotation about axis 1 and the left / right
+    cardinal points turn over (axis 3 reverses)."""
+    if f.angle:
+        f.angle = -f.angle
+    f.cardinal_point = _CARDINAL_MIRROR.get(f.cardinal_point, f.cardinal_point)
+    if f.display_cardinal is not None:
+        f.display_cardinal = _CARDINAL_MIRROR.get(f.display_cardinal, f.display_cardinal)
+
+
+def turn_frame(f, A, vertical: bool) -> None:
+    """A frame copied / moved with the plan map A (see point_ops.plan_map): loads,
+    global joint offsets and - for columns, whose local axes start from global X -
+    the axis angle turn with it; a mirror also turns the section over."""
+    import math
+    import numpy as np
+    A = np.asarray(A, float)
+    if np.allclose(A, np.eye(2)):
+        return
+    det = float(np.linalg.det(A))
+    f.loads = turn_loads(f.loads, A, "frame")
+    if not f.joint_offset_local:
+        for k in ("joint_offset_i", "joint_offset_j"):
+            v = getattr(f, k)
+            x, y = A @ np.array(v[:2], float)
+            setattr(f, k, (float(x), float(y), v[2]))
+    if vertical:
+        a = math.radians(f.angle or 0.0)
+        d = A @ np.array([math.cos(a), math.sin(a)])
+        na = math.degrees(math.atan2(d[1], d[0]))
+        f.angle = 0.0 if abs(na) < 1e-9 else na
+        if det < 0:
+            f.cardinal_point = _CARDINAL_MIRROR.get(f.cardinal_point, f.cardinal_point)
+            if f.display_cardinal is not None:
+                f.display_cardinal = _CARDINAL_MIRROR.get(f.display_cardinal, f.display_cardinal)
+    elif det < 0:
+        mirror_frame_axes(f)

@@ -170,6 +170,10 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         self.color_settings = theme.ColorSettings.from_json(raw if isinstance(raw, str) else "")
         self._apply_theme_globals(self.color_settings)
         self.views = ViewportArea(self.doc, self.state, settings)
+        # Merge Joints / Move / grip drag onto a joint with different values: the user chooses
+        from ..model import point_ops
+        from .merge_dialog import ask_merge_choices
+        point_ops.CONFLICT_RESOLVER = lambda items: ask_merge_choices(items, self)
         self.setCentralWidget(self.views)
         for vp in self.views.viewports:
             vp.object_info_requested.connect(self.show_object_info)

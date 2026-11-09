@@ -20,8 +20,9 @@ from ..model import Model, ModelError
 from ..model.objects import Area, Frame, Group, GridLine, Point
 from .document import Document
 from ..model.area_panels import copy_area_panels
-from ..model.frame_ops import joined_loads, reverse_frame
-from ..model.point_ops import clone_assignments, has_assignments, merge_points, turns_directions
+from ..model.frame_ops import joined_loads, reverse_frame, turn_frame, turn_loads
+from ..model.point_ops import (clone_assignments, has_assignments, merge_points, plan_map, resolve_merge,
+                               turn_assignments, turns_directions)
 
 XYZ = Tuple[float, float, float]
 Selection = Tuple[List[str], List[str], List[str]]  # frames, areas, points
@@ -326,10 +327,12 @@ def replicate_transform(doc: Document, frames: Sequence[str], areas: Sequence[st
 
     def mutate(model: Model):
         kept: List[str] = []
-        turned = False
+        turned = False  # a copy kept directional values as assigned (not a plan rotation / mirror)
+        tilted: List[str] = []
         for T in transforms:
             cache: Dict[str, Point] = {}
             rigid = _is_translation(T)
+            A = None if rigid else plan_map(T)  # rotation about Z / mirror in a vertical plane
 
             def moved(name: str) -> Point:
                 nonlocal turned
@@ -340,7 +343,10 @@ def replicate_transform(doc: Document, frames: Sequence[str], areas: Sequence[st
                     q = existing or model.add_point(x, y, z)
                     if existing is None:
                         clone_assignments(p, q)
-                        if not rigid and turns_directions(p):
+                        if A is not None:
+                            if not turn_assignments(q, A):
+                                tilted.append(q.name)
+                        elif not rigid and turns_directions(p):
                             turned = True
                     elif has_assignments(p) and existing.name != name:
                         kept.append(existing.name)
@@ -353,6 +359,9 @@ def replicate_transform(doc: Document, frames: Sequence[str], areas: Sequence[st
                 f = model.frames[n]
                 g = model.add_frame(moved(f.point_i), moved(f.point_j), f.section, type=f.type, **_frame_kwargs(f))
                 g.loads = copy.deepcopy(f.loads)
+                if A is not None:
+                    pi, pj = model.points[g.point_i], model.points[g.point_j]
+                    turn_frame(g, A, vertical=math.hypot(pi.x - pj.x, pi.y - pj.y) <= model.options.merge_tolerance)
                 created.append(g.name)
             for n in areas:
                 a = model.areas[n]
@@ -361,14 +370,19 @@ def replicate_transform(doc: Document, frames: Sequence[str], areas: Sequence[st
                     pts = pts[::-1]
                 b = model.add_area(pts, a.section, type=a.type, **_area_kwargs(a))
                 b.loads = copy.deepcopy(a.loads)
+                if A is not None:
+                    b.loads = turn_loads(b.loads, A, "area")
                 copy_area_panels(model, n, b.name)
                 created.append(b.name)
+        if tilted:
+            notes.append(f"Joints {', '.join(tilted[:6])}: tilted local axes could not be turned with the copy - "
+                         "their supports / springs are kept as assigned")
         if kept:
             notes.append(f"{len(set(kept))} copied joint(s) landed on existing joints ({', '.join(sorted(set(kept))[:6])}): "
                          "those joints keep their own supports, springs and loads")
         if turned:
-            notes.append("The rotated / mirrored copies keep their joint loads, supports and springs in the same "
-                         "global directions as the originals (as assigned)")
+            notes.append("These copies are turned out of the plan (an elevation rotation): their joint loads, "
+                         "supports and springs are kept in the same global directions as the originals")
         if extra is not None:
             extra(model)
         if delete_original:
@@ -537,11 +551,10 @@ def merge_joints(doc: Document, points: Sequence[str], tolerance: float) -> int:
             keep.append(n)
     if not target:
         return 0
-    probe = copy.deepcopy(m)
-    merge_points(probe, target)  # raises MERGE_CONFLICT before the real model changes
+    choices = resolve_merge(m, target)  # different values: the user chooses first (or nothing happens)
 
     def mutate(model: Model):
-        removed = merge_points(model, target)
+        removed = merge_points(model, target, choices)
         if removed["frames"] or removed["areas"]:
             doc.note(f"Merge Joints removed {len(removed['frames'])} frame(s) and {len(removed['areas'])} shell(s) "
                      "that collapsed", "info")

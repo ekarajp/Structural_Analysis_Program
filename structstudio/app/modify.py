@@ -41,6 +41,9 @@ from .document import Document
 from .tools import next_step, TOOL_PROPERTIES, TOOLS, Plane, Preview, Tool, grid_ordinates, story_levels
 
 XYZ = Tuple[float, float, float]
+from ..model.frame_ops import turn_frame, turn_loads
+from ..model.point_ops import plan_map, turn_assignments
+
 Transform = Callable[[np.ndarray], np.ndarray]
 
 
@@ -157,6 +160,16 @@ def transform_in_place(doc: Document, frames: Sequence[str], areas: Sequence[str
             p = model.points[n]
             x, y, z = (float(v) for v in T(np.array(p.xyz, float)))
             p.x, p.y, p.z = x, y, z
+        A = plan_map(T)  # rotate / mirror in plan: supports, springs and loads turn with the objects
+        if A is not None and not np.allclose(A, np.eye(2)):
+            for n in names:
+                turn_assignments(model.points[n], A)
+            for n in frames:
+                f = model.frames[n]
+                pi, pj = model.points[f.point_i], model.points[f.point_j]
+                turn_frame(f, A, vertical=math.hypot(pi.x - pj.x, pi.y - pj.y) <= model.options.merge_tolerance)
+            for n in areas:
+                model.areas[n].loads = turn_loads(model.areas[n].loads, A, "area")
         if reverse_areas:
             for n in areas:
                 model.areas[n].points = model.areas[n].points[::-1]
