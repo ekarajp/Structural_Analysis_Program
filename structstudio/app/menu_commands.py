@@ -249,7 +249,11 @@ class MenuCommandsMixin:
             fill()
             menu.aboutToShow.connect(fill)
 
-        return {"options.palette_menu": palette, "edit.grid_mode_menu": grid_mode, "view.grid_menu": grid, "draw.snap_menu": snaps,
+        def recent(menu):
+            self._fill_recent_menu(menu)
+            menu.aboutToShow.connect(lambda: self._fill_recent_menu(menu))
+
+        return {"file.recent_menu": recent, "options.palette_menu": palette, "edit.grid_mode_menu": grid_mode, "view.grid_menu": grid, "draw.snap_menu": snaps,
                 "load.show_menu": load_kinds,
                 "options.windows_menu": windows, "options.panels_menu": panels, "options.theme_menu": themes, "options.color_by_menu": color_by}
 

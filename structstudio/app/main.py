@@ -64,8 +64,10 @@ def main(argv=None) -> int:
     if len(argv) > 1:
         win._open(argv[1])
     elif "--no-wizard" not in argv:
-        # like ETABS' model initialization: start with the New Model dialog
-        QtCore.QTimer.singleShot(0, win.new_model)
+        # the start page (New Model / Browse / Import / recent models), unless switched off
+        from .start_page import StartDialog
+        if StartDialog.show_at_startup(settings):
+            QtCore.QTimer.singleShot(0, win.show_start_page)
     return app.exec()
 
 

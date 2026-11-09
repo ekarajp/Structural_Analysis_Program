@@ -90,6 +90,8 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
     ("&File", [
         ("New Model...", "file.new", "Ctrl+N"),
         ("Open...", "file.open", "Ctrl+O"),
+        ("Recent Models", "file.recent_menu"),
+        ("Start Page...", "file.start_page"),
         ("Close", "file.close", "Ctrl+Shift+E"),
         "-",
         ("Save", "file.save", "Ctrl+S"),

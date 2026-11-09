@@ -490,6 +490,9 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             self.tool_group.addAction(a)
             self.tool_actions[key] = a
 
+        from .start_page import StartDialog
+        self.act_start_page = self._make("Show Start Page at Startup", self.set_start_page_at_startup, checkable=True,
+                                         checked=StartDialog.show_at_startup(self.settings_store()))
         # ---- command id -> existing action
         acts = {f"tool.{k}": a for k, a in self.tool_actions.items()}
         acts.update({
@@ -504,7 +507,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             "view.labels": self.act_labels, "view.extrude": self.act_extrude, "view.axes": self.act_axes,
             "select.add.all": self.act_select_all, "select.previous": self.act_select_prev,
             "select.clear": self.act_select_clear,
-            "options.bounding_plane": self.act_story_plane,
+            "options.bounding_plane": self.act_story_plane, "options.start_page": self.act_start_page,
             "draw.snap_only": self.act_snap_only, "draw.snap_options": self.act_snap_options,
             "options.model_explorer": self.dock_model.toggleViewAction(),
             "options.moment_tension": self.act_tension_side,
@@ -519,6 +522,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         cmds.update({
             "file.new": self.new_model, "file.open": self.open_model, "file.save": self.save_model,
             "file.save_as": self.save_model_as, "file.import_csi": self.import_csi,
+            "file.start_page": self.show_start_page,
         })
         for k in acts:
             cmds.pop(k, None)
@@ -1659,11 +1663,72 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
                 QtWidgets.QMessageBox.warning(self, "Load", str(exc))
 
     # --------------------------------------------------------------- files
+    def settings_store(self) -> QtCore.QSettings:
+        """The program settings (a scratch file when the window was made without any)."""
+        if self.qsettings is None:
+            import tempfile
+            self.qsettings = QtCore.QSettings(os.path.join(tempfile.gettempdir(), "structstudio-session.ini"),
+                                              QtCore.QSettings.IniFormat)
+        return self.qsettings
+
+    @property
+    def recent(self):
+        from .start_page import RecentModels
+        if getattr(self, "_recent", None) is None:
+            self._recent = RecentModels(self.settings_store())
+        return self._recent
+
+    def _remember(self, path: str, model=None):
+        try:
+            self.recent.add(path, model if model is not None else self.doc.model,
+                            analysed=self.doc.results is not None)
+        except Exception as exc:  # the list is a convenience: never stop an open / save for it
+            self.logger.log(f"Recent models: {exc}")
+
+    def show_start_page(self):
+        """File > Start Page: New Model / Browse / Import and the recent models."""
+        from .start_page import StartDialog
+        d = StartDialog(self.settings_store(), self, self.recent)
+        self._start_dialog = d
+        if not d.exec() or not d.choice:
+            return None
+        kind = d.choice[0]
+        if kind == "new":
+            self.new_model()
+        elif kind == "open":
+            self.open_model()
+        elif kind == "import":
+            self.import_csi()
+        elif kind == "recent":
+            self._open(d.choice[1])
+        return d.choice
+
+    def set_start_page_at_startup(self, on: bool):
+        from .start_page import KEY_SHOW
+        self.settings_store().setValue(KEY_SHOW, bool(on))
+
+    def _fill_recent_menu(self, menu: QtWidgets.QMenu):
+        menu.clear()
+        entries = self.recent.entries()[:10]
+        for k, e in enumerate(entries, 1):
+            a = menu.addAction(f"&{k % 10}  {e.get('name') or os.path.basename(e['path'])}")
+            a.setToolTip(e["path"])
+            a.setStatusTip(e["path"])
+            a.setEnabled(os.path.exists(e["path"]))
+            a.triggered.connect(lambda _=False, p=e["path"]: self._open(p))
+        if not entries:
+            a = menu.addAction("(no recent models)")
+            a.setEnabled(False)
+        menu.addSeparator()
+        menu.addAction("Start Page...", self.show_start_page)
+
     def new_model(self):
-        d = dialogs.NewModelDialog(self)
+        from .new_model import NewModelWizard
+        d = NewModelWizard(self, self.settings_store())
+        self._new_model_dialog = d
         if d.exec():
             try:
-                model = d.build()
+                model = d.model()
             except (ValueError, ModelError) as exc:
                 QtWidgets.QMessageBox.warning(self, "New model", str(exc))
                 return
@@ -1694,6 +1759,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             vp.apply_camera()
         self._sync_grid_mode()
         self.logger.log(f"Opened {path}")
+        self._remember(path)
         return path
 
     def import_e2k(self):  # kept for scripts / older shortcuts
@@ -1741,6 +1807,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
 
     def _after_import(self, path, res):
         self.logger.log(f"Imported {path}")
+        self._remember(path, res.model)
         self.logger.log(res.report)
         for vp in self.views.viewports:
             vp.apply_camera()
@@ -1761,12 +1828,14 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             return self.save_model_as()
         self.doc.save()
         self.logger.log(f"Saved {self.doc.path}")
+        self._remember(self.doc.path)
 
     def save_model_as(self):
         path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save model", "model.ssj.json", "Structural Studio (*.ssj.json)")
         if path:
             self.doc.save(path)
             self.logger.log(f"Saved {path}")
+            self._remember(path)
 
     def export_results(self):
         if self.doc.results is None:
