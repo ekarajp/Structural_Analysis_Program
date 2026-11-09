@@ -144,7 +144,7 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "brace": (0.80, 0.55, 1.00),  # violet
         "null_line": (0.55, 0.57, 0.62),
         "floor": (0.75, 0.80, 0.86),
-        "wall": (0.86, 0.74, 0.46),  # sand: not green, apart from the floors, loads and supports
+        "wall": (0.84, 0.52, 0.52),  # brick: apart from every other object colour
         "opening": (0.40, 0.40, 0.40),
         "area_edge": (0.66, 0.70, 0.78),
         "support": (0.12, 0.66, 0.28),  # deep green: apart from the orange columns
@@ -180,7 +180,7 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "brace": (0.50, 0.20, 0.78),  # violet
         "null_line": (0.50, 0.52, 0.56),
         "floor": (0.66, 0.76, 0.90),
-        "wall": (0.70, 0.56, 0.28),  # sand / ochre
+        "wall": (0.62, 0.32, 0.34),  # brick: apart from every other object colour
         "opening": (0.62, 0.62, 0.62),
         "area_edge": (0.22, 0.28, 0.40),
         "support": (0.00, 0.40, 0.13),  # deep green: apart from the orange columns
