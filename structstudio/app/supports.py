@@ -189,13 +189,31 @@ def paint_support(painter, key: str, size: int = 56, ink=None, accent=None):
         p.setPen(pen)
 
 
-def support_pixmap(key: str, size: int = 56, ink=None, accent=None):
+def support_pixmap(key: str, size: int = 56, ink=None, accent=None, tilt: float = 0.0):
+    """The support picture, centred in the square (whatever part of it the drawing
+    uses) and turned by ``tilt`` degrees (an inclined support: the slope angle)."""
     from PySide6 import QtCore, QtGui
 
+    pic = QtGui.QPicture()
+    pp = QtGui.QPainter(pic)
+    paint_support(pp, key, size, ink, accent)
+    pp.end()
+    box = QtCore.QRectF(pic.boundingRect())
     pm = QtGui.QPixmap(size, size)
     pm.fill(QtCore.Qt.transparent)
     p = QtGui.QPainter(pm)
-    paint_support(p, key, size, ink, accent)
+    p.setRenderHint(QtGui.QPainter.Antialiasing)
+    p.translate(size / 2.0, size / 2.0)
+    if tilt:
+        p.rotate(-float(tilt))  # counter-clockwise for a positive slope, as drawn on paper
+        import math
+        t = math.radians(abs(float(tilt)) % 180.0)
+        w, h = box.width(), box.height()
+        span = max(abs(w * math.cos(t)) + abs(h * math.sin(t)), abs(w * math.sin(t)) + abs(h * math.cos(t)), 1.0)
+        k = min(1.0, (size - 2) / span)
+        p.scale(k, k)
+    p.translate(-box.center())
+    p.drawPicture(0, 0, pic)
     p.end()
     return pm
 

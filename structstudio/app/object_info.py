@@ -128,6 +128,7 @@ class RestraintPicker(QtWidgets.QWidget):
             sp.setDecimals(3)
             sp.setToolTip(hint)
             sp.valueChanged.connect(lambda _v: self.changed.emit())
+            sp.valueChanged.connect(lambda _v: self._refresh_icons())
             f.addRow(lab, sp)
             self.angles.append(sp)
         note = QtWidgets.QLabel("Restraints act along the joint local axes: a roller on a 30° slope is "
@@ -136,6 +137,7 @@ class RestraintPicker(QtWidgets.QWidget):
         note.setStyleSheet("color: palette(mid)")
         f.addRow(note)
         inc.toggled.connect(body.setVisible)
+        inc.toggled.connect(lambda _on: self._refresh_icons())
         self._inclined_body = body
         inc.toggled.connect(lambda _on: self.changed.emit())
         lay.addWidget(inc)
@@ -150,6 +152,7 @@ class RestraintPicker(QtWidgets.QWidget):
         la = local_axes if local_axes is not None and any(local_axes) else None
         self.inclined.setChecked(la is not None)
         self._inclined_body.setVisible(la is not None)
+        self._refresh_icons()
         for sp, v in zip(self.angles, la or (0.0, 0.0, 0.0)):
             sp.setValue(float(v))
         self._sync_type()
@@ -177,6 +180,16 @@ class RestraintPicker(QtWidgets.QWidget):
     def _boxes_changed(self, _on):
         self._sync_type()
         self.changed.emit()
+
+    def _refresh_icons(self):
+        """The pictures turn with the inclined support (the tilt b, about local 2)."""
+        tilt = self.angles[1].value() if self.inclined.isChecked() else 0.0
+        if getattr(self, "_icon_tilt", 0.0) == tilt:
+            return
+        self._icon_tilt = tilt
+        ink = self.palette().color(QtGui.QPalette.WindowText)
+        for key, b in self.type_buttons.items():
+            b.setIcon(QtGui.QIcon(supports.support_pixmap(key, 52, ink, tilt=tilt)))
 
     def _sync_type(self):
         key = supports.support_type(self.restraints())

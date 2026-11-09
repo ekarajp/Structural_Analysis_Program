@@ -697,7 +697,12 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
             out.actors["supports"] = _actor_from_polydata(append.GetOutput(), COLORS["support"])
     # ---- joints, springs, releases, local axes ---------------------------------
     shown_pts = [p for p in pts.values() if vis_p is None or p.name in vis_p]
-    plain_pts = [p for p in shown_pts if p.name not in selected_points]  # selected: the round mark only
+    # selected: the round mark only; a joint with a support / spring symbol: the symbol
+    # marks it (a joint square on the tip of a pin cone only clutters it)
+    on_sym = {p.name for p in shown_pts if any(p.restraints)} if opts.supports else set()
+    if opts.springs:
+        on_sym |= {p.name for p in shown_pts if any(p.springs) or any(p.rotational_springs)}
+    plain_pts = [p for p in shown_pts if p.name not in selected_points and p.name not in on_sym]
     if sel_on and opts.joints and plain_pts:
         out.actors["joints"] = _joint_dots(plain_pts, _tube_radius(model) * 1.2 * gsize("joint_size"))
     if base_on and opts.springs:
@@ -985,77 +990,107 @@ def _joint_dots(points, radius: float = 0.0) -> vtk.vtkActor2D:
     return _screen_squares([p.xyz for p in points], COLORS.get("joint", COLORS["text"]), 6.0 * gsize("joint_size"))
 
 
-def spring_segments(p, size: float) -> List[np.ndarray]:
-    """Line segments (pairs of end points) of the spring support symbol of joint ``p``:
-    for every translational spring a zig-zag coil along that axis away from the joint,
-    ending on a ground bar with hatching (the structural-drawing spring support); for
-    every rotational spring a spiral round that axis at the joint.  The joint local
-    axes (an inclined support) turn the symbol with them."""
+def spring_paths(p, size: float):
+    """The spring support of joint ``p`` as (polylines, plates): for every translational
+    spring a zig-zag coil along that axis away from the joint ending on a ground plate
+    (the same kind of block as a fixed support); for every rotational spring a spiral
+    round that axis at the joint.  The joint local axes (an inclined support) turn
+    the symbol with them."""
     from .supports import _rot_from_local_axes
-    R = _rot_from_local_axes(getattr(p, "local_axes", None))  # columns: local 1, 2, 3 in global
+    R = _rot_from_local_axes(getattr(p, "local_axes", None)).T  # columns: local 1, 2, 3 in global
     c = np.array(p.xyz, float)
-    segs: List[np.ndarray] = []
-
-    def poly(pts):
-        for a, b in zip(pts[:-1], pts[1:]):
-            segs.extend([a, b])
-
+    lines, plates = [], []
     for k in range(3):
         if abs(float(p.springs[k])) <= 0:
             continue
-        e = R[:, k]
-        # the coil leaves the joint downwards for UZ, towards -X / -Y for UX / UY
-        d = -e
+        d = -R[:, k]  # the coil leaves the joint downwards for UZ, towards -1 / -2 for U1 / U2
         side = R[:, (k + 1) % 3] if k != 2 else R[:, 0]
-        L = size * 1.3
-        lead = 0.18 * L
+        L = size * 1.4
+        lead = 0.16 * L
         pts = [c, c + d * lead]
-        n = 6
+        n = 7
         for i in range(n):
             t = lead + (L - 2 * lead) * (i + 0.5) / n
-            pts.append(c + d * t + side * (0.28 * size if i % 2 == 0 else -0.28 * size))
-        end = c + d * L
-        pts += [c + d * (L - lead), end]
-        poly(pts)
-        # ground: a bar across the coil and short hatch strokes behind it
-        bar = 0.45 * size
-        segs.extend([end - side * bar, end + side * bar])
-        for j in range(4):
-            q = end + side * (-bar + j * 2 * bar / 3)
-            segs.extend([q, q + d * 0.18 * size - side * 0.14 * size])
+            pts.append(c + d * t + side * (0.30 * size if i % 2 == 0 else -0.30 * size))
+        pts += [c + d * (L - lead), c + d * L]
+        lines.append(np.array(pts))
+        plates.append((c + d * (L + 0.11 * size), d, side))
     for k in range(3):
         if abs(float(p.rotational_springs[k])) <= 0:
             continue
         e, u, v = R[:, k], R[:, (k + 1) % 3], R[:, (k + 2) % 3]
-        turns, m = 1.75, 36
+        turns, m = 1.75, 40
         pts = []
         for i in range(m + 1):
             th = 2 * math.pi * turns * i / m
-            r = size * (0.10 + 0.40 * i / m)
-            pts.append(c + e * 0.0 + (u * math.cos(th) + v * math.sin(th)) * r)
-        poly(pts)
-        tail = pts[-1]
-        segs.extend([tail, tail + v * 0.25 * size])  # anchored end
-    return segs
+            r = size * (0.12 + 0.42 * i / m)
+            pts.append(c + (u * math.cos(th) + v * math.sin(th)) * r)
+        pts.append(pts[-1] + v * 0.25 * size)
+        lines.append(np.array(pts))
+    return lines, plates
+
+
+def spring_segments(p, size: float) -> List[np.ndarray]:
+    """The spring symbol as line segments (pairs of end points)."""
+    lines, _plates = spring_paths(p, size)
+    out = []
+    for P in lines:
+        for a, b in zip(P[:-1], P[1:]):
+            out += [a, b]
+    return out
 
 
 def _spring_symbols(model: Model, points) -> vtk.vtkActor:
-    """Spring supports (elastic): coils with a ground bar for translational springs,
-    spirals for rotational ones (see :func:`spring_segments`), so a spring reads
-    apart from a rigid restraint in every view - a horizontal spring shows in plan."""
-    size = _tube_radius(model) * 5 * gsize("support_size")
-    coords = []
+    """Spring supports (elastic) drawn like the rigid supports - solid, lit, in the
+    support style: a coil (a tube) for each translational spring ending on a ground
+    plate, a spiral tube for each rotational spring."""
+    size = _tube_radius(model) * 4 * gsize("support_size")
+    append = vtk.vtkAppendPolyData()
+    n = 0
     for p in points:
-        coords += spring_segments(p, size)
-    lines = vtk.vtkCellArray()
-    for k in range(len(coords) // 2):
-        lines.InsertNextCell(2)
-        lines.InsertCellPoint(2 * k)
-        lines.InsertCellPoint(2 * k + 1)
-    poly = vtk.vtkPolyData()
-    poly.SetPoints(_points_of(coords))
-    poly.SetLines(lines)
-    return _actor_from_polydata(poly, COLORS.get("spring", COLORS["support"]), gsize("spring_width"), lighting=False)
+        lines, plates = spring_paths(p, size)
+        for P in lines:
+            poly = vtk.vtkPolyData()
+            poly.SetPoints(_points(np.asarray(P, float)))
+            cell = vtk.vtkCellArray()
+            cell.InsertNextCell(len(P))
+            for i in range(len(P)):
+                cell.InsertCellPoint(i)
+            poly.SetLines(cell)
+            tube = vtk.vtkTubeFilter()
+            tube.SetInputData(poly)
+            tube.SetRadius(size * 0.055 * gsize("spring_width") / 2.0)
+            tube.SetNumberOfSides(10)
+            tube.CappingOn()
+            tube.Update()
+            append.AddInputData(tube.GetOutput())
+            n += 1
+        for centre, normal, side in plates:
+            cube = vtk.vtkCubeSource()
+            cube.SetXLength(size * 0.95)
+            cube.SetYLength(size * 0.95)
+            cube.SetZLength(size * 0.22)
+            cube.Update()
+            third = np.cross(normal, side)
+            M = vtk.vtkMatrix4x4()
+            for r in range(3):
+                M.SetElement(r, 0, side[r])
+                M.SetElement(r, 1, third[r])
+                M.SetElement(r, 2, normal[r])
+                M.SetElement(r, 3, centre[r])
+            tr = vtk.vtkTransform()
+            tr.SetMatrix(M)
+            tf = vtk.vtkTransformPolyDataFilter()
+            tf.SetInputData(cube.GetOutput())
+            tf.SetTransform(tr)
+            tf.Update()
+            append.AddInputData(tf.GetOutput())
+            n += 1
+    if not n:
+        poly = vtk.vtkPolyData()
+        return _actor_from_polydata(poly, COLORS.get("spring", COLORS["support"]))
+    append.Update()
+    return _actor_from_polydata(append.GetOutput(), COLORS.get("spring", COLORS["support"]))
 
 
 RELEASE_RING_AT = 0.12  # pin symbol: this fraction of the member length in from the released end
