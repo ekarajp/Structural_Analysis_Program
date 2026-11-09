@@ -1493,6 +1493,63 @@ def test_model_windows_dock_anywhere_and_are_remembered(window, app, tmp_path):
     app.processEvents()
 
 
+@gui
+def test_cad_input_first_point_boxes_and_locked_values(window, app):
+    m = _with_objects(window, app)
+    vp, z = _plan(window, "Story1")
+    st = window.state
+    st.set_tool("beam")
+    _move_to(vp, 1.0, 1.0, z)
+    app.processEvents()
+    # before the first point: X and Y boxes (CAD pointer input), Tab between them
+    assert vp._box_mode() == "abs"
+    assert vp._dyn_text("m", 1.0)[0].startswith("Point:  X")
+    for k in ("2",):
+        vp.interactor.SetKeySym(k)
+        vp._on_key(None, None)
+    QtTest.QTest.keyClick(vp.vtk_widget, QtCore.Qt.Key_Tab)
+    for k in ("minus", "1"):
+        vp.interactor.SetKeySym(k)
+        vp._on_key(None, None)
+    assert vp._typed == "2,-1"
+    # the typed values hold the preview point
+    _move_to(vp, 5.0, 4.0, z)
+    app.processEvents()
+    assert np.allclose(vp._last_cursor, (2.0, -1.0, z))
+    vp.interactor.SetKeySym("Return")
+    vp._on_key(None, None)
+    assert len(st.tool.points) == 1 and np.allclose(st.tool.points[0], (2.0, -1.0, z))
+    # on from it: a typed length is locked - only the angle follows the mouse
+    assert vp._box_mode() == "polar"
+    vp.interactor.SetKeySym("5")
+    vp._on_key(None, None)
+    QtTest.QTest.keyClick(vp.vtk_widget, QtCore.Qt.Key_Tab)
+    for xy in ((9.0, -1.0), (2.0, 7.0), (-4.0, 3.0)):
+        _move_to(vp, xy[0], xy[1], z)
+        app.processEvents()
+        assert np.linalg.norm(np.subtract(vp._last_cursor, (2.0, -1.0, z))) == pytest.approx(5.0)
+    assert "(locked)" in vp._dyn_text("m", 1.0)[0]
+    # the dimension beside the line and the angle arc
+    parts = vp._polar_dimension((2.0, -1.0, z), 3.0, 4.0)
+    assert len(parts) == 4  # dimension lines, arc, 0-degree line, labels
+    vp.interactor.SetKeySym("9")
+    vp._on_key(None, None)
+    vp.interactor.SetKeySym("0")
+    vp._on_key(None, None)  # 5<90: straight up
+    _move_to(vp, 8.0, 0.0, z)
+    app.processEvents()
+    assert np.allclose(vp._last_cursor, (2.0, 4.0, z))
+    nf = len(window.doc.model.frames)
+    vp.interactor.SetKeySym("Return")
+    vp._on_key(None, None)
+    mm = window.doc.model
+    assert len(mm.frames) == nf + 1
+    f = list(mm.frames.values())[-1]
+    ends = sorted([tuple(np.round(mm.points[f.point_i].xyz, 6)), tuple(np.round(mm.points[f.point_j].xyz, 6))])
+    assert ends == sorted([(2.0, -1.0, round(z, 6)), (2.0, 4.0, round(z, 6))])
+    st.set_tool("select")
+
+
 def _wait_analysis(window, app, timeout=240.0):
     import time
     t0 = time.time()

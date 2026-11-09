@@ -54,7 +54,7 @@ class View:
     """The real viewport geometry / snap methods on an off-screen renderer."""
     PICK_PIXELS = ModelViewport.PICK_PIXELS
     for _n in ("_sync_aspect", "_display", "_ray", "_plane_point", "_snap_engine", "_snapped", "_world_tolerance",
-               "_scene_plane", "visible", "_update_preview"):
+               "_scene_plane", "visible", "_update_preview", "_locked_point"):
         locals()[_n] = getattr(ModelViewport, _n)
     del _n
 
