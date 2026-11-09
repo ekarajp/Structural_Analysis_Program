@@ -216,3 +216,16 @@ def test_view_plane_of_plan_and_elevation():
     b = elev[0].GetMapper().GetInput().GetBounds()
     assert b[2] == b[3] == 5.0 and b[5] - b[4] > 6.0  # vertical, over the full height
     assert scene.build_view_plane(m, "yz", 6.0, "B")[0].GetMapper().GetInput().GetBounds()[0] == 6.0
+
+
+def test_selected_area_highlight_sits_inside_the_area():
+    import numpy as np
+    m = _model()
+    fl = next(a for a in m.areas.values() if a.type == "Floor")
+    P = np.array([m.points[p].xyz for p in fl.points])
+    R = scene.inset_polygon(P, m)
+    assert R.shape == P.shape
+    lo, hi = P[:, :2].min(0), P[:, :2].max(0)
+    assert np.all(R[:, :2] > lo + 1e-6) and np.all(R[:, :2] < hi - 1e-6)  # strictly inside
+    assert np.allclose(R[:, 2], P[:, 2])  # in the floor's plane
+    assert scene.build_model_actors(m, selected_areas={fl.name}, options=DisplayOptions()).actors["areas_sel"]

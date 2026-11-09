@@ -179,6 +179,53 @@ def _visible(obj, story: Optional[str]) -> bool:
     return story is None or obj.story == story
 
 
+def inset_polygon(P: np.ndarray, model: Model) -> np.ndarray:
+    """``P`` moved inward in its plane by a small distance (each edge parallel to
+    itself): the dashed highlight of a selected floor / wall then sits inside the
+    area, clear of the beams along its edges.  The distance is a few % of the
+    area's smaller span, at most ~3 % of a typical member length."""
+    from ..mesh import polygon2d as pg
+    try:
+        fr = pg.plane_frame(P)
+    except ValueError:
+        return P
+    Q = pg.to_2d(P, fr)
+    if pg.signed_area(Q) < 0:
+        Q, P, flip = Q[::-1], P[::-1], True
+    else:
+        flip = False
+    span = float(min(np.ptp(Q[:, 0]), np.ptp(Q[:, 1])))
+    if span <= 0:
+        return P
+    d = 0.04 * span
+    typ = typical_member_length(model)
+    if typ > 0:
+        d = min(d, 0.03 * typ)
+    n = len(Q)
+    out = []
+    for i in range(n):
+        a0, a1 = Q[i - 1], Q[i]
+        b0, b1 = Q[i], Q[(i + 1) % n]
+        ea, eb = a1 - a0, b1 - b0
+        if np.linalg.norm(ea) < 1e-12 or np.linalg.norm(eb) < 1e-12:
+            out.append(Q[i])
+            continue
+        na = np.array([-ea[1], ea[0]]) / np.linalg.norm(ea)  # inward (CCW polygon: left)
+        nb = np.array([-eb[1], eb[0]]) / np.linalg.norm(eb)
+        p, q = a0 + na * d, b0 + nb * d
+        den = ea[0] * eb[1] - ea[1] * eb[0]
+        if abs(den) < 1e-12:
+            out.append(Q[i] + na * d)
+            continue
+        t = ((q - p)[0] * eb[1] - (q - p)[1] * eb[0]) / den
+        c = p + ea * t
+        if np.linalg.norm(c - Q[i]) > 4 * d:  # a sharp corner: do not spike out
+            c = Q[i] + (na + nb) * 0.5 * d
+        out.append(c)
+    R = pg.to_3d(np.array(out), fr)
+    return R[::-1] if flip else R
+
+
 def wall_footprint(model: Model, area) -> Optional[List[Tuple[float, float]]]:
     """Plan footprint of a wall: the rectangle (4 corners x, y) of its horizontal
     extent and its section thickness, centred on the wall plane.  None for a wall
@@ -584,9 +631,10 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
     if sel_areas:
         seg = []
         for a in sel_areas:
-            n = len(a.points)
+            P = inset_polygon(np.array([pts[p].xyz for p in a.points], float), model)
+            n = len(P)
             for k in range(n):
-                seg += [pts[a.points[k]].xyz, pts[a.points[(k + 1) % n]].xyz]
+                seg += [P[k], P[(k + 1) % n]]
         out.actors["areas_sel"] = _dashed_lines_actor(model, seg, COLORS["selection"], 4.0)
     sel_pts = [pts[n] for n in selected_points if n in pts] if sel_on else []
     if sel_pts:

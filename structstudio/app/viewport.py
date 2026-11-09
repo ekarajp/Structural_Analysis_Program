@@ -699,10 +699,13 @@ class ModelViewport(QtWidgets.QWidget):
         bg = scene.COLORS["background_top"]
         dark = (0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2]) < 0.5
         fg = (0.95, 0.96, 0.98) if dark else (0.10, 0.12, 0.16)
-        for cap in (self.axes.GetXAxisCaptionActor2D(), self.axes.GetYAxisCaptionActor2D(),
-                    self.axes.GetZAxisCaptionActor2D()):
+        # X red, Y green, Z blue like the arrows (a shade that reads on the background)
+        axis_rgb = ((1.0, 0.35, 0.35), (0.40, 0.90, 0.45), (0.45, 0.65, 1.0)) if dark else \
+            ((0.80, 0.08, 0.08), (0.05, 0.55, 0.12), (0.10, 0.25, 0.85))
+        for cap, rgb in zip((self.axes.GetXAxisCaptionActor2D(), self.axes.GetYAxisCaptionActor2D(),
+                             self.axes.GetZAxisCaptionActor2D()), axis_rgb):
             tp = cap.GetCaptionTextProperty()
-            tp.SetColor(*fg)
+            tp.SetColor(*rgb)
             tp.SetShadow(False)
             tp.SetBold(True)
             tp.SetItalic(False)
