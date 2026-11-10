@@ -89,6 +89,8 @@ class AnalysisOptions:
     fine_mesh_factor: Optional[float] = None  # automatic element size x this (1, 0.5, 0.25 ...)
     fine_mesh_report: str = ""  # what the check found (shown in the Fine mesh help)
     fine_mesh_signature: str = ""  # geometry the check was run on (a later change is reported)
+    fine_mesh_size_min: Optional[float] = None  # element sizes of the fine mesh (model length units)
+    fine_mesh_size_max: Optional[float] = None
     use_fine_mesh: bool = False
     # Grid system: "story" = X, Y grid lines + stories, "xyz" = X, Y, Z grid
     # lines.  In "xyz" mode the Z grid lines are the levels and the stories mirror them, so
@@ -862,7 +864,7 @@ class Model:
         out.options = dataclasses.replace(self.options)
         out.display_units = dict(self.display_units)
         ratio = src.factor("length") / new_units.factor("length")
-        for name in ("floor_mesh_max_size", "wall_mesh_max_size"):
+        for name in ("floor_mesh_max_size", "wall_mesh_max_size", "fine_mesh_size_min", "fine_mesh_size_max"):
             v = getattr(out.options, name)
             if v is not None:
                 setattr(out.options, name, v * ratio)

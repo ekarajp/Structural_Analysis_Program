@@ -495,7 +495,7 @@ class NewModelWizard(QtWidgets.QDialog):
         foot.addWidget(self.btn_alt)
         foot.addWidget(self.btn_next)
         lay.addLayout(foot)
-        self.structure = "rc_frame"
+        self.structure = "grid"  # the starting structure: Grid only until another is picked
         self._update_unit_labels()
         self._load_defaults_flag()
         self._source_changed()
@@ -550,8 +550,15 @@ class NewModelWizard(QtWidgets.QDialog):
         for key in REGION_ORDER:
             self.region.addItem(REGIONS[key]["label"], key)
         self.region.currentIndexChanged.connect(self._region_changed)
+        # steel sections and rebar sizes: any region's table (Thai materials with AISC
+        # shapes, ...); they follow the region until one is picked by hand
         self.steel_db = QtWidgets.QComboBox()
         self.rebar_db = QtWidgets.QComboBox()
+        for key in REGION_ORDER:
+            self.steel_db.addItem(REGIONS[key]["steel_db"], key)
+            self.rebar_db.addItem(REGIONS[key]["rebar_label"], key)
+        self.steel_db.currentIndexChanged.connect(self._db_changed)
+        self.rebar_db.currentIndexChanged.connect(self._db_changed)
         self.code_concrete = QtWidgets.QComboBox()
         self.code_steel = QtWidgets.QComboBox()
         for w in (self.code_concrete, self.code_steel):
@@ -608,12 +615,25 @@ class NewModelWizard(QtWidgets.QDialog):
 
     def _region_changed(self, *_):
         reg = REGIONS[self._region_key()]
-        for w, text in ((self.steel_db, reg["steel_db"]), (self.rebar_db, reg["rebar_label"]),
-                        (self.code_concrete, reg["concrete_code"]), (self.code_steel, reg["steel_code"])):
+        for w in (self.steel_db, self.rebar_db):  # follow the region
+            w.blockSignals(True)
+            w.setCurrentIndex(max(0, w.findData(self._region_key())))
+            w.blockSignals(False)
+        for w, text in ((self.code_concrete, reg["concrete_code"]), (self.code_steel, reg["steel_code"])):
             w.clear()
             w.addItem(text)
         self._fill_materials()
         self._refresh_cards()
+
+    def _db_changed(self, *_):
+        self._fill_materials()
+        self._refresh_cards()
+
+    def _steel_key(self) -> str:
+        return self.steel_db.currentData() or self._region_key()
+
+    def _rebar_key(self) -> str:
+        return self.rebar_db.currentData() or self._region_key()
 
     def _units_changed(self, text: str):
         if not text:
@@ -641,7 +661,7 @@ class NewModelWizard(QtWidgets.QDialog):
         if self.src_model.isChecked() and self._source_model is not None:
             key = ("model", id(self._source_model))
         else:
-            key = ("region", self._region_key(), self.units.currentText())
+            key = ("region", self._region_key(), self.units.currentText(), self._steel_key(), self._rebar_key())
         m = self._settings_cache.get(key)
         if m is None:
             m = Model("settings", self.unit_system())
@@ -649,7 +669,7 @@ class NewModelWizard(QtWidgets.QDialog):
                 from .templates import copy_settings
                 copy_settings(m, self._source_model)
             else:
-                region_properties(m, self._region_key())
+                region_properties(m, self._region_key(), self._steel_key(), self._rebar_key())
             self._settings_cache[key] = m
         return m
 
@@ -679,7 +699,11 @@ class NewModelWizard(QtWidgets.QDialog):
                 i = self.region.findData(d.get("region"))
                 if i >= 0:
                     self.region.setCurrentIndex(i)
-        for w in (self.units, self.region):
+                for w, k in ((self.steel_db, "steel_db"), (self.rebar_db, "rebar_db")):
+                    j = w.findData(d.get(k))
+                    if j >= 0:
+                        w.setCurrentIndex(j)
+        for w in (self.units, self.region, self.steel_db, self.rebar_db):
             w.setEnabled(builtin)
         self.settings_group.setTitle("Settings of the model" if from_model else
                                      ("My default settings" if self.src_defaults.isChecked() else "Built-in settings"))
@@ -1314,7 +1338,7 @@ class NewModelWizard(QtWidgets.QDialog):
         right.addWidget(g2)
         right.addStretch(1)
         h.addLayout(right)
-        self.cards["rc_frame"].setChecked(True)
+        self.cards["grid"].setChecked(True)
         return page
 
     def _structure_changed(self, key: str):
@@ -1514,7 +1538,9 @@ class NewModelWizard(QtWidgets.QDialog):
             return
         if self.save_defaults.isChecked() and self.src_builtin.isChecked():
             self.settings.setValue(KEY_DEFAULTS, json.dumps({"units": self.units.currentText(),
-                                                             "region": self._region_key()}))
+                                                             "region": self._region_key(),
+                                                             "steel_db": self._steel_key(),
+                                                             "rebar_db": self._rebar_key()}))
         self.accept()
 
     def build(self) -> Model:
@@ -1524,6 +1550,7 @@ class NewModelWizard(QtWidgets.QDialog):
             raise ValueError("This structure needs at least two grid lines in X and in Y.")
         from_model = self.src_model.isChecked() and self._source_model is not None
         m = build_model(units=_utext(self.unit_system()), region=self._region_key(),
+                        steel_db=self._steel_key(), rebar_db=self._rebar_key(),
                         x_ordinates=[r[1] for r in xs], y_ordinates=[r[1] for r in ys],
                         x_labels=[r[0] for r in xs], y_labels=[r[0] for r in ys],
                         stories=[(s[0], s[1]) for s in st],

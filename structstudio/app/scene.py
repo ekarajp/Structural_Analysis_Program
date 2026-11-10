@@ -2558,7 +2558,7 @@ def _panel_in_view(P: np.ndarray, view: str, level: Optional[float], tol: float)
     return bool(np.all(np.abs(P[:, k] - level) <= tol))
 
 
-def build_load_actors(model: Model, pattern: str, frames: Optional[set] = None, areas: Optional[set] = None,
+def build_load_actors(model: Model, pattern, frames: Optional[set] = None, areas: Optional[set] = None,
                       points: Optional[set] = None, kinds: Optional[set] = None, view: str = "3d",
                       level: Optional[float] = None) -> List[vtk.vtkProp]:
     """Assigned loads of one pattern, drawn the way ETABS / CYPE 3D do:
@@ -2579,6 +2579,17 @@ def build_load_actors(model: Model, pattern: str, frames: Optional[set] = None, 
     draws the panel loads on their panels, "applied" draws them as the line
     loads they become on the members (the CYPE 3D display after distribution)."""
     kinds = set(LOAD_KINDS) if kinds is None else set(kinds)
+    # ``pattern``: one load pattern, or {pattern: factor} - several patterns, a load case or a
+    # combination (Load > Show Loads).  Values are drawn times their factor; with more than one
+    # pattern each label names its pattern (loads are drawn per assignment, not added up)
+    factors = {pattern: 1.0} if isinstance(pattern, str) else {str(k): float(v) for k, v in dict(pattern).items()}
+    many = len(factors) > 1
+
+    def tag(pat, text):
+        f = factors.get(pat, 1.0)
+        if not many and abs(f - 1.0) < 1e-12:
+            return text
+        return (f"{pat}: " if abs(f - 1.0) < 1e-12 else f"{f:g}×{pat}: ") + text
     ext = model_extent(model)
     L = 0.06 * ext * gsize("load_size")
     nview = np.array(VIEW_NORMALS[view], float) if view in VIEW_NORMALS else None
@@ -2695,10 +2706,11 @@ def build_load_actors(model: Model, pattern: str, frames: Optional[set] = None, 
         if "joint" not in kinds or (points is not None and p.name not in points):
             continue
         for ld in p.loads:
-            if ld.pattern != pattern:
+            if ld.pattern not in factors:
                 continue
-            f = np.asarray(ld.force, float)
-            m = np.asarray(getattr(ld, "moment", (0, 0, 0)), float)
+            fac = factors[ld.pattern]
+            f = np.asarray(ld.force, float) * fac
+            m = np.asarray(getattr(ld, "moment", (0, 0, 0)), float) * fac
             parts = [f"F{ax}={fmt_value(v * kF)}" for ax, v in zip("xyz", f) if v]
             if len(parts) == 1 and np.count_nonzero(f) == 1:
                 parts = [f"{fmt_value(abs(float(f[np.nonzero(f)[0][0]])) * kF)} {u_force}"]
@@ -2707,7 +2719,7 @@ def build_load_actors(model: Model, pattern: str, frames: Optional[set] = None, 
             mparts = [f"M{ax}={fmt_value(v * kM)}" for ax, v in zip("xyz", m) if v]
             if mparts:
                 mparts[-1] += f" {u_moment}"
-            text = "  ".join(parts + mparts)
+            text = tag(ld.pattern, "  ".join(parts + mparts))
             if np.linalg.norm(f) > 0:
                 point_force((p.x, p.y, p.z), f, text)
             elif mparts:
@@ -2732,23 +2744,24 @@ def build_load_actors(model: Model, pattern: str, frames: Optional[set] = None, 
             continue
         axes = frame_axes(a, b, fr.angle)
         loads = (list(fr.loads) if "frame" in kinds else []) + derived.get(fr.name, [])
-        dl = [ld for ld in derived.get(fr.name, []) if ld.pattern == pattern]
+        dl = [ld for ld in derived.get(fr.name, []) if ld.pattern in factors]
         stacked = 0  # several distributed loads on one member: stack the diagrams
         for ld in loads:
-            if ld.pattern != pattern or getattr(ld, "load_type", "Force") != "Force":
+            if ld.pattern not in factors or getattr(ld, "load_type", "Force") != "Force":
                 continue
+            fac = factors[ld.pattern]
             d = direction_vector(ld.direction, axes)
             rel = (lambda x: x / length) if getattr(ld, "absolute", False) else (lambda x: x)
             if ld.kind == "point":
-                v = float(ld.value_a)
+                v = float(ld.value_a) * fac
                 if v:
                     x = a + (b - a) * min(max(rel(float(ld.rel_a)), 0.0), 1.0)
-                    point_force(x, d * np.sign(v), f"{fmt_value(abs(v) * kF)} {u_force}")
+                    point_force(x, d * np.sign(v), tag(ld.pattern, f"{fmt_value(abs(v) * kF)} {u_force}"))
                 continue
             if ld.kind != "distributed":
                 continue
             ra, rb = rel(float(ld.rel_a)), rel(float(ld.rel_b))
-            va, vb = float(ld.value_a), float(ld.value_b)
+            va, vb = float(ld.value_a) * fac, float(ld.value_b) * fac
             vmax = max(abs(va), abs(vb))
             if vmax == 0:
                 continue
@@ -2780,12 +2793,12 @@ def build_load_actors(model: Model, pattern: str, frames: Optional[set] = None, 
             stacked += 1
             if ld in dl:
                 continue  # panel loads on the member are labelled once, below
-            txt = (f"{fmt_value(va * kL)} {u_line}" if va == vb
-                   else f"{fmt_value(va * kL)} → {fmt_value(vb * kL)} {u_line}")
+            txt = tag(ld.pattern, f"{fmt_value(va * kL)} {u_line}" if va == vb
+                      else f"{fmt_value(va * kL)} → {fmt_value(vb * kL)} {u_line}")
             mid = 0.5 * (base[0] + base[-1]) - push * H * 1.25
             label(mid, txt)
         if dl:  # one label per member for the panel loads: the peak intensity
-            peak = max(max(abs(ld.value_a), abs(ld.value_b)) for ld in dl)
+            peak = max(max(abs(ld.value_a), abs(ld.value_b)) * abs(factors[ld.pattern]) for ld in dl)
             label(a + (b - a) * 0.5, f"max {fmt_value(peak * kL)} {u_line}")
 
     # ---- area and panel loads -------------------------------------------------------
@@ -2813,13 +2826,14 @@ def build_load_actors(model: Model, pattern: str, frames: Optional[set] = None, 
         c2 = P2.mean(axis=0)
         c = o + c2[0] * e1 + c2[1] * e2
         for case in pl.loads:
-            if case.pattern != pattern:
+            if case.pattern not in factors:
                 continue
+            fac = factors[case.pattern]
             try:
                 d, _ = panel_direction(P, case.direction)
             except ValueError:
                 d = np.array([0, 0, -1.0])
-            v = case.value if not case.varying else 0.5 * (case.value_lower + case.value_upper)
+            v = (case.value if not case.varying else 0.5 * (case.value_lower + case.value_upper)) * fac
             if v == 0:
                 continue
             dd = d * np.sign(v)
@@ -2835,8 +2849,8 @@ def build_load_actors(model: Model, pattern: str, frames: Optional[set] = None, 
                 at = c - dd * L * 0.75
             else:
                 at = c
-            value = (f"{fmt_value(abs(case.value) * kA)} {u_area}" if not case.varying else
-                     f"{fmt_value(case.value_lower * kA)} → {fmt_value(case.value_upper * kA)} {u_area}")
+            value = tag(case.pattern, f"{fmt_value(abs(case.value * fac) * kA)} {u_area}" if not case.varying else
+                        f"{fmt_value(case.value_lower * fac * kA)} → {fmt_value(case.value_upper * fac * kA)} {u_area}")
             dist = {"one_way": "1-way", "two_way": "2-way"}.get(pl.distribution, "")
             if pl.area and pl.distribution == "shells":
                 label(at, value)  # an ordinary area load: just its value
@@ -2848,10 +2862,10 @@ def build_load_actors(model: Model, pattern: str, frames: Optional[set] = None, 
         xyz = np.array([model.points[n].xyz for n in ar.points])
         c = xyz.mean(axis=0)
         for ld in ar.loads:
-            if ld.pattern != pattern:
+            if ld.pattern not in factors:
                 continue
             d = direction_vector(ld.direction)
-            v = float(ld.value)
+            v = float(ld.value) * factors[ld.pattern]
             if v == 0:
                 continue
             dd = d * np.sign(v)

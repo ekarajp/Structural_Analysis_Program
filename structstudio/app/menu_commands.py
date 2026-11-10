@@ -155,6 +155,7 @@ class MenuCommandsMixin:
             "analyze.log": self.show_log,
             # Display
             "display.undeformed": self.display_undeformed,
+            "load.show": self.show_loads_dialog,
             "display.loads.point": lambda: self.display_loads("point"),
             "display.loads.frame": lambda: self.display_loads("frame"),
             "display.loads.area": lambda: self.display_loads("area"),
@@ -249,13 +250,20 @@ class MenuCommandsMixin:
             fill()
             menu.aboutToShow.connect(fill)
 
+        def move_window(menu):
+            def fill():
+                menu.clear()
+                self.views.fill_move_menu(menu)
+            fill()
+            menu.aboutToShow.connect(fill)
+
         def recent(menu):
             self._fill_recent_menu(menu)
             menu.aboutToShow.connect(lambda: self._fill_recent_menu(menu))
 
         return {"file.recent_menu": recent, "options.palette_menu": palette, "edit.grid_mode_menu": grid_mode, "view.grid_menu": grid, "draw.snap_menu": snaps,
                 "load.show_menu": load_kinds,
-                "options.windows_menu": windows, "options.panels_menu": panels, "options.theme_menu": themes, "options.color_by_menu": color_by}
+                "options.windows_menu": windows, "options.move_window_menu": move_window, "options.panels_menu": panels, "options.theme_menu": themes, "options.color_by_menu": color_by}
 
     # -------------------------------------------------------------- utils
     def _info(self, text: str):
@@ -1013,17 +1021,23 @@ class MenuCommandsMixin:
             C.assign(self.doc, "area", self._names("area"), type="Opening", section=None)
 
     def assign_area_mesh(self, kind: str):
+        """Assign > Floor / Wall Auto Mesh Options: auto mesh / no mesh of the selected areas,
+        and the fine mesh of the whole model (found once, then ticked)."""
         if not self._need("area"):
             return
+        from .mesh_dialog import AreaMeshDialog
         a = self._first("area")
-        v = ask(self, f"{kind} Auto Mesh Options", [
-            ("auto", "Auto mesh", bool(a.auto_mesh)),
-            ("type", "Mesh type", a.mesh_type, {"choices": ["Rectangular", "General", "None"]}),
-            ("size", "Maximum element size (blank = program default)", a.max_mesh_size, {"optional": True})])
-        if v:
-            names = [n for n in self._names("area") if (self.doc.model.areas[n].type == "Wall") == (kind == "Wall")]
-            C.assign(self.doc, "area", names or self._names("area"), auto_mesh=v["auto"], mesh_type=v["type"],
-                     max_mesh_size=v["size"])
+        dlg = AreaMeshDialog(kind, self.doc.model, bool(a.auto_mesh), a.max_mesh_size, self.check_mesh, self)
+        self._mesh_dialog = dlg
+        try:
+            if not dlg.exec():
+                return
+            v = dlg.values()
+        finally:
+            self._mesh_dialog = None
+        names = [n for n in self._names("area") if (self.doc.model.areas[n].type == "Wall") == (kind == "Wall")]
+        C.assign(self.doc, "area", names or self._names("area"), auto_mesh=v["auto"], max_mesh_size=v["size"])
+        self.set_fine_mesh(v["use_fine"])
 
     def assign_frame_point_load(self):
         if not self._need("frame"):

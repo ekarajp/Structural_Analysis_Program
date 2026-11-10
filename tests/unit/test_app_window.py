@@ -98,11 +98,13 @@ def test_default_two_windows_plan_and_3d(window):
     window.set_palette_mode("compact")
     # ETABS order: select | draw (fly-outs per object type) | edit | selection | snap
     assert len([a for a in window.draw_toolbar.actions() if not a.isSeparator()]) >= 16
-    from structstudio.app.mainwindow import DRAW_PALETTE, DRAW_TOOLS, MODIFY_TOOLS, SELECT_TOOLS
+    from structstudio.app.mainwindow import DRAW_PALETTE, DRAW_TOOLS, LOAD_PALETTE, MODIFY_TOOLS, SELECT_TOOLS
     # every tool has a palette button except Draw Braces (braces: the line tool; the
-    # tool stays as a command / shortcut)
-    assert {k for _, keys in DRAW_PALETTE for k in keys} == \
+    # tool stays as a command / shortcut) and the load tools (top Loads toolbar)
+    assert {k for _, keys in DRAW_PALETTE for k in keys} | set(LOAD_PALETTE) == \
         {k for k, *_ in SELECT_TOOLS + DRAW_TOOLS + MODIFY_TOOLS} - {"brace"}
+    loads_bar = window.findChild(QtWidgets.QToolBar, "loads")
+    assert all(window.tool_actions[k] in loads_bar.actions() for k in LOAD_PALETTE)
     beams = window.palette_buttons["Draw Beams"]
     assert [a.text() for a in beams.menu_actions()][0].startswith("Draw Beam")
     quick = window.tool_actions["quick_beam"]
@@ -350,7 +352,7 @@ def test_display_options_grid_at_base_and_plan_story_in_3d(window, app):
     plan.step_where(+1)
     plan.step_where(-1)
     assert plan.where_box.currentIndex() == top
-    assert plan.display_button.toolTip() == "Display Settings"
+    assert not hasattr(plan, "display_button")  # display settings: the toolbar button only (user request)
     window.act_extrude.setChecked(False)
     window.toggle_extrude(False)
     assert not plan.display_options.extrude and not v3d.display_options.extrude
@@ -1650,18 +1652,21 @@ def test_picking_a_draw_tool_does_not_resize_the_model_windows(window, app):
 def test_check_mesh_then_use_fine_mesh(window, app):
     window.doc.replace_model(new_building(x_spacings=(6,), y_spacings=(6,), story_heights=(3.0,), grid_only=False))
     o = window.doc.model.options
-    assert not window.fine_mesh_box.isEnabled() and not window.act_use_fine.isEnabled()  # check first
+    assert not window.act_use_fine.isEnabled()  # check first
+    assert not hasattr(window, "fine_mesh_box")  # not on the toolbar any more (Assign > Floor Auto Mesh)
     window.check_mesh()
     _wait_analysis(window, app)
     o = window.doc.model.options
     assert o.fine_mesh_factor is not None and 0 < o.fine_mesh_factor <= 1.0  # never coarser than h
-    assert window.fine_mesh_box.isEnabled() and not window.fine_mesh_box.isChecked()
+    assert window.act_use_fine.isEnabled() and not window.act_use_fine.isChecked()
+    assert o.fine_mesh_size_min and window.act_use_fine.text().startswith("Use Fine Mesh (") \
+        and window.act_use_fine.text().endswith(" m)")  # the size found, in the model's units
     assert "Fine mesh" in window._progress_dlg.step.text() and not window.doc.locked
     window._progress_dlg.close()
-    window.fine_mesh_box.setChecked(True)
+    window.act_use_fine.trigger()
     assert window.doc.model.options.use_fine_mesh and window.act_use_fine.isChecked()
     assert "4h" in window.FINE_MESH_TEXT and "h/4" in window.FINE_MESH_TEXT
-    window.fine_mesh_box.setChecked(False)
+    window.act_use_fine.trigger()
     assert not window.doc.model.options.use_fine_mesh
 
 

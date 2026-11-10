@@ -372,7 +372,7 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
         "-",
         ("Delete Loads on Selection...", "load.delete"),
         ("Load Panel / Area Load Report...", "load.report"),
-        ("Show Loads", "load.show_menu"),
+        ("Show Loads...", "load.show"),
     ]),
     ("A&nalyze", [
         ("Check Model...", "analyze.check"),
@@ -399,8 +399,6 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
     ("Dis&play", [
         ("Undeformed Shape", "display.undeformed", "F4"),
         ("Show Analysis Mesh", "display.mesh"),
-        ("Load Assigns", [("Joint...", "display.loads.point"), ("Frame...", "display.loads.frame"),
-                          ("Shell...", "display.loads.area")]),
         ("Deformed Shape...", "display.deformed", "F6"),
         ("Mode Shape...", "display.mode"),
         ("Force/Stress Diagrams", [("Support/Spring Reactions...", "display.reactions", "F7"),
@@ -478,6 +476,7 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
         "-",
         ("Window Layout (1 - 4 model windows)", "options.windows_menu"),
         ("Arrange Windows...", "options.arrange"),
+        ("Move Active Window", "options.move_window_menu"),
         "-",
         ("Dark / Light Mode", "window.theme"),
         ("Customize Toolbars...", "options.toolbars"),

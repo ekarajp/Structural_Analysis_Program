@@ -1,7 +1,8 @@
 """Model window area: 1-9 model windows the user arranges freely (ETABS "Window > Tile").
 
 Every model window is a dock in an inner dock area: drag its title bar onto the
-side of another window to split there, onto its middle to stack them as tabs,
+side of another window to split there (no tab groups), or right-click a title to put it
+left / right / above / below another window (no dragging needed);
 drag a divider to resize, double-click the title (or its float button) to take it
 out as a window of its own (another screen), close it with its x.  The quick
 layouts (1, 2 side by side, 2 stacked, 3, 4 ... 9) arrange the first windows in a
@@ -29,7 +30,7 @@ LAYOUT_LABELS = {"1": "One window", "2": "Two windows (side by side)", "2v": "Tw
                  "3": "Three windows", "4": "Four windows", "6": "Six windows", "9": "Nine windows"}
 DEFAULT_CONFIGS = [ViewConfig("plan"), ViewConfig("3d"), ViewConfig("xz"), ViewConfig("yz")]
 DEFAULT_LAYOUT = "2"
-STATE_VERSION = 1
+STATE_VERSION = 2  # 2: no tab groups (a dropped window always splits); older saved arrangements reset
 
 
 def _default_config(k: int) -> ViewConfig:
@@ -54,8 +55,10 @@ class ViewportArea(QtWidgets.QWidget):
         self.host = QtWidgets.QMainWindow()
         self.host.setWindowFlags(QtCore.Qt.Widget)
         self.host.setDockNestingEnabled(True)
-        self.host.setDockOptions(QtWidgets.QMainWindow.AllowNestedDocks | QtWidgets.QMainWindow.AllowTabbedDocks
-                                 | QtWidgets.QMainWindow.AnimatedDocks | QtWidgets.QMainWindow.GroupedDragging)
+        # Windows are put beside / above / below each other, never stacked as tabs (a drop on
+        # a window's middle used to make a tab group - rarely wanted, hard to undo).  No
+        # animation: while it ran, the native VTK windows were drawn half-moved / blank.
+        self.host.setDockOptions(QtWidgets.QMainWindow.AllowNestedDocks)
         self.host.setTabPosition(QtCore.Qt.AllDockWidgetAreas, QtWidgets.QTabWidget.North)
         self.host.setStyleSheet(
             "QMainWindow::separator { width: 6px; height: 6px; background: palette(mid); }"
@@ -110,6 +113,10 @@ class ViewportArea(QtWidgets.QWidget):
         dock.topLevelChanged.connect(lambda floating, vp=vp: self._window_moved(vp, floating))
         dock.dockLocationChanged.connect(lambda _a: self._moved_by_hand())
         dock.visibilityChanged.connect(lambda shown, vp=vp: self._visibility(vp, shown))
+        # right-click on the window's title: move it left / right / above / below another one
+        dock.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        dock.customContextMenuRequested.connect(
+            lambda pos, d=dock, vp=vp: self.title_menu(vp).exec(d.mapToGlobal(pos)))
         self.viewports.append(vp)
         self.docks.append(dock)
         self.host.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock)
@@ -200,6 +207,68 @@ class ViewportArea(QtWidgets.QWidget):
         self.set_active(self.viewports[k])
         self._changed()
         return self.viewports[k]
+
+    # ----------------------------------------------------------- moving windows
+    WHERE = (("left", "To the Left of"), ("right", "To the Right of"), ("above", "Above"), ("below", "Below"))
+
+    def move_window(self, vp: ModelViewport, target: ModelViewport, where: str) -> bool:
+        """Put window ``vp`` to the left / right / above / below window ``target``: the
+        space of ``target`` is split in two equal parts.  No tab groups, no dragging."""
+        if vp is target or vp not in self.viewports or target not in self.viewports:
+            return False
+        if where not in dict(self.WHERE):
+            raise ValueError(f"where must be one of {[w for w, _ in self.WHERE]}")
+        d = self.docks[self.viewports.index(vp)]
+        t = self.docks[self.viewports.index(target)]
+        if t.isHidden():
+            return False
+        orient = QtCore.Qt.Horizontal if where in ("left", "right") else QtCore.Qt.Vertical
+        self._arranging = True
+        try:
+            if t.isFloating():
+                t.setFloating(False)
+            d.setFloating(False)
+            self.host.removeDockWidget(d)
+            self.host.splitDockWidget(t, d, orient)  # d right of / below t
+            d.show()
+            if where in ("left", "above"):
+                self.host.splitDockWidget(d, t, orient)  # t moved right of / below d
+            span = (t.width() + d.width()) if orient == QtCore.Qt.Horizontal else (t.height() + d.height())
+            self.host.resizeDocks([d, t], [max(span // 2, 50)] * 2, orient)
+        finally:
+            self._arranging = False
+        self._custom()
+        self._changed()
+        for v in (vp, target):
+            QtCore.QTimer.singleShot(60, v.render)
+        return True
+
+    def title_menu(self, vp: ModelViewport) -> QtWidgets.QMenu:
+        """Menu of a window's title bar (also Window > Move Active Window)."""
+        menu = QtWidgets.QMenu(self)
+        self.fill_move_menu(menu, vp)
+        menu.addSeparator()
+        k = self.viewports.index(vp)
+        d = self.docks[k]
+        a = menu.addAction("Put Back in the Main Window" if d.isFloating() else "Take Out (separate window)")
+        a.triggered.connect(lambda: d.setFloating(not d.isFloating()))
+        a = menu.addAction("Fit")
+        a.triggered.connect(vp.fit)
+        a = menu.addAction("Close Window")
+        a.setEnabled(len(self.visible_viewports()) > 1)
+        a.triggered.connect(d.close)
+        return menu
+
+    def fill_move_menu(self, menu: QtWidgets.QMenu, vp: Optional[ModelViewport] = None):
+        vp = vp or self.active
+        others = [v for v in self.visible_viewports() if v is not vp]
+        for where, label in self.WHERE:
+            sub = menu.addMenu(label)
+            sub.setEnabled(bool(others))
+            for v in others:
+                k = self.viewports.index(v)
+                a = sub.addAction(self.docks[k].windowTitle())
+                a.triggered.connect(lambda _=False, v=v, w=where, src=vp: self.move_window(src, v, w))
 
     # ----------------------------------------------------------- settings
     def _load(self):
@@ -340,7 +409,11 @@ class ViewportArea(QtWidgets.QWidget):
 
     def highlight_target(self):
         """(kind, value, label) of the plane the 3D windows shade: the active plan /
-        elevation window, else the 2-D window used last, else the first plan shown."""
+        elevation window, else the 2-D window used last, else the first plan shown.
+        None while a 3D window is the active one: working in 3D, the blue plane of another
+        window is only in the way."""
+        if self.active is not None and self.active.config.kind == "3d":
+            return None
         cands = [self.active, getattr(self, "_last_2d", None)]
         cands += [v for v in self.visible_viewports() if v.config.kind == "plan"]
         for v in cands:
@@ -393,8 +466,13 @@ class ViewportArea(QtWidgets.QWidget):
         self.save()
 
     def render_all(self):
-        for vp in self.visible_viewports():
-            vp.render()
+        if getattr(self, "_closing", False):
+            return
+        try:
+            for vp in self.visible_viewports():
+                vp.render()
+        except RuntimeError:  # being deleted (the program closes)
+            self._closing = True
 
     def finalize(self):
         self.save()
@@ -422,8 +500,9 @@ class WindowsDialog(QtWidgets.QDialog):
         self.layout_box.addItem("Keep my arrangement (drag the window titles)", "custom")
         self.layout_box.setCurrentIndex(2 if area.layout_name == "custom" else (1 if area.layout_name == "2v" else 0))
         f.addRow("Arrangement", self.layout_box)
-        note = QtWidgets.QLabel("Drag a window title onto the side of another window to put it there, onto its "
-                                "middle to stack them as tabs; double-click a title to take the window out "
+        note = QtWidgets.QLabel("Right-click a window's title (or Window > Move Active Window) to put it to the "
+                                "left / right / above / below another window.  Dragging a title onto the side of "
+                                "another window works too; double-click a title to take the window out "
                                 "(e.g. to a second screen).")
         note.setWordWrap(True)
         note.setStyleSheet("color: palette(mid)")

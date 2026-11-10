@@ -27,6 +27,20 @@ def _log(text: str) -> None:
         pass
 
 
+def _vtk_messages_to_file() -> None:
+    """VTK warnings / errors go to a log file next to structstudio.log, never to the
+    "vtkOutputWindow" pop-up (on Windows it opens on the first message and can fill up)."""
+    try:
+        import vtk
+        out = vtk.vtkFileOutputWindow()
+        out.SetFileName(os.path.join(os.path.dirname(log_path()), "vtk-messages.log"))
+        out.SetFlush(True)
+        out.SetAppend(False)
+        vtk.vtkOutputWindow.SetInstance(out)
+    except Exception:
+        pass
+
+
 def _install_excepthook():
     def hook(exc_type, exc, tb):
         text = "".join(traceback.format_exception(exc_type, exc, tb))
@@ -45,6 +59,7 @@ def _install_excepthook():
 
 def main(argv=None) -> int:
     _install_excepthook()
+    _vtk_messages_to_file()
     from PySide6 import QtCore, QtWidgets
 
     from .document import Document
@@ -53,6 +68,9 @@ def main(argv=None) -> int:
     argv = list(sys.argv if argv is None else argv)
     from .mainwindow import use_english_numbers
     use_english_numbers()  # 0-9 digits and '.' decimals whatever the Windows region (e.g. Thai)
+    # the VTK views are native windows; keep their neighbours (window headers, combos)
+    # ordinary Qt widgets, so their drop-down lists open where they are
+    QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_DontCreateNativeWidgetSiblings, True)
     app = QtWidgets.QApplication(argv)
     app.setApplicationName("Structural Studio")
     app.setStyle("Fusion")

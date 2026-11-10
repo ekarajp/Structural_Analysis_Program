@@ -130,7 +130,7 @@ def check_mesh(model: Model, kernel: Optional[Kernel] = None, progress=None) -> 
     levels = chk.get("levels") or [(1.0, len(am.shells))]
     factor = min(1.0, float(levels[-1][0]))
     sizes = sorted(set(am.auto_sizes.values()))
-    size_txt = f"{sizes[0]:g}" + (f"-{sizes[-1]:g}" if len(sizes) > 1 else "") + " m"
+    size_txt = f"{sizes[0]:.3g}" + (f"-{sizes[-1]:.3g}" if len(sizes) > 1 else "") + f" {model.units.length}"
     err = float(chk.get("estimated_error", 0.0))
     ok = bool(chk.get("converged", True))
     step = "h" if factor >= 1.0 else f"h/{round(1 / factor):d}"
@@ -139,7 +139,7 @@ def check_mesh(model: Model, kernel: Optional[Kernel] = None, progress=None) -> 
             + ("" if ok else " - not reached" + (" (stopped at the 12,000 element limit)" if chk.get("capped") else "")))
     report(100, text)
     return {"factor": factor, "converged": ok, "levels": levels, "error": err, "text": text,
-            "signature": mesh_signature(model)}
+            "signature": mesh_signature(model), "size_min": float(sizes[0]), "size_max": float(sizes[-1])}
 
 
 def _shell_peak(model, am, res) -> dict:

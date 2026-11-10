@@ -589,7 +589,6 @@ class AreaInfoDialog(ObjectInfoDialog):
         self._row_edit(f, f"Additional mass / area ({m.units.shown('mass_per_area')})", "mass_per_area",
                        ar.mass_per_area)
         self._row_edit(f, "Auto mesh", "auto_mesh", ar.auto_mesh, "bool")
-        self._row_edit(f, "Mesh type", "mesh_type", ar.mesh_type, "choice", ["Rectangular", "General", "None"])
         self._row_edit(f, "Max mesh size", "max_mesh_size", ar.max_mesh_size, item="coordinates")
         self._row_edit(f, f"Area spring ({m.units.shown('weight_per_volume')})", "spring", ar.spring)
         self._row_edit(f, "Pier", "pier", ar.pier, "text")

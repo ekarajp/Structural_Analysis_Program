@@ -34,9 +34,16 @@ class FlyoutRow(QtWidgets.QFrame):
             b.setToolTip(a.toolTip() or a.text())
             b.setToolButtonStyle(QtCore.Qt.ToolButtonIconOnly)
             b.setMouseTracking(True)
+            # a plain click on a tool of the row picks it too (not only press-drag-release):
+            # the face of the palette button then shows it
+            b.clicked.connect(lambda _=False, a=a: self._clicked(a))
             lay.addWidget(b)
             self.buttons.append(b)
         self.setMouseTracking(True)
+
+    def _clicked(self, action: QtGui.QAction):
+        self.picked.emit(action)
+        self.close()
 
     def button_at(self, global_pos: QtCore.QPoint) -> Optional[QtWidgets.QToolButton]:
         for b in self.buttons:
@@ -80,6 +87,18 @@ class FlyoutButton(QtWidgets.QToolButton):
         self.setDefaultAction(self.actions_[0])
         self._update_tip()
         self.setMouseTracking(True)
+        # Photoshop: the face shows the tool used last, however it was chosen (this fly-out,
+        # the Draw menu, a shortcut, the command line)
+        for a in self.actions_:
+            a.triggered.connect(lambda _=False, a=a: self._follow(a))
+
+    def _follow(self, action: QtGui.QAction):
+        try:
+            if action is not self.defaultAction() and action in self.actions_:
+                self.setDefaultAction(action)
+                self._update_tip()
+        except RuntimeError:  # the palette was rebuilt (compact <-> full): this button is gone
+            pass
 
     # ---- helpers
     def _update_tip(self):

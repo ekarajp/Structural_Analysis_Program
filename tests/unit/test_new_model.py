@@ -193,8 +193,9 @@ def test_gui_wizard_uniform_rc_frame(app, settings):
     assert w.plan_preview.xs == [0.0, 6.0, 12.0] and w.plan_preview.xl == ["A", "B", "C"]
     assert [n for n, _ in w.elev_preview.levels] == ["Base", "Story1", "Story2"]
     w._next()
-    assert w.pages.currentIndex() == 2 and w.cards["rc_frame"].isChecked()
+    assert w.pages.currentIndex() == 2 and w.cards["grid"].isChecked()  # Grid only is the default
     assert all(w.cards[k].sketch for k in ("grid", "rc_frame", "core_frame", "steel_deck"))
+    w.cards["rc_frame"].setChecked(True)
     assert "12 columns" in w.summary.text()
     w._next()
     assert w.result() == QtWidgets.QDialog.Accepted

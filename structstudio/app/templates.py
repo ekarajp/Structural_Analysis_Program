@@ -220,9 +220,12 @@ STRUCTURE_KEYS = tuple(k for k, _, _ in STRUCTURES)
 SUPPORTS = ("Fixed", "Pinned", "None")
 
 
-def region_properties(model: Model, region: str = "thailand") -> None:
+def region_properties(model: Model, region: str = "thailand", steel_db: Optional[str] = None,
+                      rebar_db: Optional[str] = None) -> None:
     """Materials, sections, rebar sizes of a region plus the default load
-    patterns and cases, in the model's units."""
+    patterns and cases, in the model's units.  ``steel_db`` / ``rebar_db``: the
+    region whose steel section table / rebar sizes to use (default: ``region``),
+    e.g. Thai materials with AISC W shapes."""
     from ..units import UnitSystem
     from ..catalog import find_steel, rebar_catalog
     reg = REGIONS[region]
@@ -237,7 +240,7 @@ def region_properties(model: Model, region: str = "thailand") -> None:
     for name, kind, t in reg["shells"]:
         mat = reg["concrete_col"] if kind == "Wall" else reg["concrete"]
         base.add_shell_section(ShellSection(name, mat, type=kind, thickness=t))
-    std, names = reg["steel_sections"]
+    std, names = REGIONS[steel_db or region]["steel_sections"]
     for n in dict.fromkeys(names):
         e = find_steel(n, std)
         if e is not None:
@@ -247,7 +250,7 @@ def region_properties(model: Model, region: str = "thailand") -> None:
     model.frame_sections.update(conv.frame_sections)
     model.shell_sections.update(conv.shell_sections)
     cat = rebar_catalog()
-    for s in reg["rebar"]:
+    for s in REGIONS[rebar_db or region]["rebar"]:
         for e in cat.get(s, []):
             model.rebar_sizes[e.name] = e.rebar_size(model.units)
     _default_loads(model)
@@ -297,7 +300,8 @@ def build_model(name: str = "Untitled", units: str = "kN m C", region: str = "th
                 similar: Optional[dict] = None, grid_mode: str = "story", structure: str = "grid",
                 column: Optional[str] = None, beam: Optional[str] = None, slab: Optional[str] = None,
                 wall: Optional[str] = None, infill: Optional[str] = None, support: str = "Fixed",
-                settings_from: Optional[Model] = None, properties: bool = True) -> Model:
+                settings_from: Optional[Model] = None, properties: bool = True,
+                steel_db: Optional[str] = None, rebar_db: Optional[str] = None) -> Model:
     """The model of the New Model wizard: settings (a region, or a saved
     model's), grid lines at the given ordinates, stories (bottom up), and one
     of the STRUCTURES on that grid."""
@@ -318,7 +322,7 @@ def build_model(name: str = "Untitled", units: str = "kN m C", region: str = "th
         copy_settings(m, settings_from)
         _default_loads(m)
     elif properties:
-        region_properties(m, region)
+        region_properties(m, region, steel_db, rebar_db)
     if structure != "blank":
         m.grid_systems["G1"] = GridSystem(name="G1")
         xl = list(x_labels) if x_labels else _letters(len(xs))

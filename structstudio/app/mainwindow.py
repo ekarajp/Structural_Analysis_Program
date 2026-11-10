@@ -84,9 +84,10 @@ DRAW_PALETTE = [
     ("Draw Floors", ["slab", "rect_slab", "quick_slab"]),
     ("Draw Walls", ["wall", "quick_wall"]),
     ("Draw Openings", ["opening"]),
-    ("Loads", ["area_load", "panel_load", "frame_load", "joint_load"]),
     ("Modify", ["move", "copy", "rotate", "mirror", "offset", "trim", "extend"]),
 ]
+# the load tools are on the top Loads toolbar (the left palette: select, draw, modify only)
+LOAD_PALETTE = ["area_load", "panel_load", "frame_load", "joint_load"]
 
 
 class AnalysisWorker(QtCore.QThread):
@@ -571,6 +572,9 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
                        ("define.slab_sections", "slab_sections", "Slab Sections"),
                        ("define.wall_sections", "wall_sections", "Wall Sections")))
         loads = bar("Loads", "loads")
+        for k in LOAD_PALETTE:  # drawing / assigning loads (area, panel, frame, joint)
+            loads.addAction(self.tool_actions[k])
+        loads.addSeparator()
         add_cmds(loads, (("define.load_patterns", "load_patterns", "Load Patterns"),
                          ("define.load_cases", "load_cases", "Load Cases"),
                          ("define.combos", "combos", "Load Combinations")))
@@ -581,20 +585,8 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         if a is not None:
             ana.addAction(a)
         ana.addAction(self.act_run)
-        # Fine mesh: Check Mesh finds it once (kept with the model); "Use fine mesh" analyses with it
-        ana.addAction(self.act_check_mesh)
-        self.fine_mesh_box = QtWidgets.QCheckBox("Use fine mesh")
-        self.fine_mesh_box.toggled.connect(self.set_fine_mesh)
-        ana.addWidget(self.fine_mesh_box)
-        why = QtWidgets.QToolButton()
-        why.setText("!")
-        why.setObjectName("fine_mesh_info")
-        why.setToolTip("What do Check Mesh and Use fine mesh do?")
-        why.setStyleSheet("QToolButton#fine_mesh_info { font-weight: 700; color: white; background: #e0a020;"
-                          " border-radius: 8px; min-width: 16px; max-width: 16px; min-height: 16px;"
-                          " max-height: 16px; padding: 0px; }")
-        why.clicked.connect(self.explain_fine_mesh)
-        ana.addWidget(why)
+        # (the fine mesh is found / chosen in Assign > Floor Auto Mesh Options and the Analyze menu:
+        # not used often enough for the toolbar)
         self._sync_fine_mesh()
         ana.addAction(self.act_lock)
         find = bar("Find", "find")
@@ -636,7 +628,8 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         disp.addWidget(QtWidgets.QLabel(" Loads "))
         self.load_box = QtWidgets.QComboBox()
         self.load_box.setMinimumWidth(100)
-        self.load_box.setToolTip("Show the loads of a load pattern (Display > Load Assigns)")
+        self.load_box.setToolTip("Show the loads of a load pattern (Load > Show Loads: several patterns, a load "
+                                 "case or a combination, and which load types)")
         self.load_box.currentTextChanged.connect(self._display_changed)
         disp.addWidget(self.load_box)
         # which loads: joint / frame / area / panel, or the panel loads as applied to members
@@ -807,6 +800,16 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         if getattr(self, "palette_grid", None) is not None:
             QtCore.QTimer.singleShot(0, self._fit_palette)
 
+    def changeEvent(self, ev):
+        """Maximised / restored / minimised and back: every model window draws again once
+        the new size is settled (a native VTK window may not be told to repaint)."""
+        super().changeEvent(ev)
+        if ev.type() in (QtCore.QEvent.WindowStateChange, QtCore.QEvent.ActivationChange):
+            views = getattr(self, "views", None)
+            if views is not None and not getattr(views, "_closing", False):
+                QtCore.QTimer.singleShot(60, views.render_all)
+                QtCore.QTimer.singleShot(250, views.render_all)
+
     # status bar snap strip (AutoCAD style): one click per snap / guide
     SNAP_BAR = [("osnap", "SNAP"), ("grid", "GRID"), ("ortho", "ORTHO"), ("polar", "POLAR"),
                 ("alignment", "TRACK"), ("extensions", "EXT"), ("perpendicular", "PERP"),
@@ -907,7 +910,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
 
     # ----------------------------------------------------------- handlers
     def _on_doc_change(self, what: str):
-        if what in ("lock", "results", "model"):
+        if what in ("lock", "results", "model", "units", "replaced"):
             self._sync_lock()
             self._sync_fine_mesh()
         self.setWindowTitle(f"Structural Studio {__version__} - {self.doc.title}")
@@ -922,9 +925,13 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
                 self.units_button.refresh()
             self.load_box.blockSignals(True)
             cur = self.load_box.currentText()
+            multi = self.load_box.currentData() == self.LOAD_SELECTION
             self.load_box.clear()
             self.load_box.addItems(["(none)"] + list(self.doc.model.load_patterns))
-            if cur:
+            if multi and self.state.load_factors:
+                self.load_box.addItem(self.state.load_title or "(selection)", self.LOAD_SELECTION)
+                self.load_box.setCurrentIndex(self.load_box.count() - 1)
+            elif cur:
                 self.load_box.setCurrentText(cur)
             self.load_box.blockSignals(False)
         if what in ("results", "model"):
@@ -975,13 +982,55 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         mode = self.mode_box.value()
         d = self.diagram_box.currentText()
         lp = self.load_box.currentText()
+        multi = self.load_box.currentData() == self.LOAD_SELECTION  # Load > Show Loads: patterns / case / combo
         self.state.set_display(display_case=self.case_box.currentText() or None,
                                display_mode=mode if mode > 0 else None,
                                display_diagram=None if d == "None" else d,
                                display_frame_color=self._frame_color(),
                                deformed=self.act_deformed.isChecked(),
                                show_reactions=self.act_reactions.isChecked(),
-                               load_pattern=None if lp in ("", "(none)") else lp)
+                               load_pattern=None if lp in ("", "(none)") or multi else lp,
+                               load_factors=self.state.load_factors if multi else None,
+                               load_title=self.state.load_title if multi else "")
+
+    LOAD_SELECTION = "__show_loads__"
+
+    def show_loads_dialog(self):
+        """Load > Show Loads: load types and patterns / a case / a combination, in one form."""
+        from .load_display import ShowLoadsDialog
+        m = self.doc.model
+        if not m.load_patterns:
+            return QtWidgets.QMessageBox.information(self, "Show Loads", "No load patterns are defined.")
+        st = self.state
+        cur = dict(st.load_factors) if st.load_factors else ({st.load_pattern: 1.0} if st.load_pattern else {})
+        d = ShowLoadsDialog(m, st.load_kinds, cur, st.load_title, self)
+        if not d.exec():
+            return
+        if d.hidden:
+            self.load_box.setCurrentIndex(0)  # (none)
+            return
+        factors, title = d.selection()
+        kinds = d.kinds() or {"joint", "frame", "area", "panel"}
+        self.set_load_kinds(kinds)
+        self._set_load_box(factors, title)
+
+    def _set_load_box(self, factors: dict, title: str):
+        """The toolbar's Loads box shows the choice: one pattern as itself, else its title."""
+        box = self.load_box
+        box.blockSignals(True)
+        i = box.findData(self.LOAD_SELECTION)
+        if i >= 0:
+            box.removeItem(i)
+        single = len(factors) == 1 and abs(next(iter(factors.values())) - 1.0) < 1e-12 and not title.startswith(("Case ", "Combination "))
+        if single:
+            box.setCurrentText(next(iter(factors)))
+            self.state.load_factors, self.state.load_title = None, ""
+        else:
+            box.addItem(title, self.LOAD_SELECTION)
+            box.setCurrentIndex(box.count() - 1)
+            self.state.load_factors, self.state.load_title = dict(factors), title
+        box.blockSignals(False)
+        self._display_changed()
 
     # ------------------------------------------------------- load display
     def _load_kind_toggled(self, key: str, on: bool):
@@ -1057,7 +1106,11 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             self.doc.edit(lambda model: model.panel_loads.__setitem__(name, new))
 
     def show_object_info(self, kind: str, name: str):
-        """Right click on an object: its Information form (ETABS / SAP2000)."""
+        """Right click on an object: its Information form (ETABS / SAP2000).  While an
+        Assign command waits for its objects, the right click opens the command's form."""
+        if getattr(self, "_pending_assign", None) is not None:
+            self.run_pending_assign()
+            return
         if kind == "panel":
             self.edit_panel_load(name)
             return
@@ -1067,6 +1120,9 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
 
     def show_background_menu(self, vp, x: int, y: int):
         """Right click on the background of a model window (ETABS list)."""
+        if getattr(self, "_pending_assign", None) is not None:
+            self.run_pending_assign()
+            return
         menu = QtWidgets.QMenu(self)
         ma = self.menu_actions
         for cid in ("draw.grids", "-", "view.show_selected", "view.invert_visibility", "view.hide_selected",
@@ -1256,6 +1312,12 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             app = QtWidgets.QApplication.instance()
             if app.activePopupWidget() is not None or app.activeModalWidget() is not None:
                 return False
+            if getattr(self, "_pending_assign", None) is not None and not isinstance(obj, self._TEXT_INPUTS):
+                if ev.key() == QtCore.Qt.Key_Escape:
+                    self.cancel_pending_assign()  # (and the window's own Esc: clears the selection)
+                else:
+                    QtCore.QTimer.singleShot(0, self.run_pending_assign)  # after the key: a form opens
+                    return True
             if isinstance(obj, self._TEXT_INPUTS) or isinstance(obj.parent(), QtWidgets.QAbstractSpinBox):
                 return False
             if isinstance(obj, QtWidgets.QComboBox) and obj.isEditable():
@@ -1282,6 +1344,8 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         QtWidgets.QMessageBox.warning(self, "Cannot draw", text)
 
     def _tool_changed(self, key: str):
+        if key not in ("select", "select_line"):
+            self.cancel_pending_assign()  # another command: the waiting Assign is dropped
         a = self.tool_actions.get(key)
         if a and not a.isChecked():
             a.setChecked(True)
@@ -1317,7 +1381,14 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             self.mode_box.setValue(int(rd.get("display_mode") or 0))
             self.diagram_box.setCurrentText(rd.get("display_diagram") or "None")
             self.frame_color_box.setCurrentText(rd.get("display_frame_color") or "None")
-            self.load_box.setCurrentText(rd.get("load_pattern") or "(none)")
+            i = self.load_box.findData(self.LOAD_SELECTION)
+            if i >= 0:
+                self.load_box.removeItem(i)
+            if rd.get("load_factors"):  # this window shows several patterns / a case / a combination
+                self.load_box.addItem(rd.get("load_title") or "(selection)", self.LOAD_SELECTION)
+                self.load_box.setCurrentIndex(self.load_box.count() - 1)
+            else:
+                self.load_box.setCurrentText(rd.get("load_pattern") or "(none)")
             self.act_deformed.setChecked(bool(rd.get("deformed")))
             self.act_reactions.setChecked(bool(rd.get("show_reactions")))
             kinds = rd.get("load_kinds") or set()
@@ -1355,6 +1426,10 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         self._style_hint_label(settings.theme)
 
     def _set_hint(self, text: str):
+        p = getattr(self, "_pending_assign", None)
+        if p is not None and not text.startswith("Assign "):
+            text = (f"Assign {p[2]}: select the {self._KIND_WORDS.get(p[0], p[0])}, then press Enter or "
+                    f"right-click  -  Esc cancels")
         self.hint_label.setText(text)
         empty = not (text or "").strip()
         if self.hint_label.property("empty") != empty:
@@ -1363,18 +1438,15 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             self.hint_label.style().polish(self.hint_label)
 
     def _style_hint_label(self, which: Optional[str] = None):
-        """The command guide in the status bar ("Next: pick the base point ..."): dark
-        text on a pale yellow chip (light mode), light on a deep one (dark mode), so it
-        reads whatever the window colour behind it."""
+        """The command guide in the status bar ("Next: pick the base point ..."): plain
+        text, dark on the light theme and light on the dark one - no coloured background."""
         lab = getattr(self, "hint_label", None)
         if lab is None:
             return
         which = which or getattr(getattr(self, "color_settings", None), "theme", "light")
-        bg, fg, edge = (("#3d3a22", "#fff3b0", "#6b6532") if which == "dark"
-                        else ("#fff4c2", "#1d2633", "#d9c56a"))
-        lab.setStyleSheet(f"QLabel#commandHint {{ padding: 1px 8px; font-weight: 600; color: {fg};"
-                          f" background: {bg}; border: 1px solid {edge}; border-radius: 3px; }}"
-                          "QLabel#commandHint[empty=\"true\"] { background: transparent; border: none; }")
+        fg = "#e8ecf1" if which == "dark" else "#1d2633"  # plain text: no coloured chip behind it
+        lab.setStyleSheet(f"QLabel#commandHint {{ padding: 1px 6px; font-weight: normal; color: {fg};"
+                          " background: transparent; border: none; }")
 
     def _style_grid_switch(self):
         u = self.color_settings.ui()
@@ -1542,6 +1614,14 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         from ..model import point_ops
         if point_ops.CONFLICT_RESOLVER == self._ask_merge_choices:
             point_ops.CONFLICT_RESOLVER = None  # never ask through a closed window
+        # the drawings' OpenGL contexts go now, while their windows exist: VTK used to fill
+        # the "vtkOutputWindow" with context errors when Qt had destroyed the windows first
+        try:
+            import vtk
+            vtk.vtkObject.GlobalWarningDisplayOff()
+        except Exception:
+            pass
+        self.views.finalize()
         super().closeEvent(event)
 
     def _ask_merge_choices(self, items):
@@ -1611,11 +1691,66 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             self.state.set_selection([f.name for f in self.doc.model.frames.values() if f.section == sec])
 
     # ------------------------------------------------------------- assign
+    _KIND_WORDS = {"point": "joints", "frame": "frames", "area": "floors / walls (shells)"}
+
     def _need(self, kind: str) -> bool:
+        """An Assign command needs objects of ``kind``.  Selected already: go on.  Nothing
+        selected: the command waits - select the objects, then press Enter or right-click
+        to open its form (ETABS works both ways: select then command, or command then select)."""
         have = {"point": self.state.points, "frame": self.state.frames, "area": self.state.areas}[kind]
-        if not have:
+        if have:
+            return True
+        import sys
+        fr = sys._getframe(1)
+        name = fr.f_code.co_name
+        meth = getattr(self, name, None)
+        if meth is None or not callable(meth) or getattr(self, "_running_pending", False):
             QtWidgets.QMessageBox.information(self, "Nothing selected", f"Select one or more {kind} objects first.")
             return False
+        code = fr.f_code
+        args = [fr.f_locals[a] for a in code.co_varnames[1:code.co_argcount] if a in fr.f_locals]
+        label = name.replace("assign_", "").replace("_", " ").strip().title() or name
+        self.begin_pick_for(kind, lambda: meth(*args), label)
+        return False
+
+    def begin_pick_for(self, kind: str, run, label: str):
+        """Wait for a selection of ``kind`` objects; Enter / right-click runs ``run``."""
+        self._pending_assign = (kind, run, label)
+        if self.state.tool.name not in ("select", "select_line"):
+            a = self.tool_actions.get("select")
+            if a is not None:
+                a.trigger()
+        self._show_pending_hint()
+
+    def _show_pending_hint(self):
+        p = getattr(self, "_pending_assign", None)
+        if p is not None:
+            self._set_hint(f"Assign {p[2]}: select the {self._KIND_WORDS.get(p[0], p[0])}, then press Enter "
+                           f"or right-click  -  Esc cancels")
+
+    def cancel_pending_assign(self):
+        if getattr(self, "_pending_assign", None) is not None:
+            self._pending_assign = None
+            self.state.update_hint()
+
+    def run_pending_assign(self) -> bool:
+        """Enter / right-click while an Assign command waits: its form for the selection."""
+        p = getattr(self, "_pending_assign", None)
+        if p is None:
+            return False
+        kind, run, label = p
+        have = {"point": self.state.points, "frame": self.state.frames, "area": self.state.areas}[kind]
+        if not have:
+            self.statusBar().showMessage(f"Assign {label}: no {self._KIND_WORDS.get(kind, kind)} selected yet", 5000)
+            self._show_pending_hint()
+            return True
+        self._pending_assign = None
+        self.state.update_hint()
+        self._running_pending = True
+        try:
+            run()
+        finally:
+            self._running_pending = False
         return True
 
     def assign_restraints(self):
@@ -1711,7 +1846,13 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         from .start_page import StartDialog
         d = StartDialog(self.settings_store(), self, self.recent)
         self._start_dialog = d
-        if not d.exec() or not d.choice:
+        ok = d.exec()
+        a = getattr(self, "act_start_page", None)
+        if a is not None:  # its "Show this window at startup" box and Options > Show Start Page agree
+            a.blockSignals(True)
+            a.setChecked(StartDialog.show_at_startup(self.settings_store()))
+            a.blockSignals(False)
+        if not ok or not d.choice:
             return None
         kind = d.choice[0]
         if kind == "new":
@@ -2041,6 +2182,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         self._worker.start()
 
     def _analysis_cancelled(self):
+        self._sync_fine_mesh()
         self.doc.busy = False
         self.logger.log("Analysis cancelled")
         self.statusBar().showMessage("Analysis cancelled - the model is unchanged", 8000)
@@ -2094,6 +2236,17 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         have = bool(o.fine_mesh_factor)
         tip = ("Analyse with the fine mesh found by Check Mesh (" + (o.fine_mesh_report or "") + ")" if have
                else "Run Check Mesh first - it finds the fine mesh this option uses")
+        a = getattr(self, "act_use_fine", None)
+        if a is not None:  # Analyze > Use Fine Mesh (0.25 m): the size found, in the model's units
+            from .mesh_dialog import fine_mesh_size_text
+            size = fine_mesh_size_text(self.doc.model)
+            a.setText(f"Use Fine Mesh ({size})" if size else "Use Fine Mesh")
+        dlg = getattr(self, "_mesh_dialog", None)
+        if dlg is not None:
+            try:
+                dlg.refresh()
+            except RuntimeError:
+                self._mesh_dialog = None
         for w in (getattr(self, "fine_mesh_box", None), getattr(self, "act_use_fine", None)):
             if w is None:
                 continue
@@ -2132,6 +2285,8 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         o.fine_mesh_factor = float(info["factor"])
         o.fine_mesh_report = info["text"]
         o.fine_mesh_signature = info.get("signature", "")
+        o.fine_mesh_size_min = info.get("size_min")
+        o.fine_mesh_size_max = info.get("size_max")
         self.doc.dirty = True
         self.logger.log("Check Mesh: " + info["text"])
         self._sync_fine_mesh()
@@ -2205,6 +2360,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
 
     def _analysis_failed(self, message: str, issues=None):
         self.doc.busy = False
+        self._sync_fine_mesh()  # (an open Floor Auto Mesh dialog: its Find button back)
         self.logger.log(f"Analysis failed: {message}")
         issues = list(issues or [])
         self._last_issues = issues

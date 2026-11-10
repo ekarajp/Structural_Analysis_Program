@@ -44,6 +44,10 @@ class ViewState(QtCore.QObject):
         self.show_mesh = False  # Display > Show Analysis Mesh
         self.show_reactions = False
         self.load_pattern: Optional[str] = None
+        # Load > Show Loads: several patterns, a load case or a combination - {pattern: factor}
+        # (None: the one pattern of load_pattern); load_title names it ("Live + SDL", "COMB1")
+        self.load_factors: Optional[dict] = None
+        self.load_title: str = ""
         # which loads the Loads display shows: joint / frame / area / panel, or "applied"
         # (panel loads as the line loads they put on the members)
         self.load_kinds: Set[str] = {"joint", "frame", "area", "panel"}
@@ -354,11 +358,17 @@ class ViewState(QtCore.QObject):
     # copy (Display commands change the active window only); the values here are
     # those of the active window, the toolbar's
     WINDOW_DISPLAY = ("display_case", "display_mode", "display_diagram", "display_frame_color", "deformed",
-                      "show_reactions", "load_pattern", "load_kinds")
+                      "show_reactions", "load_pattern", "load_kinds", "load_factors", "load_title")
 
     def window_display(self) -> dict:
         """The current (active window's) result / load display, as a dict."""
-        return {k: (set(getattr(self, k)) if k == "load_kinds" else getattr(self, k)) for k in self.WINDOW_DISPLAY}
+        def copy(k, v):
+            if k == "load_kinds":
+                return set(v)
+            if k == "load_factors":
+                return dict(v) if v else None
+            return v
+        return {k: copy(k, getattr(self, k)) for k in self.WINDOW_DISPLAY}
 
     def set_display(self, **kw):
         if all(hasattr(self, k) and getattr(self, k) == v for k, v in kw.items()):

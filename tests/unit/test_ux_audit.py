@@ -231,9 +231,9 @@ def test_gui_ux02_many_windows_do_not_widen_the_program(window, qapp, layout):
     for v in w.views.visible_viewports():
         hdr = v.header
         # the controls that matter stay usable in the header
-        for c in (v.kind_box, v.results_box, v.display_button) + ((v.where_box,) if v.config.kind != "3d" else ()):
+        for c in (v.kind_box, v.results_box) + ((v.where_box,) if v.config.kind != "3d" else ()):
             assert c.isVisible() and c.width() >= c.minimumSizeHint().width() - 1, (layout, type(c).__name__)
-        assert hdr.rect().contains(QtCore.QRect(v.display_button.pos(), v.display_button.size()))
+        assert all(hdr.rect().contains(QtCore.QRect(c.pos(), c.size())) for c in (v.kind_box, v.results_box))
     w.views.set_layout("1")
     _settle(qapp, 8)
     assert w.width() == 1280

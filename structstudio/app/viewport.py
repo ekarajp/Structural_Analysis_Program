@@ -64,6 +64,29 @@ class _ShrinkCombo(QtWidgets.QComboBox):
         w = icon + self.fontMetrics().averageCharWidth() * chars + 30  # text + arrow + frame
         return QtCore.QSize(min(full.width(), w), full.height())
 
+    def showPopup(self):
+        """Open the list right under the box.  A model window holds a native VTK window,
+        which makes its parents native windows too; on Windows the position Qt takes for
+        the list could then be the stale place of such a window (the list opened elsewhere,
+        seen from the 3rd window on).  The place is worked out through the top-level
+        window instead, which is always where it is shown."""
+        super().showPopup()
+        popup = self.view().window()
+        top = self.window()
+        if popup is None or popup is top:
+            return
+        try:
+            below = top.mapToGlobal(self.mapTo(top, QtCore.QPoint(0, self.height())))
+            above = top.mapToGlobal(self.mapTo(top, QtCore.QPoint(0, 0)))
+            scr = (top.screen() or QtGui.QGuiApplication.primaryScreen()).availableGeometry()
+            x = min(max(below.x(), scr.left()), scr.right() - popup.width() + 1)
+            y = below.y()
+            if y + popup.height() > scr.bottom() + 1 and above.y() - popup.height() >= scr.top():
+                y = above.y() - popup.height()  # no room below: open upwards
+            popup.move(x, y)
+        except RuntimeError:
+            pass
+
 
 class _ShrinkCheck(QtWidgets.QCheckBox):
     """A header check box that drops its label (kept in the tooltip) when the header is narrow."""
@@ -352,10 +375,6 @@ class ModelViewport(QtWidgets.QWidget):
         fit = QtWidgets.QToolButton()
         fit.setText("Fit")
         fit.clicked.connect(self.fit)
-        self.display_button = QtWidgets.QToolButton()
-        self.display_button.setIcon(icon("display"))
-        self.display_button.setToolTip("Display Settings")
-        self.display_button.clicked.connect(lambda: self.display_requested.emit(self))
         # one story / grid line up or down (plans: next story above / below; elevations: the
         # next grid line) - also Page Up / Page Down in the window
         # drawn as light chips with dark arrows: they stay visible on the coloured
@@ -377,8 +396,7 @@ class ModelViewport(QtWidgets.QWidget):
         hl.addWidget(self.step_down)
         hl.addWidget(self.title, 1)
         hl.addWidget(self.results_box)
-        hl.addWidget(self.display_button)
-        hl.addWidget(fit)
+        hl.addWidget(fit)  # (display settings: the toolbar's button / View menu, one place for all windows)
         layout.addWidget(self.header)
 
         self.vtk_widget = _SharpVTKWidget(self)
@@ -744,6 +762,43 @@ class ModelViewport(QtWidgets.QWidget):
             self.apply_camera()
         self.view_changed.emit(self)
 
+    # ------------------------------------------------------------- resize / show
+    def resizeEvent(self, ev):
+        """Draw the picture again whenever the window's size changes (main window
+        maximised / restored, a divider dragged, a window added or closed).  The native
+        VTK window does not always get a paint event then - it stayed black until clicked."""
+        super().resizeEvent(ev)
+        t = getattr(self, "_redraw_timer", None)
+        if t is None:
+            t = self._redraw_timer = QtCore.QTimer(self)
+            t.setSingleShot(True)
+            t.setInterval(40)
+            t.timeout.connect(self._redraw_after_resize)
+        t.start()
+
+    def _redraw_after_resize(self):
+        if not self.isVisible():
+            return
+        if getattr(self, "_fit_on_show", False):  # first time shown at its real size: fit the model
+            self._fit_on_show = False
+            self.fit()
+            return
+        self.render()
+
+    def showEvent(self, ev):
+        super().showEvent(ev)
+        if self._dirty:
+            self.flush()
+        if not getattr(self, "_shown_once", False):
+            # a new window was made at a provisional size: fit the model once it has its real size
+            self._shown_once = True
+            self._fit_on_show = True
+        t = getattr(self, "_redraw_timer", None)
+        if t is None:
+            self.resizeEvent(QtGui.QResizeEvent(self.size(), self.size()))
+        else:
+            t.start()
+
     # ------------------------------------------------------------- active
     def set_active(self, on: bool):
         self._active = on
@@ -1040,11 +1095,6 @@ class ModelViewport(QtWidgets.QWidget):
 
     def _on_selection_changed(self):
         self.invalidate("selection")
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        if self._dirty:
-            self.flush()
 
     GHOST_OPACITY = 0.18
 
@@ -1409,12 +1459,16 @@ class ModelViewport(QtWidgets.QWidget):
             except Exception as exc:  # display must never crash the app
                 print("overlay error:", exc)
         self._build_panels(rd)
-        if rd.load_pattern and rd.load_pattern in self.doc.model.load_patterns:
+        pats = self.doc.model.load_patterns
+        factors = getattr(rd, "load_factors", None)
+        factors = ({p: f for p, f in factors.items() if p in pats} if factors else
+                   ({rd.load_pattern: 1.0} if rd.load_pattern and rd.load_pattern in pats else None))
+        if factors:
             try:
                 kind = self.config.kind
                 fr, ar, pt = self._view_sets()
                 self._overlay_actors += scene.build_load_actors(
-                    self.doc.model, rd.load_pattern, frames=fr, areas=ar, points=pt,
+                    self.doc.model, factors, frames=fr, areas=ar, points=pt,
                     kinds=getattr(rd, "load_kinds", None), view=kind if kind in scene.VIEW_NORMALS else "3d",
                     level=self.plane().value if kind in scene.VIEW_NORMALS else None)
             except Exception as exc:
@@ -1473,6 +1527,8 @@ class ModelViewport(QtWidgets.QWidget):
                 scene.set_dash_scale(t, wpp)
 
     def render(self):
+        if getattr(self, "_finalized", False):
+            return  # the program is closing: the native window / GL context is gone
         if self.isVisible() or not self._camera_set:
             cube = getattr(self, "viewcube", None)
             if cube is not None:
@@ -3196,6 +3252,14 @@ class ModelViewport(QtWidgets.QWidget):
         self.state.clear_selection()
 
     def finalize(self):
+        """Release the OpenGL context while the native window still exists (before Qt
+        destroys it): otherwise VTK reports a flood of context errors on exit."""
+        if getattr(self, "_finalized", False):
+            return
+        self._finalized = True
+        for t in (getattr(self, "_redraw_timer", None),):
+            if t is not None:
+                t.stop()
         try:
             self.vtk_widget.GetRenderWindow().Finalize()
         except Exception:
