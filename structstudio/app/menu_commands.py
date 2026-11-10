@@ -795,18 +795,15 @@ class MenuCommandsMixin:
         return list({"point": self.state.points, "frame": self.state.frames, "area": self.state.areas}[kind])
 
     def assign_form(self, key: str, title: str, picks, apply, fields=None, widget=None, note=None):
-        """Start an Assign command in the box at the lower left (see tools.AssignFormTool):
-        the form opens at once, with the values of the objects selected before; pick /
-        unpick objects; Apply assigns and stays, OK / Enter assigns and ends, Cancel leaves."""
+        """Start an Assign command (see tools.AssignFormTool): its form opens at once in a
+        window of its own, with the values of the objects selected before; pick / unpick
+        objects in the model; Apply assigns and keeps the window, OK / Enter assigns and
+        closes, Cancel closes without assigning."""
         from .tools import AssignFormTool, AssignSpec
         if getattr(self, "_pending_assign", None) is not None:
             self.cancel_pending_assign()
         spec = AssignSpec(key, title, tuple(picks), apply, fields=fields, widget=widget, note=note)
         self.state.start_tool(lambda: AssignFormTool(self.doc, self.state.settings, spec))
-        dock = getattr(self, "dock_properties_of_object", None)
-        if dock is not None:
-            dock.show()
-            dock.raise_()
 
     def _assign_number(self, kind: str, attr: str, title: str, label: str, of: str = ""):
         self.assign_form(f"{kind}.{attr}.{of}", title, (kind,),

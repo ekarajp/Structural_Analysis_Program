@@ -225,8 +225,10 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             self.addDockWidget(area, dock)
             setattr(self, "dock_" + title.lower().replace(" ", "_"), dock)
         self.tabifyDockWidget(self.dock_results, self.dock_log)
-        # the box's title follows the command: "Assign - Restraints", "Properties of Object"
-        self.object_props.title_changed.connect(self.dock_properties_of_object.setWindowTitle)
+        # Assign / load commands: their form in a window of its own (Apply / OK / Cancel)
+        from .object_props import AssignWindow
+        self.assign_window = AssignWindow(self.state, self.doc, self)
+        self.assign_panel = self.assign_window.panel
         # ETABS: the Properties of Object form sits below the Model Explorer
         self.splitDockWidget(self.dock_model, self.dock_properties_of_object, QtCore.Qt.Vertical)
         self.dock_results.raise_()
@@ -1225,10 +1227,6 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             tool = "wall_section" if a.type == "Wall" else (
                 "deck_section" if sec is not None and sec.type == "Deck" else "slab_section")
         self.load_command(tool)
-        dock = getattr(self, "dock_properties_of_object", None)
-        if dock is not None:
-            dock.show()
-            dock.raise_()
 
     def edit_member_section(self, attr: str, name: str):
         """Open the section form of a frame / shell (the section it uses)."""

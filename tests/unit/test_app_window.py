@@ -751,7 +751,7 @@ def test_load_menu_and_click_tools(window, app):
     # the guide shows only the next step
     assert "Next: pick the floors / walls" in hint.text() and "Area Load" in hint.text()
     assert "1." not in hint.text() and "2." not in hint.text()
-    po = window.object_props
+    po = window.assign_panel
     assert {"load_pattern", "load_value", "area_distribution"} <= set(po.editors) and "area_span" not in po.editors
     assert po.apply_button.isVisible() is False or not po.apply_button.isEnabled()
     po.editors["load_value"].setValue(4.0)
@@ -780,7 +780,7 @@ def test_load_menu_and_click_tools(window, app):
     st.set_tool("area_load")
     assert st.areas == {floors[0]} and not st.frames  # only the command's kind stays picked
     assert st.tool.editing and st.settings.load_mode == "Replace"
-    po = window.object_props
+    po = window.assign_panel
     assert po.editors["load_value"].value() == 4.0 and "Editing" in po.hint.text()
     assert "1 picked floor / wall" in hint.text()
     po.editors["load_value"].setValue(6.0)
@@ -791,7 +791,7 @@ def test_load_menu_and_click_tools(window, app):
     # 3) frame load: window-select picks only frames, Enter applies
     st.set_tool("frame_load")
     assert st.settings.load_mode == "Add" and not st.tool.editing
-    po = window.object_props
+    po = window.assign_panel
     po.editors["frame_load_kind"].setCurrentText("Point")
     assert "load_rel" in po.editors and "load_value_b" not in po.editors
     po.editors["load_value"].setValue(-12.0)
@@ -808,7 +808,7 @@ def test_load_menu_and_click_tools(window, app):
     assert st.settings.frame_load_kind == "Point" and st.settings.load_value == -12.0
     # 4) joint load (a real click picks, Enter applies); Esc drops the picks, then leaves
     st.set_tool("joint_load")
-    window.object_props.editors["load_fz"].setValue(-7.0)
+    window.assign_panel.editors["load_fz"].setValue(-7.0)
     j = beam.point_i
     pj = window.doc.model.points[j]
     _click(vp, pj.x, pj.y, pj.z)

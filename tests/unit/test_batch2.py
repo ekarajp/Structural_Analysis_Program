@@ -358,17 +358,18 @@ def test_gui_assign_area_mesh_sets_the_mode(window, qapp):
         st.set_tool("select")
         st.set_selection(areas=[floor.name])
         window.assign_area_mesh("Floor")
-        assert st.tool.name.startswith("assign:") and window.dock_properties_of_object.windowTitle() \
-            == "Assign - Floor Auto Mesh Options"
-        d = window.object_props._form
+        assert st.tool.name.startswith("assign:") and window.assign_window.isVisible() and \
+            window.assign_window.windowTitle() == "Assign - Floor Auto Mesh Options"
+        assert window.dock_properties_of_object.windowTitle() == "Properties of Object"
+        d = window.assign_panel._form
         getattr(d, mode).setChecked(True)
         if mode == "manual":
             d.size.setText("0.4")
-        window.object_props.apply_button.click()  # Apply: assigned, the box stays
+        window.assign_panel.apply_button.click()  # Apply: assigned, the box stays
         assert check(window.doc.model.areas[floor.name]), mode
-        assert st.tool.name.startswith("assign:") and window.object_props._form is d
+        assert st.tool.name.startswith("assign:") and window.assign_panel._form is d
     st.set_selection(areas=[floor.name])
-    window.object_props.ok_button.click()  # OK: assign and finish
+    window.assign_panel.ok_button.click()  # OK: assign and finish
     assert st.tool.name == "select"
 
 
@@ -383,9 +384,10 @@ def test_gui_assign_forms_in_the_box(window, qapp):
     beams = [n for n, f in m.frames.items() if f.type == "Beam"][:2]
     st.set_tool("select")
     window.assign_frame_mesh()
-    p = window.object_props
+    p = window.assign_panel
     assert st.tool.name == "assign:frame.mesh" and p._form is not None and p.title.text().startswith("Assign -")
-    assert not p.ok_button.isEnabled()
+    assert window.assign_window.isVisible() and not p.apply_button.isEnabled() and p.ok_button.isEnabled()
+    assert window.object_props._form is None  # nothing at the lower left
     p._form.set_value("auto", False)
     st.toggle("frame", beams[0], True)
     p.apply_button.click()
@@ -399,7 +401,10 @@ def test_gui_assign_forms_in_the_box(window, qapp):
     window.assign_frame_mesh()
     assert p._form.values()["auto"] is False
     p.cancel_button.click()
-    assert st.tool.name == "select"
+    assert st.tool.name == "select" and not window.assign_window.isVisible()
+    assert window.assign_frame_mesh() is None and window.assign_window.isVisible()
+    window.assign_window.reject()  # X / Esc on the window: cancel
+    assert st.tool.name == "select" and not window.assign_window.isVisible()
     # Assign > Slab / Wall: split menus, a wall command changes walls only
     from structstudio.app.menus import ETABS_MENUS
     assign = dict((t, e) for t, e in ETABS_MENUS)["&Assign"]
@@ -423,14 +428,14 @@ def test_gui_restraints_in_the_box(window, qapp):
     st = window.state
     st.set_selection(points=[j])
     window.assign_restraints()
-    p = window.object_props
-    assert window.dock_properties_of_object.windowTitle() == "Assign - Restraints"
+    p = window.assign_panel
+    assert window.assign_window.isVisible() and window.assign_window.windowTitle() == "Assign - Restraints"
     w = p._form
     for b in w.boxes:
         b.setChecked(True)
     window.views.visible_viewports()[0].enter()
     assert all(window.doc.model.points[j].restraints) and st.tool.name == "select"
-    assert window.dock_properties_of_object.windowTitle() == "Properties of Object"
+    assert not window.assign_window.isVisible()
 
 
 @gui
@@ -594,7 +599,7 @@ def test_gui_explorer_assign_section_opens_the_command(window, qapp, monkeypatch
     floor = next(n for n, a in m.areas.items() if a.type == "Floor")
     window._tree_object_action("assign_section", "areas", floor)
     assert window.state.tool.name == "slab_section" and window.state.areas == {floor}
-    p = window.object_props
+    p = window.assign_panel
     assert p.section_list.count() >= 1 and "Define sections" in p.define_button.text()
     # a new section made with Define sections... is the one chosen
     from structstudio.model.properties import ShellSection

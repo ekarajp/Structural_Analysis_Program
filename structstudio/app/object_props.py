@@ -40,8 +40,11 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
 
     title_changed = QtCore.Signal(str)  # the box's (dock's) title
 
-    def __init__(self, state: ViewState, document: Document, parent=None):
+    def __init__(self, state: ViewState, document: Document, parent=None, role: str = "dock"):
         super().__init__(parent)
+        # "dock": Properties of Object at the lower left (draw tools, the selection);
+        # "assign": the form of an Assign / load command, in its own window (AssignWindow)
+        self.role = role
         self.state = state
         self.doc = document
         lay = QtWidgets.QVBoxLayout(self)
@@ -67,25 +70,28 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
         self.hint.setWordWrap(True)
         self.hint.setStyleSheet("color: gray")
         lay.addWidget(self.hint)
-        # assign / load commands: Apply (assign, pick the next set) | OK (= Enter: assign,
-        # finish) | Cancel (leave)
-        self.apply_button = QtWidgets.QPushButton("Apply to Picked Objects")
-        self.apply_button.setToolTip("Assign to the picked objects and keep the box open for the next set "
-                                     "(right-click in the model does the same)")
-        self.apply_button.clicked.connect(self._apply_load)
-        self.apply_button.setVisible(False)
-        lay.addWidget(self.apply_button)
+        # assign / load commands (their own window): Apply (assign, keep the window for the next
+        # set) | OK (= Enter: assign if anything is picked, close) | Cancel (close, change nothing)
+        self.picked_label = QtWidgets.QLabel("")
+        self.picked_label.setStyleSheet("font-weight: 600")
+        self.picked_label.setVisible(False)
+        lay.addWidget(self.picked_label)
         self.button_row = QtWidgets.QWidget()
         br = QtWidgets.QHBoxLayout(self.button_row)
-        br.setContentsMargins(0, 0, 0, 0)
-        self.ok_button = QtWidgets.QPushButton("OK  (Enter)")
-        self.ok_button.setToolTip("Assign to the picked objects and finish the command")
+        br.setContentsMargins(0, 4, 0, 0)
+        self.apply_button = QtWidgets.QPushButton("Apply")
+        self.apply_button.setToolTip("Assign to the picked objects; the window stays for the next set "
+                                     "(right-click in the model does the same)")
+        self.apply_button.clicked.connect(self._apply_load)
+        self.ok_button = QtWidgets.QPushButton("OK")
+        self.ok_button.setToolTip("Assign to the picked objects (if any) and close (Enter)")
         self.ok_button.clicked.connect(self._ok)
         self.cancel_button = QtWidgets.QPushButton("Cancel")
-        self.cancel_button.setToolTip("Leave the command (Esc)")
+        self.cancel_button.setToolTip("Close without assigning (Esc)")
         self.cancel_button.clicked.connect(lambda: self.state.set_tool("select"))
-        br.addWidget(self.ok_button, 1)
-        br.addWidget(self.cancel_button, 1)
+        br.addStretch(1)
+        for b in (self.apply_button, self.ok_button, self.cancel_button):
+            br.addWidget(b)
         self.button_row.setVisible(False)
         lay.addWidget(self.button_row)
         self._form = None  # the Assign form shown (FormDialog / own widget)
@@ -334,6 +340,8 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
                 FrameSectionsDialog(self.doc, self.window()).exec()
             else:
                 w = self.window()
+                if not hasattr(w, "define_shell_sections") and w.parentWidget() is not None:
+                    w = w.parentWidget().window()  # (the Assign window: its program window)
                 if hasattr(w, "define_shell_sections"):
                     w.define_shell_sections()
             mm = self.doc.model
@@ -365,8 +373,8 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
         self._set_title(f"Assign - {tool.title.replace('Assign ', '')}")
         n = len(tool.picked(self.state))
         self.hint.setText((f"Showing the values of the {n} picked {tool.plural(n)}. " if n else "") +
-                          f"Pick {tool.plural()} in the model (click / window); Apply = assign and pick the "
-                          "next set, OK / Enter = assign and finish, Cancel / Esc = leave.")
+                          f"Pick {tool.plural()} in the model (click / window). Apply = assign and pick the "
+                          "next set, OK / Enter = assign and close, Cancel / Esc = close.")
         self.table.setVisible(False)
         if spec.widget is not None:
             w, values = spec.widget(tool.first)
@@ -398,41 +406,51 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
         self.state.apply_load_tool()
 
     def _ok(self):
+        """OK: assign to the picked objects (if any), then close the command."""
         tool = self.state.tool
-        if tool.picked(self.state) if hasattr(tool, "picked") else False:
-            self.state.finish_load_tool()
+        if hasattr(tool, "picked") and tool.picked(self.state):
+            if not self.state.finish_load_tool():
+                return  # (an error was shown: the window stays)
         else:
-            self.state.status.emit(f"{tool.title}: pick {tool.plural()} first, or Cancel")
+            self.state.set_tool("select")
 
     def _set_title(self, text: str):
         self.title.setText(text)
         tool = self.state.tool
-        if getattr(tool, "picks", None):
+        if self.role == "assign" and getattr(tool, "picks", None):
             box = f"Assign - {getattr(tool, 'title', '').replace('Assign ', '')}"
         else:
             box = "Properties of Object"
         self.title_changed.emit(box)
 
     def _update_apply(self):
-        on = self._is_load_command()
-        self.apply_button.setVisible(on)
+        on = self._is_load_command() and self.role == "assign"
         self.button_row.setVisible(on)
-        if on:
-            n = len(self.state.tool.picked(self.state))
-            self.ok_button.setEnabled(n > 0)
+        self.picked_label.setVisible(on)
         if on:
             tool = self.state.tool
             n = len(tool.picked(self.state))
             self.apply_button.setEnabled(n > 0)
-            if getattr(tool, "apply_label", None):  # e.g. Assign Frame Section: short, the panel is narrow
-                self.apply_button.setText(f"Assign to {n} picked {tool.plural(n)}  (Enter)" if n
-                                          else f"Pick {tool.plural()} in the model first")
-            else:
-                self.apply_button.setText(f"{self.state.settings.load_mode} on {n} picked {tool.plural(n)}  "
-                                          f"(Enter / right-click)" if n else f"Pick {tool.plural()} in the model first")
+            what = f"{n} {tool.plural(n)} picked" if n else f"Pick {tool.plural()} in the model (click / window)"
+            if n and not getattr(tool, "apply_label", None) and not getattr(tool, "spec", None):
+                what += f"  ({self.state.settings.load_mode})"
+            self.picked_label.setText(what)
 
     def refresh(self):
         tool = self.state.tool
+        picks = bool(getattr(tool, "picks", None))
+        if picks != (self.role == "assign"):
+            # a pick command's form is in its own window; draw tools / the selection here
+            self._form, self._form_tool = None, None
+            self.editors.clear()
+            self.table.setRowCount(0)
+            self._clear_picker()
+            self._update_apply()
+            if self.role == "dock":
+                self.table.setVisible(True)
+                self._set_title("")
+                self.hint.setText(f"{tool.title}: its form is open in its own window (Apply / OK / Cancel).")
+            return
         spec = getattr(tool, "spec", None)
         if spec is not None and self._form_tool is tool and self._form is not None:
             self._update_apply()  # the same command: keep the form and the values typed in it
@@ -461,7 +479,8 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
                 pass
             return
         what = TOOL_TITLES.get(self.tool_name, self.tool_name)
-        self._set_title(f"Assign - {what}" if self._is_load_command() else f"Properties of Object - {what}")
+        self._set_title(f"Assign - {what.replace('Assign ', '')}" if self._is_load_command()
+                        else f"Properties of Object - {what}")
         if self.tool_name in SECTION_COMMANDS:
             what = {"frame_section": "frames", "wall_section": "walls"}.get(self.tool_name, "floors")
             self.hint.setText(f"Pick the section here, then pick {what} in the model and press Enter / "
@@ -605,6 +624,58 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
                 return "area_load"
             return "force" if self.state.settings.frame_load_kind == "Point" else "line_load"
         return None
+
+
+class AssignWindow(QtWidgets.QDialog):
+    """The window of an Assign / load command: its own window (not modal - pick objects in
+    the model while it is open), with Apply / OK / Cancel.  Shown while such a command
+    runs, closed when it ends; closing it (X / Esc) cancels the command."""
+
+    def __init__(self, state: ViewState, document: Document, parent=None):
+        super().__init__(parent)
+        self.setWindowFlag(QtCore.Qt.Tool, True)
+        self.setWindowFlag(QtCore.Qt.WindowContextHelpButtonHint, False)
+        self.setModal(False)
+        self.state = state
+        self.setWindowTitle("Assign")
+        lay = QtWidgets.QVBoxLayout(self)
+        lay.setContentsMargins(6, 6, 6, 6)
+        self.panel = ObjectPropertiesPanel(state, document, self, role="assign")
+        lay.addWidget(self.panel)
+        self.panel.title_changed.connect(self.setWindowTitle)
+        state.tool_changed.connect(self._tool_changed)
+        self._placed = False
+        self.resize(360, 460)
+
+    def _tool_changed(self, _name: str):
+        if getattr(self.state.tool, "picks", None):
+            if not self.isVisible():
+                self._place()
+                self.show()
+            self.raise_()
+        elif self.isVisible():
+            self.hide()
+
+    def _place(self):
+        """First time: near the top left of the program window, over the drawing."""
+        if self._placed or self.parentWidget() is None:
+            return
+        self._placed = True
+        top = self.parentWidget().window()
+        g = top.geometry()
+        self.move(g.x() + 260, g.y() + 120)
+
+    def reject(self):  # Esc / X: cancel the command (nothing assigned)
+        if getattr(self.state.tool, "picks", None):
+            self.state.set_tool("select")
+        super().reject()
+
+    def keyPressEvent(self, ev):
+        if ev.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter) and not isinstance(
+                QtWidgets.QApplication.focusWidget(), (QtWidgets.QPlainTextEdit, QtWidgets.QTextEdit)):
+            self.panel._ok()  # Enter = OK
+            return
+        super().keyPressEvent(ev)
 
 
 def _sec_text(model, name: Optional[str], du) -> str:
