@@ -547,6 +547,24 @@ def iter_commands(entries: Sequence[Entry] = None, path: Tuple[str, ...] = ()):
 PLANNED_TIP = "Planned - not available in this version yet"
 
 
+def guarded_call(fn, window=None, *args):
+    """Run a command; a model that stays locked (the user answered No to unlocking it) or
+    an analysis still running is not an error: the command just does nothing, and the
+    reason goes to the status bar."""
+    from ..model import ModelError
+    try:
+        return fn(*args)
+    except ModelError as exc:
+        if getattr(exc, "code", None) not in ("MODEL_LOCKED", "ANALYSIS_RUNNING"):
+            raise
+        try:
+            if window is not None and hasattr(window, "statusBar"):
+                window.statusBar().showMessage(exc.message if hasattr(exc, "message") else str(exc), 6000)
+        except RuntimeError:
+            pass
+        return None
+
+
 class MenuBuilder:
     """Builds the ETABS menu bar from :data:`ETABS_MENUS`.
 
@@ -611,7 +629,7 @@ class MenuBuilder:
             return a
         fn = self.commands.get(cid)
         if fn is not None:
-            a = self.make(label, lambda _=False, f=fn: f(), shortcut)
+            a = self.make(label, lambda _=False, f=fn: guarded_call(f, self.window), shortcut)
             self.actions[cid] = a
             self.implemented.append(cid)
             return a

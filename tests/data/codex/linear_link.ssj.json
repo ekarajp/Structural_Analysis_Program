@@ -1,0 +1,436 @@
+{
+ "schema_version": "2.2",
+ "units": {
+  "force": "N",
+  "length": "m",
+  "temperature": "C"
+ },
+ "display_units": {},
+ "info": {
+  "_type": "ProjectInfo",
+  "name": "round2",
+  "engineer": "",
+  "company": "",
+  "notes": "",
+  "number": "",
+  "location": "",
+  "owner": "",
+  "license_no": "",
+  "checker": "",
+  "logo": "",
+  "revision": "",
+  "date": "",
+  "design_codes": ""
+ },
+ "options": {
+  "_type": "AnalysisOptions",
+  "active_dofs": [
+   true,
+   true,
+   true,
+   true,
+   true,
+   true
+  ],
+  "floor_mesh_max_size": null,
+  "wall_mesh_max_size": null,
+  "merge_tolerance": 0.001,
+  "auto_line_constraints": true,
+  "default_stations": 3,
+  "gravity": null,
+  "auto_base_restraints": false,
+  "slab_column_rigid_zone": true,
+  "frame_auto_end_offsets": false,
+  "rigid_zone_factor_concrete": 0.0,
+  "rigid_zone_factor_steel": 0.0,
+  "rigid_zone_factor_other": 0.0,
+  "mesh_refine_check": false,
+  "mesh_refine_tolerance": 0.02,
+  "fine_mesh_factor": null,
+  "fine_mesh_report": "",
+  "fine_mesh_signature": "",
+  "fine_mesh_size_min": null,
+  "fine_mesh_size_max": null,
+  "use_fine_mesh": false,
+  "grid_mode": "story"
+ },
+ "materials": {
+  "S": {
+   "_type": "Material",
+   "name": "S",
+   "type": "Steel",
+   "E": 200000000000.0,
+   "nu": 0.3,
+   "G": null,
+   "weight_density": 0.0,
+   "mass_density": null,
+   "alpha": 0.0,
+   "fc": null,
+   "fy": null,
+   "fu": null,
+   "damping": 0.0,
+   "color": null,
+   "notes": ""
+  }
+ },
+ "rebar_sizes": {},
+ "frame_sections": {
+  "B": {
+   "_type": "FrameSection",
+   "name": "B",
+   "material": "S",
+   "shape": "General",
+   "t3": null,
+   "t2": null,
+   "tf": null,
+   "tw": null,
+   "t2b": null,
+   "tfb": null,
+   "dis": null,
+   "lip": null,
+   "r": null,
+   "r2": null,
+   "A": 0.02,
+   "J": 0.0001,
+   "I33": 8e-05,
+   "I22": 8e-05,
+   "As2": 0.0,
+   "As3": 0.0,
+   "modifiers": {
+    "_type": "FrameModifiers",
+    "A": 1.0,
+    "As2": 1.0,
+    "As3": 1.0,
+    "J": 1.0,
+    "I22": 1.0,
+    "I33": 1.0,
+    "mass": 1.0,
+    "weight": 1.0
+   },
+   "mass_per_length": 0.0,
+   "weight_per_length": 0.0,
+   "design_type": "",
+   "rebar": {},
+   "color": null,
+   "notes": "",
+   "nonprismatic": [],
+   "params": {},
+   "geometry": [],
+   "source": ""
+  }
+ },
+ "shell_sections": {},
+ "stories": {},
+ "grid_systems": {},
+ "grid_lines": [],
+ "diaphragms": {},
+ "points": {
+  "P1": {
+   "_type": "Point",
+   "name": "P1",
+   "x": 0.0,
+   "y": 0.0,
+   "z": 0.0,
+   "label": null,
+   "story": null,
+   "restraints": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "springs": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "rotational_springs": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mass": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "rotational_mass": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "diaphragm": null,
+   "panel_zone": null,
+   "loads": [],
+   "is_auto": false,
+   "local_axes": null,
+   "ground_displacements": []
+  },
+  "P2": {
+   "_type": "Point",
+   "name": "P2",
+   "x": 0.0,
+   "y": 0.0,
+   "z": 3.0,
+   "label": null,
+   "story": null,
+   "restraints": [
+    false,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "springs": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "rotational_springs": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mass": [
+    1000,
+    0,
+    0
+   ],
+   "rotational_mass": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "diaphragm": null,
+   "panel_zone": null,
+   "loads": [
+    {
+     "_type": "PointLoad",
+     "pattern": "P",
+     "force": [
+      1000.0,
+      0.0,
+      0.0
+     ],
+     "moment": [
+      0.0,
+      0.0,
+      0.0
+     ]
+    }
+   ],
+   "is_auto": false,
+   "local_axes": null,
+   "ground_displacements": []
+  }
+ },
+ "frames": {
+  "C1": {
+   "_type": "Frame",
+   "name": "C1",
+   "point_i": "P1",
+   "point_j": "P2",
+   "section": "B",
+   "type": "Column",
+   "label": null,
+   "story": null,
+   "angle": 0.0,
+   "releases_i": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "releases_j": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "fixity_i_trans": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fixity_i_rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fixity_j_trans": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fixity_j_rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "end_offset_i": 0.0,
+   "end_offset_j": 0.0,
+   "rigid_factor": null,
+   "auto_end_offsets": null,
+   "cardinal_point": 10,
+   "display_cardinal": null,
+   "joint_offset_i": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "joint_offset_j": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "joint_offset_local": false,
+   "offsets_in_analysis": true,
+   "modifiers": null,
+   "mass_per_length": 0.0,
+   "tension_limit": null,
+   "compression_limit": null,
+   "auto_mesh": true,
+   "mesh_at_intersections": true,
+   "mesh_at_floor": true,
+   "max_station_spacing": null,
+   "min_stations": 3,
+   "pier": null,
+   "spandrel": null,
+   "loads": [],
+   "group": null,
+   "foundation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nonlinear": null,
+   "hinges": []
+  }
+ },
+ "areas": {},
+ "groups": {},
+ "line_springs": {},
+ "tendons": {},
+ "panel_loads": {},
+ "load_patterns": {
+  "P": {
+   "_type": "LoadPattern",
+   "name": "P",
+   "type": "Other",
+   "self_weight_multiplier": 0.0,
+   "auto_load": null
+  }
+ },
+ "mass_sources": {
+  "MsSrc1": {
+   "_type": "MassSource",
+   "name": "MsSrc1",
+   "include_element_mass": true,
+   "include_added_mass": true,
+   "include_lateral": true,
+   "include_vertical": false,
+   "lump_at_stories": true,
+   "load_patterns": {},
+   "is_default": true
+  }
+ },
+ "functions": {},
+ "load_cases": {
+  "LIN": {
+   "_type": "LinearStaticCase",
+   "name": "LIN",
+   "loads": {
+    "P": 1
+   },
+   "acceleration_loads": {},
+   "stiffness_from": null,
+   "design_type": null,
+   "type": "LinearStatic",
+   "nonlinear": false
+  },
+  "NL": {
+   "_type": "NonlinearStaticCase",
+   "name": "NL",
+   "loads": {
+    "P": 1
+   },
+   "acceleration_loads": {},
+   "mode_loads": [],
+   "initial_case": null,
+   "geometric_nonlinearity": "None",
+   "control": "Load",
+   "monitored_point": null,
+   "monitored_dof": "UX",
+   "target_displacement": 0.0,
+   "n_steps": 1,
+   "max_iterations": 25,
+   "tolerance": 1e-06,
+   "max_subdivisions": 10,
+   "save_steps": "Multiple",
+   "stop_on_failure": false,
+   "hinge_unloading": "Redistribute",
+   "type": "NonlinearStatic"
+  },
+  "MOD": {
+   "_type": "ModalCase",
+   "name": "MOD",
+   "max_modes": 1,
+   "min_modes": 1,
+   "method": "Eigen",
+   "mass_source": null,
+   "shift": 0.0,
+   "cutoff": 0.0,
+   "tolerance": 1e-09,
+   "stiffness_from": null,
+   "ritz_vectors": [
+    "UX",
+    "UY",
+    "UZ"
+   ],
+   "type": "Modal"
+  }
+ },
+ "load_combinations": {},
+ "nonlinear_materials": {},
+ "fiber_sections": {},
+ "frame_nonlinear": {},
+ "hinge_properties": {},
+ "link_properties": {
+  "L": {
+   "_type": "LinkProperty",
+   "name": "L",
+   "dofs": [
+    {
+     "_type": "LinkDOF",
+     "dof": "U2",
+     "type": "Linear",
+     "k": 10000000.0,
+     "c": 0.0,
+     "yield_force": 0.0,
+     "post_yield_ratio": 0.0,
+     "exponent": 1.0,
+     "points": [],
+     "hysteresis": "Kinematic"
+    }
+   ],
+   "mass": 0.0
+  }
+ },
+ "links": {
+  "L1": {
+   "_type": "LinkObject",
+   "name": "L1",
+   "point_i": "P2",
+   "point_j": null,
+   "property": "L",
+   "angle": 0.0
+  }
+ }
+}

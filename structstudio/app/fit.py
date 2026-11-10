@@ -71,18 +71,27 @@ def fit_to_screen(dialog: QtWidgets.QWidget, grow: bool = False) -> None:
     as its content wants, within that area (Qt opens a window at most 2/3 of the screen,
     which would make it scroll with room to spare)."""
     avail = available_rect(dialog)
+    # the native window frame (title bar, borders) around the client area: known once the
+    # window has been shown (the deferred second fit); the frame, not only the client
+    # area, has to fit the screen
+    fg, cg = dialog.frameGeometry(), dialog.geometry()
+    extra_w = max(fg.width() - cg.width(), 0)
+    extra_h = max(fg.height() - cg.height(), 0)
     w, h = dialog.width(), dialog.height()
     if grow:
         hint = dialog.sizeHint()
         w, h = max(w, hint.width()), max(h, hint.height())
-    w = min(w, avail.width())
-    h = min(h, avail.height())
+    w = min(w, avail.width() - extra_w)
+    h = min(h, avail.height() - extra_h)
     if (w, h) != (dialog.width(), dialog.height()):
         dialog.resize(w, h)
-    g = dialog.frameGeometry()
-    x = min(max(g.x(), avail.left()), avail.right() - g.width() + 1)
-    y = min(max(g.y(), avail.top()), avail.bottom() - g.height() + 1)
-    if (x, y) != (g.x(), g.y()):
+    # the frame after the resize (frameGeometry may not be updated before the next event)
+    fw = max(dialog.width(), w) + extra_w
+    fh = max(dialog.height(), h) + extra_h
+    gx, gy = fg.x(), fg.y()
+    x = min(max(gx, avail.left()), avail.right() - fw + 1)
+    y = min(max(gy, avail.top()), avail.bottom() - fh + 1)
+    if (x, y) != (gx, gy):
         dialog.move(max(x, avail.left()), max(y, avail.top()))
 
 

@@ -462,6 +462,17 @@ class StaticAnalysis:
 
 
 # ============================================================================
+def _function_value(times: np.ndarray, values: np.ndarray, t: float) -> float:
+    """Linear interpolation of a time function, zero outside it.  A time within round-off
+    of an end of the function (a time accumulated from many steps: 100 x 0.001 s gives
+    0.10000000000000007) is that end: the end value is never lost to round-off."""
+    t0, t1 = float(times[0]), float(times[-1])
+    tol = 1e-9 * max(abs(t0), abs(t1), t1 - t0, 1e-12)
+    if t < t0 - tol or t > t1 + tol:
+        return 0.0
+    return float(np.interp(min(max(t, t0), t1), times, values))
+
+
 @dataclass
 class GroundMotion:
     """Uniform base excitation: acceleration history (m/s^2) along a global
@@ -473,9 +484,7 @@ class GroundMotion:
     scale: float = 1.0
 
     def __call__(self, t: float) -> float:
-        if t < self.times[0] or t > self.times[-1]:
-            return 0.0
-        return float(np.interp(t, self.times, self.values)) * self.scale
+        return _function_value(self.times, self.values, t) * self.scale
 
 
 @dataclass
@@ -488,9 +497,7 @@ class TimeLoad:
     scale: float = 1.0
 
     def __call__(self, t: float) -> float:
-        if t < self.times[0] or t > self.times[-1]:
-            return 0.0
-        return float(np.interp(t, self.times, self.values)) * self.scale
+        return _function_value(self.times, self.values, t) * self.scale
 
 
 @dataclass
@@ -558,6 +565,45 @@ class TransientAnalysis:
         self.log: List[str] = []
         self.iterations: List[int] = []
         self._F_prev = self._external(0.0)
+        self.a = self._initial_acceleration(self._F_prev)
+
+    def _initial_acceleration(self, F0: np.ndarray) -> np.ndarray:
+        """a(0) from the equation of motion at t = 0: M a0 = F(0) - C v0 - R(u0) on the DOFs
+        with mass; the massless DOFs follow the massive ones through the stiffness
+        (a_z = -K_zz^-1 K_zm a_m).  Zero when the start is in equilibrium."""
+        n = self.dom.n
+        try:
+            R, K, _ = self.dom.resisting(self.u, self.v, tangent=True)
+        except Exception:  # an element that cannot give its state at rest: start from rest
+            return np.zeros(n)
+        fd, _ = self._damping_force_and_matrix(self.v, K if K is not None else self._K0)
+        r = F0 - R - fd
+        if self._modal is not None:
+            MPhi, cd = self._modal
+            r = r - MPhi @ (cd * (MPhi.T @ self.v))
+        scale = max(float(np.linalg.norm(F0)), float(np.linalg.norm(R)), 1e-300)
+        if float(np.linalg.norm(r)) <= 1e-12 * scale:
+            return np.zeros(n)
+        M = sparse.csr_matrix(self.M)
+        row_mass = np.asarray(abs(M).sum(axis=1)).ravel()
+        mm = np.where(row_mass > 0)[0]
+        zz = np.where(row_mass <= 0)[0]
+        a = np.zeros(n)
+        if mm.size == 0:
+            return a
+        from scipy.sparse.linalg import spsolve, splu
+        Mmm = M[mm][:, mm].tocsc()
+        a[mm] = np.atleast_1d(spsolve(Mmm, r[mm]))
+        if zz.size:
+            Kt = sparse.csc_matrix(K if K is not None else self._K0)
+            try:
+                lu = splu(Kt[zz][:, zz].tocsc())
+                a[zz] = -lu.solve(np.asarray(Kt[zz][:, mm] @ a[mm]).ravel())
+            except RuntimeError:  # singular massless block: those DOFs start at rest
+                a[zz] = 0.0
+        if not np.all(np.isfinite(a)):
+            return np.zeros(n)
+        return a
 
     # ----------------------------------------------------------------- loads
     def _factors(self, t: float) -> Dict[str, float]:
@@ -576,7 +622,11 @@ class TransientAnalysis:
         return F
 
     def ground_accel(self, t: float) -> Dict[str, float]:
-        return {g.direction: g(t) for g in self.ground}
+        """Total ground acceleration per global direction (every record along it added)."""
+        out: Dict[str, float] = {}
+        for g in self.ground:
+            out[g.direction] = out.get(g.direction, 0.0) + g(t)
+        return out
 
     def _damping_force_and_matrix(self, v, K_tan):
         d = self.damp
@@ -618,7 +668,10 @@ class TransientAnalysis:
         return Keff
 
     # ------------------------------------------------------------------ step
-    def step(self, dt: float) -> int:
+    def step(self, dt: float, t_end: Optional[float] = None) -> int:
+        """Advance by dt.  ``t_end``: the exact time of the end of the step on the case's
+        time grid (k dt), so that times do not drift by round-off over many steps."""
+        target = (self.t + dt) if t_end is None else float(t_end)
         frac_left = 1.0
         frac = 1.0
         level = 0
@@ -628,7 +681,7 @@ class TransientAnalysis:
             ok = False
             for alg in self.algorithms:
                 try:
-                    n_it += self._step(dt * frac, alg)
+                    n_it += self._step(dt * frac, alg, target)
                     ok = True
                     break
                 except (StepFailed, ElementNonConvergence, np.linalg.LinAlgError, FloatingPointError) as exc:
@@ -648,11 +701,13 @@ class TransientAnalysis:
         self.iterations.append(n_it)
         return n_it
 
-    def _step(self, dt: float, algorithm: str) -> int:
+    def _step(self, dt: float, algorithm: str, target: Optional[float] = None) -> int:
         dom = self.dom
         g, b, al = self.gamma, self.beta, self.alpha
         un, vn, an = self.u, self.v, self.a
         t1 = self.t + dt
+        if target is not None and abs(t1 - target) <= 1e-9 * max(abs(dt), 1e-12):
+            t1 = target  # the end of the step on the time grid
         F1 = self._external(t1)
         Fn = self._F_prev if hasattr(self, "_F_prev") else self._external(self.t)
         if al != 1.0:

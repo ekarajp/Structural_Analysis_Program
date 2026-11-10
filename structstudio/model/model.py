@@ -36,6 +36,12 @@ def _version_tuple(text) -> tuple:
         return (0,)
 
 
+_KNOWN_KEYS = {"schema_version", "units", "display_units", "info", "options", "materials", "rebar_sizes",
+               "frame_sections", "shell_sections", "stories", "grid_systems", "grid_lines", "diaphragms", "points",
+               "frames", "areas", "groups", "line_springs", "tendons", "panel_loads", "load_patterns", "mass_sources",
+               "functions", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",
+               "frame_nonlinear", "hinge_properties", "link_properties", "links"}
+
 _CASE_TYPES = {
     "LinearStatic": LinearStaticCase,
     "Modal": ModalCase,
@@ -788,6 +794,17 @@ class Model:
                     (len(set(a.points)) < 3 or area_size(self, a) <= tol * tol * 10):
                 err("DEGENERATE_AREA", f"Area {name!r} has no area (repeated corners or corners on one line)",
                     f"areas.{name}")
+            elif all(p in self.points for p in a.points) and len(a.points) > 3:
+                from ..mesh import polygon2d as pg
+                import numpy as _np
+                P = _np.array([self.points[p].xyz for p in a.points], float)
+                try:
+                    Q = pg.to_2d(P, pg.plane_frame(P))
+                    if pg.self_intersects(Q, tol):
+                        err("SELF_INTERSECTING_AREA", f"Area {name!r}: its outline crosses itself (corners out of "
+                            "order) - its area and loads would be wrong", f"areas.{name}")
+                except ValueError:
+                    pass
             if a.section is not None and a.section not in self.shell_sections:
                 err("UNKNOWN_SECTION", f"Area {name!r} references unknown section {a.section!r}", f"areas.{name}")
             if a.diaphragm and a.diaphragm not in self.diaphragms:
@@ -852,7 +869,133 @@ class Model:
                     err("UNKNOWN_CASE", f"Combination {name!r} uses unknown combination {it.name!r}")
                 if not it.is_combo and it.name not in self.load_cases:
                     err("UNKNOWN_CASE", f"Combination {name!r} uses unknown case {it.name!r}")
+        self._validate_values(err)
+        self._validate_dependencies(err)
+        unk = list((getattr(self, "unknown_data", None) or {}).keys())
+        unf = list(getattr(self, "unknown_fields", None) or [])
+        if unk or unf:
+            names = ", ".join((unk + unf)[:6]) + (" ..." if len(unk) + len(unf) > 6 else "")
+            err("UNKNOWN_DATA", f"The file holds data this version does not know ({names}); it is kept and saved "
+                "back unchanged, but the model cannot be analysed with it", (unk + unf)[0])
         return errors
+
+    def _validate_values(self, err):
+        """Ranges of material, section, support, mass and case values (meaningless values
+        are refused before an analysis instead of giving results that look normal)."""
+        from .loads import ModalCase, spectrum_case_problems, spectrum_function_problems
+        fin = lambda v: isinstance(v, (int, float)) and math.isfinite(v)
+        for name, m in self.materials.items():
+            if fin(m.nu) and not (-1.0 < m.nu < 0.5):
+                err("INVALID_MATERIAL", f"Material {name!r}: Poisson's ratio {m.nu:g} must be in (-1, 0.5)",
+                    f"materials.{name}.nu")
+            if fin(m.weight_density) and m.weight_density < 0:
+                err("INVALID_MATERIAL", f"Material {name!r}: negative weight density", f"materials.{name}.weight_density")
+            if m.mass_density is not None and fin(m.mass_density) and m.mass_density < 0:
+                err("INVALID_MATERIAL", f"Material {name!r}: negative mass density", f"materials.{name}.mass_density")
+        used = {f.section for f in self.frames.values()}
+        for name, s in self.frame_sections.items():
+            if name not in used:
+                continue
+            for attr in ("A", "J", "I33", "I22", "As2", "As3"):
+                v = getattr(s, attr, 0.0)
+                if fin(v) and v < 0:
+                    err("INVALID_SECTION", f"Frame section {name!r}: {attr} = {v:g} is negative",
+                        f"frame_sections.{name}.{attr}")
+        for name, p in self.points.items():
+            for lab, vals in (("spring", p.springs), ("rotational spring", p.rotational_springs)):
+                if any(fin(v) and v < 0 for v in vals):
+                    err("NEGATIVE_SPRING", f"Point {name!r}: a {lab} stiffness is negative "
+                        f"({', '.join(f'{v:g}' for v in vals)}) - negative springs are not supported",
+                        f"points.{name}")
+        for name, ls in getattr(self, "line_springs", {}).items():
+            vals = list(ls.stiffness) + [ls.rotational]
+            if any(fin(v) and v < 0 for v in vals):
+                err("NEGATIVE_SPRING", f"Line spring {name!r}: negative stiffness", f"line_springs.{name}")
+        for name, fn in self.functions.items():
+            if isinstance(fn, ResponseSpectrumFunction):
+                for code, msg in spectrum_function_problems(fn):
+                    err(code, msg, f"functions.{name}")
+        for name, c in self.load_cases.items():
+            if isinstance(c, ResponseSpectrumCase):
+                for code, msg in spectrum_case_problems(c):
+                    err(code, msg, f"load_cases.{name}")
+            elif isinstance(c, ModalCase):
+                if not (isinstance(c.max_modes, int) and c.max_modes >= 1):
+                    err("INVALID_MODES", f"Modal case {name!r}: the number of modes must be at least 1 "
+                        f"(got {c.max_modes!r})", f"load_cases.{name}.max_modes")
+                elif c.min_modes > c.max_modes:
+                    err("INVALID_MODES", f"Modal case {name!r}: minimum modes {c.min_modes} > maximum {c.max_modes}",
+                        f"load_cases.{name}.min_modes")
+                if c.mass_source and c.mass_source not in self.mass_sources:
+                    err("UNKNOWN_MASS_SOURCE", f"Modal case {name!r} uses unknown mass source {c.mass_source!r}",
+                        f"load_cases.{name}.mass_source")
+            elif isinstance(c, TimeHistoryCase):
+                if not (fin(c.dt) and c.dt > 0) or int(c.n_steps) < 1:
+                    err("INVALID_TIME_STEP", f"Time history {name!r}: needs dt > 0 and at least one step",
+                        f"load_cases.{name}")
+                if not fin(c.damping_ratio) or c.damping_ratio < 0.0:  # > 1 (overdamped) is allowed
+                    err("INVALID_DAMPING", f"Time history {name!r}: damping ratio {c.damping_ratio!r} must be >= 0",
+                        f"load_cases.{name}.damping_ratio")
+        for name, ms in self.mass_sources.items():
+            for pat, mult in ms.load_patterns.items():
+                if pat not in self.load_patterns:
+                    err("UNKNOWN_PATTERN", f"Mass source {name!r} uses unknown pattern {pat!r}", f"mass_sources.{name}")
+        # automatic (code) lateral loads are not generated: a pattern that relies on one
+        # would be analysed with no load at all
+        used_patterns = set()
+        for c in self.load_cases.values():
+            used_patterns.update(getattr(c, "loads", {}) if isinstance(getattr(c, "loads", None), dict) else {})
+            for ld in getattr(c, "loads", []) if isinstance(getattr(c, "loads", None), list) else []:
+                if getattr(ld, "name", None):
+                    used_patterns.add(ld.name)
+        for name, lp in self.load_patterns.items():
+            if lp.auto_load and name in used_patterns:
+                err("UNSUPPORTED_AUTO_LOAD", f"Load pattern {name!r} has an automatic lateral load definition "
+                    f"({', '.join(map(str, list(lp.auto_load)[:3]))}) - automatic loads are not generated by this "
+                    "program; assign the loads to the pattern and remove the definition", f"load_patterns.{name}.auto_load")
+
+    def _validate_dependencies(self, err):
+        """Load cases that depend on each other in a loop, or on a case of the wrong kind."""
+        from .loads import ModalCase
+
+        def deps(c):
+            d = [("stiffness", getattr(c, "stiffness_from", None)), ("modal", getattr(c, "modal_case", None)),
+                 ("initial", getattr(c, "initial_case", None))]
+            d += [("modal", ml[0]) for ml in getattr(c, "mode_loads", [])]
+            return [(k, v) for k, v in d if v]
+
+        for name, c in self.load_cases.items():
+            for kind, dep in deps(c):
+                if dep not in self.load_cases:
+                    if kind == "stiffness":
+                        err("UNKNOWN_CASE", f"Case {name!r}: unknown stiffness case {dep!r}", f"load_cases.{name}")
+                    continue
+                d = self.load_cases[dep]
+                if kind == "modal" and not isinstance(d, ModalCase):
+                    err("CASE_TYPE", f"Case {name!r}: {dep!r} is not a modal case", f"load_cases.{name}")
+        state: Dict[str, int] = {}
+        reported = set()
+
+        def visit(n, path):
+            st = state.get(n, 0)
+            if st == 2:
+                return
+            if st == 1:
+                cyc = path[path.index(n):] + [n]
+                key = frozenset(cyc)
+                if key not in reported:
+                    reported.add(key)
+                    err("CASE_CYCLE", "Load cases depend on each other in a loop: " + " -> ".join(cyc),
+                        f"load_cases.{n}")
+                return
+            state[n] = 1
+            for _, dep in deps(self.load_cases[n]):
+                if dep in self.load_cases:
+                    visit(dep, path + [n])
+            state[n] = 2
+
+        for n in self.load_cases:
+            visit(n, [])
 
     def require_valid(self):
         errors = self.validate()
@@ -947,6 +1090,7 @@ class Model:
             "hinge_properties": to_dict(self.hinge_properties),
             "link_properties": to_dict(self.link_properties),
             "links": to_dict(self.links),
+            **{k: v for k, v in (getattr(self, "unknown_data", None) or {}).items() if k not in _KNOWN_KEYS},
         }
 
     def to_json(self, path: Optional[str] = None, indent: int = 1) -> str:
@@ -958,6 +1102,28 @@ class Model:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Model":
+        global _UNKNOWN
+        ver = data.get("schema_version", "1.0")
+        vt = _version_tuple(ver)
+        if vt == (0,) and str(ver) not in ("0", "0.0"):
+            raise ModelError("SCHEMA_VERSION", f"The file's schema version {ver!r} is not a version number; "
+                                               "the file was not opened", "schema_version")
+        if vt > _version_tuple(SCHEMA_VERSION):
+            raise ModelError("FUTURE_SCHEMA", f"The file was saved by a newer version of the program (schema {ver}); "
+                                              f"this version reads schema {SCHEMA_VERSION} and older.  The file was not "
+                                              "opened, so none of its data is lost - use the newer version",
+                             "schema_version")
+        _UNKNOWN = []
+        try:
+            m = cls._from_dict_checked(data)
+            m.unknown_data = {k: v for k, v in data.items() if k not in _KNOWN_KEYS}
+            m.unknown_fields = list(_UNKNOWN)
+        finally:
+            _UNKNOWN = None
+        return m
+
+    @classmethod
+    def _from_dict_checked(cls, data: dict) -> "Model":
         u = data.get("units", {})
         m = cls(data.get("info", {}).get("name", "Untitled"),
                 UnitSystem(u.get("force", "kN"), u.get("length", "m"), u.get("temperature", "C")))
@@ -971,8 +1137,8 @@ class Model:
                      "functions", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",
                      "frame_nonlinear", "hinge_properties", "link_properties", "links"):
             table = data.get(attr, {})
-            setattr(m, attr, {k: _from_dict(v) for k, v in table.items()})
-        m.grid_lines = [_from_dict(g) for g in data.get("grid_lines", [])]
+            setattr(m, attr, {k: _from_dict(v, f"{attr}.{k}") for k, v in table.items()})
+        m.grid_lines = [_from_dict(g, f"grid_lines[{i}]") for i, g in enumerate(data.get("grid_lines", []))]
         n = max([int(k[2:]) for k in m.panel_loads if k.startswith("PL") and k[2:].isdigit()] or [0])
         if n:
             m._counters["PL"] = max(m._counters.get("PL", 0), n)
@@ -1028,21 +1194,35 @@ def _coerce_tuples(d: dict) -> dict:
     return {k: (tuple(v) if isinstance(v, list) else v) for k, v in d.items()}
 
 
-def _from_dict(d):
+_UNKNOWN: Optional[List[str]] = None  # paths of unknown fields met by the current from_dict
+
+
+def _from_dict(d, path: str = ""):
     if isinstance(d, dict) and "_type" in d:
-        cls = _TYPE_REGISTRY[d["_type"]]
+        cls = _TYPE_REGISTRY.get(d["_type"])
+        if cls is None:
+            raise ModelError("UNKNOWN_TYPE", f"{path or 'the file'}: object type {d['_type']!r} is not known to this "
+                                             "version; the file was not opened (its data would be lost)", path)
         kwargs = {}
+        names = set()
         for f in dataclasses.fields(cls):
+            names.add(f.name)
             if f.name not in d:
                 continue
             v = d[f.name]
-            kwargs[f.name] = _from_dict(v)
+            kwargs[f.name] = _from_dict(v, f"{path}.{f.name}" if path else f.name)
             # dataclass tuples are serialised as lists
             if isinstance(kwargs[f.name], list) and str(f.type).startswith(("Tuple", "SixBool", "Six", "Vec3", "typing.Tuple")):
                 kwargs[f.name] = tuple(kwargs[f.name])
-        return cls(**kwargs)
+        obj = cls(**kwargs)
+        extra = {k: v for k, v in d.items() if k != "_type" and k not in names}
+        if extra:  # fields of a newer version: kept (written back as read) and reported
+            obj.__dict__["_unknown_fields"] = extra
+            if _UNKNOWN is not None:
+                _UNKNOWN.extend(f"{path}.{k}" if path else k for k in extra)
+        return obj
     if isinstance(d, dict):
-        return {k: _from_dict(v) for k, v in d.items()}
+        return {k: _from_dict(v, f"{path}.{k}" if path else str(k)) for k, v in d.items()}
     if isinstance(d, list):
-        return [_from_dict(v) for v in d]
+        return [_from_dict(v, f"{path}[{i}]") for i, v in enumerate(d)]
     return d

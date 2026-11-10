@@ -185,6 +185,7 @@ class AnalysisModel:
     mass_include_added: bool = True
     mass_lateral: bool = True
     mass_vertical: bool = True
+    mass_lump_at_stories: bool = False  # lateral mass between story levels -> the levels above/below
     nodal_loads: Dict[str, Dict[int, np.ndarray]] = field(default_factory=dict)  # pattern -> node -> (6,)
     object_to_frames: Dict[str, List[int]] = field(default_factory=dict)
     object_to_shells: Dict[str, List[int]] = field(default_factory=dict)

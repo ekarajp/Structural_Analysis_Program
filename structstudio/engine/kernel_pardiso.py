@@ -55,6 +55,7 @@ class _PardisoFactor:
         self.iparm = np.zeros(64, np.int32)
         self._alive = False
         self.unstable = []
+        self.negative = []  # a Cholesky that succeeded: positive definite
         self.pivot_ratio = 1.0
         if n == 0:
             return

@@ -2,7 +2,7 @@
 
 One choice for the selected floors / walls:
 
-* **Auto mesh** - the program's element size h (read-only "Default = max 1.2 m": the
+* **Auto mesh** - the program's element size h (read-only "Default = max 0.5 m": the
   largest element of the automatic mesh, or the size set in Analyze > Automatic Mesh
   Settings);
 * **Manual maximum mesh size** - the user's own largest element size for these areas;
@@ -27,7 +27,7 @@ AUTO_MESH_HELP = (
     "program chooses the element size <b>h</b> from the geometry of each floor / wall: at least 8 "
     ""
     "elements: each span between columns, beams and walls is split into equal elements no larger "
-    "than the default maximum (1.2 m, or the size of Analyze &gt; Automatic Mesh Settings).  Columns, beams, walls, point loads and openings inside the area are joined to the "
+    "than the default maximum (0.5 m, or the size of Analyze &gt; Automatic Mesh Settings).  Columns, beams, walls, point loads and openings inside the area are joined to the "
     "mesh (their joints become mesh nodes).  Quick, and accurate enough for most models.<br><br>"
     "<b>Manual maximum mesh size</b>: your own largest element size for these areas instead of the "
     "default.<br><br>"
@@ -80,7 +80,7 @@ MODES = ("auto", "manual", "fine", "none")
 
 def default_max_size(model: Model, kind: str) -> float:
     """Largest element of the automatic mesh, in the model's length units: the size of
-    Analyze > Automatic Mesh Settings for Floors / Walls if set, else 1.2 m."""
+    Analyze > Automatic Mesh Settings for Floors / Walls if set, else 0.5 m."""
     o = model.options
     v = o.wall_mesh_max_size if kind == "Wall" else o.floor_mesh_max_size
     if v:
@@ -122,7 +122,7 @@ class AreaMeshDialog(QtWidgets.QDialog):
         self.none = QtWidgets.QRadioButton("No mesh (each area is one element)")
         for i, b in enumerate((self.auto, self.manual, self.fine, self.none)):
             self.group.addButton(b, i)
-        # Auto mesh  [Default = max 1.2 m]  ?
+        # Auto mesh  [Default = max 0.5 m]  ?
         gl.addWidget(self.auto, 0, 0)
         self.default = QtWidgets.QLineEdit(f"Default = max {default_max_size(model, kind):.4g} {u}")
         self.default.setReadOnly(True)

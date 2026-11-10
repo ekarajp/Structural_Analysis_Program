@@ -528,13 +528,16 @@ class FrameFormulation:
         return A[6] - A[0]
 
     def foundation_reaction_global(self, u_global: np.ndarray) -> Optional[np.ndarray]:
-        """Total force (global) the elastic foundation applies to the element."""
+        """Resultant (global) the elastic foundation applies to the element: force and
+        moment about the global origin (6,)."""
         kf = getattr(self.el, "foundation", None)
         if kf is None or not np.any(kf):
             return None
         u_end = self.kin.R12 @ self.kin.T_off @ u_global
-        F, _ = self._foundation_resultant_left(u_end, self.kin.L)
-        return self.kin.axes.T @ F
+        F, M = self._foundation_resultant_left(u_end, self.kin.L)  # about the end J station
+        Fg = self.kin.axes.T @ F
+        pb = self.xj + self.el.offset_j
+        return np.concatenate([Fg, self.kin.axes.T @ M + np.cross(pb, Fg)])
 
     def _foundation_resultant_left(self, u_end: np.ndarray, x: float) -> Tuple[np.ndarray, np.ndarray]:
         """Resultant (about station x) of the foundation reaction between end I and x."""

@@ -1304,6 +1304,9 @@ class SlabTool(Tool):
             return False
         pts = list(self.points)
         self.points = []
+        problem = _outline_problem(pts, self.tol)
+        if problem:
+            raise ModelError("DEGENERATE_AREA", problem)
         if self.plane.kind == "plan":
             return self._create([(p[0], p[1]) for p in pts])
         return self._create_planar(pts)
@@ -1389,6 +1392,30 @@ def _polygon_normal(points) -> Optional[np.ndarray]:
         n += np.array([(a[1] - b[1]) * (a[2] + b[2]), (a[2] - b[2]) * (a[0] + b[0]), (a[0] - b[0]) * (a[1] + b[1])])
     L = float(np.linalg.norm(n))
     return n / L if L > 1e-12 else None
+
+
+def _outline_problem(pts, tol: float) -> Optional[str]:
+    """Why a drawn outline cannot be an area (None when it can): repeated corners, all
+    corners on one line, or edges that cross each other."""
+    from ..mesh import polygon2d as pg
+    P = np.asarray(pts, float)
+    t = max(float(tol), 1e-9)
+    for i in range(len(P)):
+        for j in range(i + 1, len(P)):
+            if np.linalg.norm(P[i] - P[j]) <= t:
+                return "The outline has two corners at the same place - each corner can be used once"
+    # the plane of the corners from their spread (a bow-tie has no Newell normal)
+    C = P - P.mean(axis=0)
+    _, sv, vt = np.linalg.svd(C)
+    if len(sv) < 2 or sv[1] <= t:
+        return "The corners are on one line: the outline has no area"
+    e1, e2 = vt[0], vt[1]
+    Q = np.column_stack([C @ e1, C @ e2])
+    if len(Q) > 3 and pg.self_intersects(Q, t):
+        return "The outline crosses itself - draw the corners in order around the area"
+    if abs(pg.signed_area(Q)) <= 10 * t * t:
+        return "The corners are on one line: the outline has no area"
+    return None
 
 
 def _planarity_problem(P: np.ndarray, tol: float) -> Optional[str]:

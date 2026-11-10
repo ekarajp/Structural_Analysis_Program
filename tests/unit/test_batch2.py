@@ -315,7 +315,7 @@ def test_gui_fine_mesh_lives_in_floor_auto_mesh(window, qapp):
     asked = []
     m = window.doc.model
     d = AreaMeshDialog("Floor", m, "auto", None, lambda: asked.append(1), window)
-    assert d.auto.isChecked() and d.default.isReadOnly() and d.default.text() == "Default = max 1.2 m"
+    assert d.auto.isChecked() and d.default.isReadOnly() and d.default.text() == "Default = max 0.5 m"
     assert not d.fine.isEnabled() and "not found yet" in d.found.text()
     assert not d.size.isEnabled()
     d.manual.setChecked(True)

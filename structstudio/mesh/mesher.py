@@ -225,6 +225,7 @@ class Mesher:
         # anything left between mesh nodes (a joint, a member end, the edge of a
         # shell meshed later) follows the element it lies in: no floating parts
         self._tie_to_shells()
+        self._report_untied_joints()
 
         # 4. frames -> elements (bonded "Elements" tendons cut their frames first)
         self._internal_nodes = set()
@@ -381,6 +382,7 @@ class Mesher:
         am.mass_lateral = ms.include_lateral
         am.mass_vertical = ms.include_vertical
         am.mass_from_loads = {k: float(v) for k, v in ms.load_patterns.items()}
+        am.mass_lump_at_stories = bool(getattr(ms, "lump_at_stories", False))
 
     # ------------------------------------------------------------ frame cuts
     def _cut_frames_at_points(self):
@@ -1286,10 +1288,11 @@ class Mesher:
                 P3 = [X[i] for i in range(len(X))]
             Lf = self.U.factor("length")
             if rep.missed:
-                at = tuple(round(float(v) / Lf, 3) for v in pg.to_3d(np.array([rep.missed[0]]), fr)[0])
-                self.am.warnings.append(
-                    f"Area {a.name}: {len(rep.missed)} joint(s) inside it could not be tied into its mesh "
-                    f"(e.g. at {at}) - use a smaller mesh size")
+                # reported after the auto edge constraints (_tie_to_shells), which tie most of
+                # these joints into the element they lie in: only the ones still left are
+                miss3 = pg.to_3d(np.array(rep.missed, float), fr) + np.outer(
+                    np.full(len(rep.missed), float(np.mean(off)) if len(off) else 0.0), fr[3])
+                self.__dict__.setdefault("_pending_missed", []).append((a.name, miss3))
             if rep.line_gap > 3.0 * h:
                 self.am.warnings.append(
                     f"Area {a.name}: a skew beam / line load is tied into the slab only every "
@@ -1315,8 +1318,16 @@ class Mesher:
                 weight_per_area=weight_pa, modifiers=modarr, axes=axes,
             )
             for ld in own_loads + self._panel_area_loads.get(a.name, []):
-                direction, _ = _parse_direction(ld.direction)
+                direction, projected = _parse_direction(ld.direction)
                 value = ld.value * U.factor("force_per_area")
+                if projected and not isinstance(direction, int):
+                    value *= _projection_factor(normal, direction)  # per projected area -> per area
+                region = getattr(ld, "region", None)
+                if region is not None:  # a load panel over part of the area: this element's part
+                    value *= _part_inside(np.array([P3[i] for i in c]),
+                                          np.asarray(region, float) * U.factor("length"))  # model units -> SI
+                    if value == 0.0:
+                        continue
                 if isinstance(direction, int):
                     if direction != 3:
                         raise ModelError("UNSUPPORTED_LOAD", f"Area {a.name}: only local 3 (pressure) supported for local loads")
@@ -1351,14 +1362,39 @@ class Mesher:
         if a.diaphragm:
             gravity_loads = {}
             for ld in own_loads + self._panel_area_loads.get(a.name, []):
-                direction, _ = _parse_direction(ld.direction)
+                direction, projected = _parse_direction(ld.direction)
                 if not isinstance(direction, int):
-                    gravity_loads[ld.pattern] = gravity_loads.get(ld.pattern, 0.0) - float(direction[2]) * ld.value * U.factor("force_per_area")
+                    pf = _projection_factor(normal, direction) if projected else 1.0
+                    pf *= float(getattr(ld, "fraction", 1.0))
+                    gravity_loads[ld.pattern] = gravity_loads.get(ld.pattern, 0.0) - float(direction[2]) * ld.value * pf * U.factor("force_per_area")
             for key, trib in trib_nodes.items():
                 self._diaphragm_areas.setdefault(key, []).append((exact_pieces, mass_pa, weight_pa, gravity_loads, trib))
         self.am.object_to_shells[a.name] = elem_ids
 
     # ------------------------------------------- auto edge constraints (ETABS)
+    def _report_untied_joints(self):
+        """Joints inside an area that got no mesh node and that no auto edge constraint
+        ties to the mesh either: these are really not connected."""
+        pend = self.__dict__.pop("_pending_missed", [])
+        if not pend:
+            return
+        am = self.am
+        X = np.array([n.xyz for n in am.nodes], float) if am.nodes else np.zeros((0, 3))
+        in_mesh = {n for sh in am.shells for n in sh.nodes} | {t.node for t in am.ties}
+        from scipy.spatial import cKDTree
+        tree = cKDTree(X) if len(X) else None
+        Lf = self.U.factor("length")
+        for name, pts in pend:
+            left = []
+            for x in pts:
+                near = tree.query_ball_point(x, 2.0 * self.tol) if tree is not None else []
+                if not any(n in in_mesh for n in near):
+                    left.append(x)
+            if left:
+                at = tuple(round(float(v) / Lf, 3) for v in left[0])
+                am.warnings.append(f"Area {name}: {len(left)} joint(s) inside it could not be tied into its mesh "
+                                   f"(e.g. at {at}) - use a smaller mesh size")
+
     def _tie_to_shells(self):
         """Ties for nodes lying in / on a shell element without being one of its
         nodes: a joint or member end that missed the mesh, and the nodes of a
@@ -2085,6 +2121,28 @@ class Mesher:
                 if weight_pa:
                     con.inertia_correction_loads["__self_weight__"] = con.inertia_correction_loads.get("__self_weight__", 0.0) + weight_pa / am.gravity * diff
             am.constraints.append(con)
+
+
+def _part_inside(cell3: np.ndarray, region3: np.ndarray) -> float:
+    """Fraction of the (planar) element polygon inside the region polygon (same plane)."""
+    from .panel_loads import overlap_area_2d, polygon_frame
+    o, e1, e2, _ = polygon_frame(np.asarray(region3, float))
+    to = lambda Q: np.array([[(q - o) @ e1, (q - o) @ e2] for q in np.asarray(Q, float)])
+    C = to(cell3)
+    full = abs(pg.signed_area(C))
+    if full <= 0:
+        return 0.0
+    return min(1.0, overlap_area_2d(C, to(region3)) / full)
+
+
+def _projection_factor(normal, direction) -> float:
+    """|n . d|: an intensity per unit area projected on the plane normal to the load
+    direction (CSI "Gravity Projected") -> per unit area of the inclined surface."""
+    n = np.asarray(normal, float)
+    ln = float(np.linalg.norm(n))
+    if ln <= 0:
+        return 1.0
+    return abs(float(n @ np.asarray(direction, float))) / ln
 
 
 def _parse_direction(text: str):

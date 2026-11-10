@@ -56,6 +56,34 @@ class PanelResult:
     shell_pressures: Dict[str, float]  # area name -> pressure (force / area along the direction)
     applied_total: float  # total load of the panel (force)
     carried_total: float  # sum carried by bars and shells
+    # "shells": the panel polygon for an area only partly under the panel (None / absent:
+    # the whole area is loaded) and the loaded part of each area (area units)
+    shell_regions: Dict[str, Optional[np.ndarray]] = field(default_factory=dict)
+    shell_loaded_area: Dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
+class RegionAreaLoad:
+    """An area load on the part of an area inside ``region`` (3D polygon in the area's
+    plane): a "shells" load panel drawn over part of a floor or wall."""
+
+    pattern: str
+    value: float
+    direction: str
+    region: np.ndarray
+    fraction: float = 1.0  # loaded part of the whole area
+
+
+def overlap_area_2d(subject: np.ndarray, region: np.ndarray) -> float:
+    """Area of ``subject`` (any simple polygon) inside ``region`` (any simple polygon), 2D."""
+    from .polygon2d import clip_convex, signed_area, triangulate
+    R = np.asarray(region, float)
+    tot = 0.0
+    for i, j, k in triangulate(R):
+        piece = clip_convex(np.asarray(subject, float), R[[i, j, k]])
+        if len(piece) >= 3:
+            tot += abs(signed_area(piece))
+    return tot
 
 
 # --------------------------------------------------------------- geometry
@@ -222,17 +250,23 @@ def distribute(poly: Sequence[XYZ], distribution: str, span_dir: Optional[XYZ], 
     else:
         applied = float(load["value"]) * area
     if distribution == "shells":
-        pressures = {}
+        # every area in the panel's plane under (part of) the panel: the load acts on the
+        # part inside the panel only (an area half under the panel gets half the load)
+        pressures, regions, loaded = {}, {}, {}
         if areas:
             for name, apoly in areas.items():
-                # fraction of the area polygon inside the panel (centroid sampling)
+                if not all(abs((np.asarray(p) - origin) @ normal) <= plane_tol for p in apoly):
+                    continue
                 a2 = np.array([to2(p) for p in apoly])
-                if all(abs((np.asarray(p) - origin) @ normal) <= plane_tol for p in apoly) and \
-                        point_in_poly2(a2.mean(axis=0), poly2):
-                    pressures[name] = _height_value(np.asarray(apoly, float).mean(axis=0), load)
-        carried = sum(pressures.get(n, 0.0) * polygon_area(np.array([to2(p) for p in areas[n]]))
-                      for n in pressures) if areas else 0.0
-        return PanelResult([], pressures, applied, carried)
+                full = polygon_area(a2)
+                inter = overlap_area_2d(a2, poly2)
+                if full <= 0 or inter <= 1e-9 * full:
+                    continue
+                pressures[name] = _height_value(np.asarray(apoly, float).mean(axis=0), load)
+                loaded[name] = inter
+                regions[name] = None if inter >= full * (1 - 1e-9) else P.copy()
+        carried = sum(pressures[n] * loaded[n] for n in pressures)
+        return PanelResult([], pressures, applied, carried, regions, loaded)
     # ``within``: a host polygon (two-way only) - the receivers are the host's and only the
     # part of the panel inside the host counts (an opening taken out of a membrane floor)
     host2 = None if within is None else np.array([to2(p) for p in within])
@@ -435,6 +469,14 @@ def panel_direction(panel_points, text: str) -> Tuple[np.ndarray, bool]:
     return np.array(dirs[t], float), projected
 
 
+def _overlap3(subject, region) -> float:
+    """Area of the 3D polygon ``subject`` inside the 3D polygon ``region`` (same plane)."""
+    S = np.asarray(subject, float)
+    o, e1, e2, _ = polygon_frame(np.asarray(region, float))
+    to = lambda Q: np.array([[(q - o) @ e1, (q - o) @ e2] for q in np.asarray(Q, float)])
+    return overlap_area_2d(to(S), to(region))
+
+
 def _poly3_area(P) -> float:
     P = np.asarray(P, float)
     n = np.zeros(3)
@@ -633,8 +675,17 @@ def panel_loads_to_members(model, strips: int = 60):
                         membrane_load(aname, case.pattern, pressure, _direction_text(dvec), sub)
                         carried += sum(c_ for _, c_ in sub.values())
                         continue
-                    area_loads.setdefault(aname, []).append(AreaLoad(case.pattern, pressure, _direction_text(dvec)))
-                    carried += pressure * (_poly3_area(area_polys[aname]) - sum(_poly3_area(H) for H in holes_of(aname)))
+                    region = res.shell_regions.get(aname)
+                    if region is None:
+                        area_loads.setdefault(aname, []).append(AreaLoad(case.pattern, pressure, _direction_text(dvec)))
+                        carried += pressure * (_poly3_area(area_polys[aname]) - sum(_poly3_area(H) for H in holes_of(aname)))
+                    else:  # the part of the area under the panel only
+                        full = _poly3_area(area_polys[aname])
+                        part = res.shell_loaded_area.get(aname, 0.0) - sum(_overlap3(H, region) for H in holes_of(aname))
+                        area_loads.setdefault(aname, []).append(RegionAreaLoad(
+                            case.pattern, pressure, _direction_text(dvec), np.asarray(region, float),
+                            part / full if full > 0 else 0.0))
+                        carried += pressure * part
             old = rep.get(case.pattern, (0.0, 0.0))
             rep[case.pattern] = (old[0] + res.applied_total, old[1] + carried)
         report[panel.name] = rep

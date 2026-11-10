@@ -37,6 +37,8 @@ UNSTABLE_PIVOT = 1e-12  # pivot / largest pivot below this: the equation is (nea
 class _SciPyFactor:
     def __init__(self, K: sparse.csr_matrix):
         n = K.shape[0]
+        self.negative = []
+        self.unstable = []
         if n == 0:
             self.lu = None
             return
@@ -50,7 +52,8 @@ class _SciPyFactor:
                              "Stiffness matrix is singular: the structure is unstable (mechanism, missing "
                              "supports or zero-stiffness members)") from exc
         # pivot check: a mechanism shows up as a (relatively) vanishing pivot
-        d = np.abs(self.lu.U.diagonal())
+        dsig = np.asarray(self.lu.U.diagonal(), float)
+        d = np.abs(dsig)
         self.pivot_ratio = float(np.min(d) / np.max(d)) if d.size else 1.0
         # equations that lost (nearly) all significant digits: a mechanism, like the
         # SAPFire "structure is unstable or ill-conditioned" check (free DOF indices)
@@ -58,8 +61,15 @@ class _SciPyFactor:
             dmax = float(np.max(d))
             bad = np.where(d <= UNSTABLE_PIVOT * dmax)[0]
             self.unstable = sorted(int(self.lu.perm_c[i]) for i in bad)
+            # inertia: with symmetric diagonal pivoting (threshold 0) the pivots are those
+            # of an LDL^T factorisation, so their signs count the negative eigenvalues
+            # (Sylvester) - a stiffness that is not positive definite (P-Delta beyond
+            # buckling, negative springs) cannot be a stable equilibrium
+            neg = np.where((dsig < 0) & (d > UNSTABLE_PIVOT * dmax))[0]
+            self.negative = sorted(int(self.lu.perm_c[i]) for i in neg)
         else:
             self.unstable = []
+            self.negative = []
         self.K = Kc
 
     def solve(self, b: np.ndarray) -> np.ndarray:
@@ -191,7 +201,10 @@ class SciPyKernel:
             mj = float(phi[:, j] @ (M @ phi[:, j]))
             if mj > 0:
                 phi[:, j] /= np.sqrt(mj)
-        w2 = np.where(w2 < 0, 0.0, w2)
+        # round-off of zero-frequency (rigid body) modes; a clearly negative or non-finite
+        # eigenvalue is left for the caller to report (negative mass / unstable stiffness)
+        scale = float(np.max(np.abs(w2[np.isfinite(w2)]))) if np.any(np.isfinite(w2)) else 1.0
+        w2 = np.where((w2 < 0) & (w2 > -1e-9 * max(scale, 1.0)), 0.0, w2)
         return w2, phi
 
 
@@ -199,8 +212,14 @@ def _eigh_semidefinite(K: np.ndarray, M: np.ndarray):
     """Generalised eigenproblem with a semi-definite M: solve M v = mu K v
     (K positive definite) and invert the eigenvalues."""
     mu, v = linalg.eigh(M, K)
-    with np.errstate(divide="ignore"):
-        w2 = np.where(mu > 1e-300, 1.0 / mu, np.inf)
+    tol = 1e-12 * max(float(np.max(np.abs(mu))), 1e-300)
+    # mu ~ 0: a direction without mass (no dynamic mode, dropped); mu < 0: negative mass,
+    # kept as a negative eigenvalue so that it is reported, never turned into infinity
+    keep = np.abs(mu) > tol
+    if not np.any(keep):
+        raise ModelError("NO_MASS", "The model has no mass for dynamic analysis")
+    mu, v = mu[keep], v[:, keep]
+    w2 = 1.0 / mu
     order = np.argsort(w2)
     return w2[order], v[:, order]
 

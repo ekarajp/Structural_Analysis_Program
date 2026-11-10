@@ -1364,9 +1364,17 @@ class CsiImporter:
                 if fgrav:
                     F[2] -= fgrav
                 cs = (gets(row, "CoordSys", default="GLOBAL") or "GLOBAL").upper()
-                if cs not in ("GLOBAL", "LOCAL"):
-                    self._warn(f"Joint loads in coordinate system {cs} taken as global")
-                p.loads.append(PointLoad(pat, tuple(F), tuple(M)))
+                if cs not in ("GLOBAL", "LOCAL"):  # a named coordinate system: not converted
+                    self.skipped[f"joint loads in coordinate system {cs}"] += 1
+                    self._warn(f"Joint {p.name}: load in coordinate system {cs} not imported (only GLOBAL and the "
+                               "joint LOCAL axes are converted)")
+                    continue
+                if cs == "LOCAL" and p.local_axes:  # F1 F2 F3 / M1 M2 M3 along the joint local axes
+                    from ..mesh.geometry import joint_axes
+                    R = joint_axes(*p.local_axes)  # rows = local 1, 2, 3 in global
+                    F = list(R.T @ F)
+                    M = list(R.T @ M)
+                p.loads.append(PointLoad(pat, tuple(float(v) for v in F), tuple(float(v) for v in M)))
         for t in self._tables("joint loads - ground displacement", "joint loads assignments - ground displacement",
                               "joint loads - displacement"):
             for row in t.rows:
@@ -1378,7 +1386,9 @@ class CsiImporter:
                 rot = tuple(getf(row, a, b, default=0.0) or 0.0 for a, b in (("R1", "RX"), ("R2", "RY"), ("R3", "RZ")))
                 cs = (gets(row, "CoordSys", default="GLOBAL") or "GLOBAL").upper()
                 if cs not in ("GLOBAL", "LOCAL"):
-                    self._warn(f"Ground displacements in coordinate system {cs} taken as global")
+                    self.skipped[f"ground displacements in coordinate system {cs}"] += 1
+                    self._warn(f"Joint {p.name}: ground displacement in coordinate system {cs} not imported")
+                    continue
                 p.ground_displacements.append(GroundDisplacement(pat, tr, rot, "Local" if cs == "LOCAL" else "Global"))
         for t in self._tables("frame loads - gravity", "frame loads assignments - gravity"):
             for row in t.rows:

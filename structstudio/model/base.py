@@ -89,6 +89,10 @@ def to_dict(obj) -> Any:
         d = {"_type": type(obj).__name__}
         for f in fields(obj):
             d[f.name] = to_dict(getattr(obj, f.name))
+        extra = obj.__dict__.get("_unknown_fields")  # fields of a newer version, kept as read
+        if extra:
+            for k, v in extra.items():
+                d.setdefault(k, v)
         return d
     if isinstance(obj, dict):
         return {str(k): to_dict(v) for k, v in obj.items()}

@@ -179,3 +179,67 @@ class LoadCombination:
     def add(self, name: str, scale: float = 1.0, is_combo: bool = False) -> "LoadCombination":
         self.items.append(ComboItem(name, scale, is_combo))
         return self
+
+
+def spectrum_case_problems(case) -> List[Tuple[str, str]]:
+    """(code, message) of the options of a response spectrum case that are unknown or not
+    implemented.  They are refused, never replaced by another method."""
+    import math
+    out: List[Tuple[str, str]] = []
+    name = case.name
+    mc = str(case.modal_combination).upper().replace(" ", "").replace("%", "PCT")
+    if mc not in ("SRSS", "ABS", "ABSSUM", "NRC10", "10PCT", "NRC10PCT", "TENPERCENT", "CQC", "GMC"):
+        out.append(("INVALID_COMBINATION", f"Spectrum {name}: unknown modal combination {case.modal_combination!r} "
+                                           "(use CQC, SRSS, ABS, GMC or NRC 10%)"))
+    dc = str(case.directional_combination).upper().replace(" ", "")
+    if dc == "CQC3":
+        out.append(("NOT_IMPLEMENTED", f"Spectrum {name}: the CQC3 directional combination is not implemented - "
+                                       "use SRSS or ABS"))
+    elif dc not in ("SRSS", "ABS", "ABSSUM"):
+        out.append(("INVALID_COMBINATION", f"Spectrum {name}: unknown directional combination "
+                                           f"{case.directional_combination!r} (use SRSS or ABS)"))
+    if not (isinstance(case.damping, (int, float)) and math.isfinite(case.damping) and 0.0 <= case.damping < 1.0):
+        out.append(("INVALID_DAMPING", f"Spectrum {name}: modal damping {case.damping!r} must be in [0, 1)"))
+    e = case.eccentricity_ratio
+    if not (isinstance(e, (int, float)) and math.isfinite(e) and 0.0 <= e <= 0.5):
+        out.append(("INVALID_ECCENTRICITY", f"Spectrum {name}: eccentricity ratio {e!r} must be in [0, 0.5]"))
+    f = case.directional_abs_factor
+    if not (isinstance(f, (int, float)) and math.isfinite(f) and f >= 0):
+        out.append(("INVALID_COMBINATION", f"Spectrum {name}: the directional ABS factor must be >= 0"))
+    rr = case.rigid_response
+    if rr is not None:
+        try:
+            f1, f2 = float(rr[0]), float(rr[1])
+            ok = math.isfinite(f1) and math.isfinite(f2) and 0.0 < f1 < f2
+        except (TypeError, ValueError, IndexError):
+            f1 = f2 = float("nan")
+            ok = False
+        if not ok:
+            out.append(("INVALID_RIGID_RESPONSE", f"Spectrum {name}: the rigid response frequencies need "
+                                                  f"0 < f1 < f2 (got {rr!r} Hz)"))
+    elif mc == "GMC":
+        out.append(("INVALID_RIGID_RESPONSE", f"Spectrum {name}: the GMC (Gupta) combination needs the rigid "
+                                              "response frequencies f1 < f2"))
+    for ld in case.loads:
+        if str(ld.direction).upper() not in ("U1", "U2", "U3"):
+            out.append(("INVALID_DIRECTION", f"Spectrum {name}: unknown direction {ld.direction!r} (U1, U2 or U3)"))
+    return out
+
+
+def spectrum_function_problems(fn) -> List[Tuple[str, str]]:
+    import math
+    out: List[Tuple[str, str]] = []
+    ps, acs = list(fn.periods), list(fn.accelerations)
+    if not ps:
+        out.append(("INVALID_FUNCTION", f"Spectrum function {fn.name}: no points"))
+    if len(ps) != len(acs):
+        out.append(("INVALID_FUNCTION", f"Spectrum function {fn.name}: {len(ps)} periods but {len(acs)} values"))
+    if any(not math.isfinite(p) or p < 0 for p in ps):
+        out.append(("INVALID_FUNCTION", f"Spectrum function {fn.name}: periods must be finite and >= 0"))
+    if any(b <= a for a, b in zip(ps, ps[1:])):
+        out.append(("INVALID_FUNCTION", f"Spectrum function {fn.name}: the periods must increase strictly "
+                                        "(sorted, no repeated period)"))
+    if not (math.isfinite(fn.damping) and 0.0 <= fn.damping < 1.0):
+        out.append(("INVALID_DAMPING", f"Spectrum function {fn.name}: damping {fn.damping!r} must be in [0, 1)"))
+    return out
+

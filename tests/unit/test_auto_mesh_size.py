@@ -8,20 +8,20 @@ from structstudio.model.properties import ShellSection
 
 
 def test_default_auto_size_is_the_etabs_like_round_value():
-    """Default automatic mesh: approximate maximum size 1.2 m (a round value next to
-    the ETABS default 48 in = 1.2192 m), floors and walls; a mesh check halves it."""
-    assert am_.AUTO_RULE == "etabs" and am_.DEFAULT_MAX_SIZE == 1.2
+    """Default automatic mesh: approximate maximum size 0.5 m (user decision 2026-11: the
+    ETABS default 48 in = 1.2192 m is too coarse), floors and walls; a mesh check halves it."""
+    assert am_.AUTO_RULE == "etabs" and am_.DEFAULT_MAX_SIZE == 0.5
     sq = np.array([[0, 0], [8, 0], [8, 8], [0, 8]], float)
     strip = np.array([[0, 0], [20, 0], [20, 2], [0, 2]], float)
     cols = am_.Features(points=[(0.0, 0.0), (3.0, 0.0), (0.0, 3.0), (3.0, 3.0)])
     for Q, f in ((sq, None), (strip, None), (sq, cols)):
-        assert am_.auto_size(Q, f) == 1.2
-    assert am_.auto_size(sq, factor=0.5) == 0.6
-    assert am_.auto_size(sq, factor=0.25) == 0.3
+        assert am_.auto_size(Q, f) == 0.5
+    assert am_.auto_size(sq, factor=0.5) == 0.25
+    assert am_.auto_size(sq, factor=0.25) == 0.125
 
 
 def test_spans_split_into_equal_elements_up_to_the_size():
-    """6 m span -> 5 x 1.2 m, 5 m -> 5 x 1.0 m (mesh lines through the columns)."""
+    """6 m span -> 12 x 0.5 m, 5 m -> 10 x 0.5 m (mesh lines through the columns)."""
     from structstudio.app.templates import new_building
     m = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
     m.options.slab_column_rigid_zone = False  # the plain ETABS-like mesh
@@ -30,7 +30,7 @@ def test_spans_split_into_equal_elements_up_to_the_size():
     floor = [s for s in am.shells if m.areas[s.object].type == "Floor"]
     xs = sorted({round(float(X[n][0]), 6) for s in floor for n in s.nodes})
     ys = sorted({round(float(X[n][1]), 6) for s in floor for n in s.nodes})
-    assert np.allclose(np.diff(xs), 1.2) and np.allclose(np.diff(ys), 1.0)
+    assert np.allclose(np.diff(xs), 0.5) and np.allclose(np.diff(ys), 0.5)
 
 
 def test_fine_auto_size_follows_width_and_spans():
@@ -128,17 +128,17 @@ def test_per_area_manual_maximum_and_fine_mesh():
     m = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
     m.options.slab_column_rigid_zone = False
     floor = next(a for a in m.areas.values() if a.type == "Floor")
-    assert _floor_spacing(m)[0] == 1.2
-    floor.max_mesh_size = 0.5  # manual maximum mesh size (model units: m)
-    assert _floor_spacing(m)[0] <= 0.5 + 1e-9
+    assert _floor_spacing(m)[0] == 0.5
+    floor.max_mesh_size = 0.3  # manual maximum mesh size (model units: m)
+    assert _floor_spacing(m)[0] <= 0.3 + 1e-9
     floor.max_mesh_size = None
     floor.fine_mesh = True  # fine mesh not found yet: the automatic mesh
-    assert _floor_spacing(m)[0] == 1.2
+    assert _floor_spacing(m)[0] == 0.5
     m.options.fine_mesh_factor = 0.5
     h, am = _floor_spacing(m)
-    assert h == 0.6 and am.auto_sizes[floor.name] == 0.6
+    assert h == 0.25 and am.auto_sizes[floor.name] == 0.25
     # the mesh check looks for the fine mesh itself: the area's fine flag is not applied
-    assert _floor_spacing(m, MeshOptions(area_fine=False))[0] == 1.2
+    assert _floor_spacing(m, MeshOptions(area_fine=False))[0] == 0.5
 
 
 def test_insertion_offsets_only_in_the_analysis_when_included():

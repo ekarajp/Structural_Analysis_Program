@@ -28,6 +28,13 @@ def analyze(model: Model, cases: Optional[Iterable[str]] = None, kernel: Optiona
         if progress is not None:
             progress(float(min(max(pct, 0.0), 100.0)), msg)
     report(0, "Preparing the analysis model")
+    springs = any(any(p.springs) or any(p.rotational_springs) for p in model.points.values())
+    if not model.frames and not model.areas and not getattr(model, "links", None) and not springs:
+        raise dg.AnalysisError([dg.Issue("error", "The model has no frames, areas, links or "
+                                         "joint springs: there is nothing to analyse")], "EMPTY_MODEL")
+    if not model.load_cases:
+        raise dg.AnalysisError([dg.Issue("error", "The model has no load cases: define one in "
+                                         "Define > Load Cases")], "NO_LOAD_CASES")
     fine_note = None
     o = model.options
     if mesh_options is None and getattr(o, "use_fine_mesh", False) and getattr(o, "fine_mesh_factor", None):

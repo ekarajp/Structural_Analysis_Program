@@ -67,8 +67,10 @@ class DofMap:
 class Assembler:
     """Builds and caches global matrices for an :class:`AnalysisModel`."""
 
-    def __init__(self, am: AnalysisModel):
+    def __init__(self, am: AnalysisModel, links=None):
         self.am = am
+        # links of the linear analyses (linear stiffness + mass); see NonlinearBuilder.linear_links
+        self.links = list(links or [])
         coords = am.coords()
         self.frames = [FrameFormulation(e, coords[e.node_i], coords[e.node_j]) for e in am.frames]
         self.shells = [ShellFormulation(e, coords[list(e.nodes)]) for e in am.shells]
@@ -116,6 +118,9 @@ class Assembler:
             for se in self.shells:
                 for nid, m in zip(se.el.nodes, se.lumped_mass()):
                     M[nid] += m
+            for lk in self.links:
+                for nid in lk.nodes:
+                    M[nid] += getattr(lk, "mass", 0.0) / len(lk.nodes)
         if am.mass_include_added:
             for node in am.nodes:
                 M[node.id] += node.mass[0]
@@ -123,6 +128,66 @@ class Assembler:
             for pattern, mult in am.mass_from_loads.items():
                 F = self._raw_load_vector(pattern)
                 M += -F[2::6] * mult / am.gravity
+        return self._lump_to_stories(M, stride=1)
+
+    def _story_lumping(self):
+        """[(node, [(target node, weight), ...])] for the joints between two story levels
+        when the mass source lumps lateral mass at the stories (CSI "Lump lateral mass at
+        story levels"): the mass is split to the levels below and above in inverse
+        proportion to the distance (total mass and its first moment in Z are kept) and
+        put at the joint of that level nearest in plan."""
+        am = self.am
+        if not am.mass_lump_at_stories or len(am.story_elevations) < 2:
+            return []
+        if getattr(self, "_lump_map", None) is not None:
+            return self._lump_map
+        xyz = am.coords()
+        tol = 1e-4
+        # levels that carry joints (a story with no joint has nothing to take the mass)
+        levels = sorted(z for z in set(float(z) for z in am.story_elevations.values())
+                        if np.any(np.abs(xyz[:, 2] - z) <= tol))
+        if len(levels) < 2:
+            self._lump_map = []
+            return []
+        at_level = {}
+        for k, z in enumerate(levels):
+            at_level[k] = np.where(np.abs(xyz[:, 2] - z) <= tol)[0]
+        out = []
+        for nid in range(am.n_nodes):
+            z = xyz[nid, 2]
+            if z <= levels[0] + tol or z >= levels[-1] - tol:
+                continue
+            k = int(np.searchsorted(levels, z))
+            if abs(levels[k] - z) <= tol or abs(levels[k - 1] - z) <= tol:
+                continue
+            zb, za = levels[k - 1], levels[k]
+            targets = []
+            for lev, w in ((k - 1, (za - z) / (za - zb)), (k, (z - zb) / (za - zb))):
+                cand = at_level[lev]
+                if len(cand) == 0:
+                    targets = []
+                    break
+                d = np.hypot(xyz[cand, 0] - xyz[nid, 0], xyz[cand, 1] - xyz[nid, 1])
+                targets.append((int(cand[int(np.argmin(d))]), float(w)))
+            if targets:
+                out.append((nid, targets))
+        self._lump_map = out
+        return out
+
+    def _lump_to_stories(self, M: np.ndarray, stride: int) -> np.ndarray:
+        """Move the lateral (UX, UY) mass of joints between story levels to the levels."""
+        lump = self._story_lumping()
+        if not lump:
+            return M
+        comps = (0,) if stride == 1 else (0, 1)
+        for nid, targets in lump:
+            for c in comps:
+                m = M[stride * nid + c]
+                if m == 0.0:
+                    continue
+                M[stride * nid + c] = 0.0
+                for t, w in targets:
+                    M[stride * t + c] += w * m
         return M
 
     def _raw_load_vector(self, pattern: str) -> np.ndarray:
@@ -263,14 +328,19 @@ class Assembler:
         for c in am.constraints:
             if not c.rigid:
                 continue
-            # a restrained joint cannot also follow the diaphragm: drop it (CSI gives restraints precedence)
-            dropped = [n for n in c.nodes if n in restrained_nodes]
+            axes = [a for a in range(3) if a != c.normal]
+            # a joint restrained in a DOF the diaphragm constrains (in-plane translation or the
+            # rotation about the normal) cannot also follow it: dropped (CSI gives restraints
+            # precedence).  A restraint the diaphragm does not touch (UZ, RX, RY of a floor)
+            # leaves the joint in it.
+            cdofs = (axes[0], axes[1], 3 + c.normal)
+            dropped = [n for n in c.nodes if any(am.nodes[n].restraints[k] for k in cdofs)]
             if dropped:
-                c.nodes = [n for n in c.nodes if n not in restrained_nodes]
-                am.warnings.append(f"Diaphragm {c.name}: {len(dropped)} restrained joint(s) removed from the constraint")
+                c.nodes = [n for n in c.nodes if n not in set(dropped)]
+                am.warnings.append(f"Diaphragm {c.name}: {len(dropped)} joint(s) restrained in the diaphragm's plane "
+                                   "removed from the constraint")
             master = am.nodes[c.master]
             xm = master.xyz
-            axes = [a for a in range(3) if a != c.normal]
             a1, a2 = axes  # e.g. X, Y for a horizontal diaphragm
             rn = c.normal  # rotation about the normal
             m6 = 6 * c.master
@@ -408,6 +478,13 @@ class Assembler:
             sp_rows += (6 * node.id + r).tolist()
             sp_cols += (6 * node.id + c).tolist()
             sp_vals += Kn[r, c].tolist()
+        for lk in self.links:  # linear (effective) link stiffness
+            K = lk.initial_stiffness_global()
+            d = self._element_dofs(lk.nodes)
+            r, c = np.meshgrid(d, d, indexing="ij")
+            rows.append(r.ravel())
+            cols.append(c.ravel())
+            vals.append(K.ravel())
         if sp_rows:
             rows.append(np.array(sp_rows))
             cols.append(np.array(sp_cols))
@@ -496,6 +573,9 @@ class Assembler:
                 ms = se.lumped_mass()
                 for nid, m in zip(se.el.nodes, ms):
                     M[6 * nid:6 * nid + 3] += m
+            for lk in self.links:  # link mass: equal shares at its joints (CSI)
+                for nid in lk.nodes:
+                    M[6 * nid:6 * nid + 3] += getattr(lk, "mass", 0.0) / len(lk.nodes)
         if am.mass_include_added:
             for node in am.nodes:
                 M[6 * node.id:6 * node.id + 6] += node.mass
@@ -519,6 +599,7 @@ class Assembler:
                     extra += mult * sw * c.inertia_correction_loads.get("__self_weight__", 0.0)
             if am.mass_lateral:
                 M[6 * c.master + 3 + c.normal] += extra
+        self._lump_to_stories(M, stride=6)
         if not am.mass_lateral:
             M[0::6] = 0.0
             M[1::6] = 0.0

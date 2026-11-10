@@ -24,7 +24,11 @@ class Engine:
         self.model = model
         self.am = am
         self.kernel = kernel or default_kernel()
-        self.asm = Assembler(am)
+        links = []
+        if getattr(model, "links", None):
+            from .nonlinear.builder import NonlinearBuilder
+            links = NonlinearBuilder(model, am, None).linear_links()
+        self.asm = Assembler(am, links)
         self._K_red: Optional[sparse.csr_matrix] = None
         self._factor = None
         self._pdelta_K: Dict[str, sparse.csr_matrix] = {}
@@ -44,6 +48,54 @@ class Engine:
             self._K_red = self.asm.stiffness_reduced()
         return self._K_red
 
+    _MASS_FLAGS = (("mass_include_elements", "include_element_mass"), ("mass_include_added", "include_added_mass"),
+                   ("mass_lateral", "include_lateral"), ("mass_vertical", "include_vertical"),
+                   ("mass_lump_at_stories", "lump_at_stories"))
+
+    def mass_full_for(self, source: Optional[str]) -> np.ndarray:
+        """Lumped mass (full DOF set) of the named mass source; the model's default
+        source (the one the analysis model was built with) when None."""
+        if not source:
+            return self.asm.mass_full()
+        ms = self.model.mass_sources.get(source)
+        if ms is None:
+            raise ModelError("UNKNOWN_MASS_SOURCE", f"Mass source {source!r} is not defined")
+        am = self.am
+        want = {a: bool(getattr(ms, b, False)) for a, b in self._MASS_FLAGS}
+        want_loads = {k: float(v) for k, v in ms.load_patterns.items()}
+        if all(getattr(am, a) == v for a, v in want.items()) and am.mass_from_loads == want_loads:
+            return self.asm.mass_full()
+        cache = self.__dict__.setdefault("_mass_cache", {})
+        if source in cache:
+            return cache[source]
+        for pat in want_loads:
+            if pat not in self.model.load_patterns:
+                raise ModelError("UNKNOWN_PATTERN", f"Mass source {source!r}: load pattern {pat!r} is not defined")
+        saved = {a: getattr(am, a) for a in want}
+        saved_loads, saved_M = am.mass_from_loads, self.asm._M_full
+        saved_lump = getattr(self.asm, "_lump_map", None)
+        try:
+            for a, v in want.items():
+                setattr(am, a, v)
+            am.mass_from_loads = want_loads
+            self.asm._M_full = None
+            self.asm._lump_map = None
+            M = self.asm.mass_full().copy()
+        finally:
+            for a, v in saved.items():
+                setattr(am, a, v)
+            am.mass_from_loads = saved_loads
+            self.asm._M_full = saved_M
+            self.asm._lump_map = saved_lump
+        cache[source] = M
+        return M
+
+    def _case_mass(self, modal_case: Optional[str]) -> np.ndarray:
+        """Mass of a case that depends on a modal case (RS, modal TH): that case's source."""
+        res = self.results.get(modal_case) if modal_case else None
+        M = getattr(res, "mass_full", None) if res is not None else None
+        return M if M is not None else self.asm.mass_full()
+
     def _free_matrix(self, K: sparse.csr_matrix) -> sparse.csr_matrix:
         f = self.asm.dofs.free
         return K[f][:, f].tocsr()
@@ -52,11 +104,40 @@ class Engine:
         if stiffness_from:
             if stiffness_from not in self._pdelta_K:
                 raise ModelError("CASE_ORDER", f"Stiffness case {stiffness_from!r} has not been run yet")
-            return self.kernel.factor(self._free_matrix(self._pdelta_K[stiffness_from]))
+            fac = self.kernel.factor(self._free_matrix(self._pdelta_K[stiffness_from]))
+            self._check_definite(fac, f"Stiffness from {stiffness_from!r}")
+            return fac
         if self._factor is None:
-            self._factor = self.kernel.factor(self._free_matrix(self.K_reduced()))
+            fac = self.kernel.factor(self._free_matrix(self.K_reduced()))
+            self._check_definite(fac, "Linear stiffness")
+            self._factor = fac
             self._report_instability(self._factor)
         return self._factor
+
+    def _dof_labels(self, free_indices, limit: int = 8):
+        dofs = self.asm.dofs
+        keep = np.where(dofs.reduced_of_full >= 0)[0]
+        labels = []
+        for j in list(free_indices)[:limit]:
+            red = int(dofs.free[j])
+            full = int(keep[red]) if red < len(keep) else -1
+            node, comp = divmod(full, 6)
+            name = self.am.nodes[node].point if 0 <= node < len(self.am.nodes) else None
+            labels.append(f"{name or f'node {node}'} {('UX', 'UY', 'UZ', 'RX', 'RY', 'RZ')[comp]}")
+        more = f" (+{len(free_indices) - limit} more)" if len(free_indices) > limit else ""
+        return ", ".join(labels) + more
+
+    def _check_definite(self, fac, what: str):
+        """A stiffness with negative eigenvalues (negative pivots of its LDL^T) is no
+        stable equilibrium: the axial compression of a P-Delta case beyond buckling,
+        negative springs.  The solution of such a system is not a result: refused."""
+        neg = getattr(fac, "negative", None)
+        if neg:
+            raise ModelError(
+                "NEGATIVE_STIFFNESS",
+                f"{what}: the stiffness is not positive definite ({len(neg)} negative eigenvalue(s), at "
+                f"{self._dof_labels(neg)}) - the structure is unstable under these loads (axial compression "
+                f"beyond the buckling load, or negative stiffness); no results are given")
 
     def _report_instability(self, fac):
         """Warn (ETABS / SAP2000 style) about equations that are numerically singular."""
@@ -65,6 +146,22 @@ class Engine:
             return
         dofs = self.asm.dofs
         keep = np.where(dofs.reduced_of_full >= 0)[0]
+        # the pivot where the factorisation broke down is not necessarily where the
+        # mechanism is (the elimination order moves it): the DOFs that move in the null
+        # vector of K are.  One inverse-iteration step with the (nearly singular) factor:
+        # K x = b grows without bound along the mechanism.
+        try:
+            rng = np.random.default_rng(12345)
+            b = rng.standard_normal(len(dofs.free))
+            x = np.asarray(fac.solve(b), float).ravel()
+            if np.all(np.isfinite(x)) and np.max(np.abs(x)) > 0:
+                ax = np.abs(x)
+                order = np.argsort(-ax)
+                moving = [int(j) for j in order if ax[j] >= 0.01 * ax[order[0]]]
+                if moving:
+                    bad = moving
+        except Exception:  # keep the pivot positions
+            pass
         labels = []
         for j in bad[:12]:
             red = int(dofs.free[j])
@@ -109,16 +206,23 @@ class Engine:
         """Dependencies first (modal before spectrum, P-Delta before dependents)."""
         out: List[str] = []
         seen = set()
+        stack: List[str] = []
 
         def visit(n):
             if n in seen:
                 return
+            if n in stack:  # a case that depends (through others) on itself
+                cyc = stack[stack.index(n):] + [n]
+                raise ModelError("CASE_CYCLE", "Load cases depend on each other in a loop: " + " -> ".join(cyc),
+                                 f"load_cases.{n}")
+            stack.append(n)
             c = self.model.load_cases[n]
             deps = [getattr(c, "modal_case", None), getattr(c, "stiffness_from", None), getattr(c, "initial_case", None)]
             deps += [ml[0] for ml in getattr(c, "mode_loads", [])]
             for dep in deps:
-                if dep and dep in self.model.load_cases and dep != n:
+                if dep and dep in self.model.load_cases:
                     visit(dep)
+            stack.pop()
             seen.add(n)
             out.append(n)
 
@@ -175,6 +279,12 @@ class Engine:
                     if node.springs[d] > 0 and not node.restraints[d]:
                         r[d] = -node.springs[d] * (u_l[d] - dg[d])
                 reactions[node.id] = Tn.T @ r  # global
+        for lk in self.asm.links:  # a grounded link is a support: its force is a reaction
+            if len(lk.nodes) == 1:
+                nid = lk.nodes[0]
+                d = self.asm._element_dofs(lk.nodes)
+                f = lk.initial_stiffness_global() @ u_full[d]
+                reactions[nid] = reactions.get(nid, np.zeros(6)) - f
         end_forces = np.zeros((len(am.frames), 12))
         elem_loads = {}
         dist = None
@@ -189,7 +299,7 @@ class Engine:
             fr = fe.foundation_reaction_global(u_full[d])
             if fr is not None:
                 dist = np.zeros(6) if dist is None else dist
-                dist[:3] += fr
+                dist += fr
         self._last_distributed = dist
         shell_res = {}
         if not getattr(self, "displacements_only", False):  # a mesh check needs the displacements only
@@ -370,10 +480,11 @@ class Engine:
         K_full = K0
         converged = False
         for it in range(case.max_iterations):
-            Kg = self._geometric_stiffness_full(u)
+            Kg = self._geometric_stiffness_full(u, case.loads)
             K_full = (K0 + Kg).tocsr()
             K_red = (dofs.T.T @ K_full @ dofs.T).tocsr()
             fac = self.kernel.factor(self._free_matrix(K_red))
+            self._check_definite(fac, f"P-Delta case {case.name!r}")
             u_new = self._solve_static(F, loads=case.loads, K_red=K_red, fac=fac)
             change = np.linalg.norm(u_new - u) / max(np.linalg.norm(u_new), 1e-30)
             u = u_new
@@ -392,13 +503,25 @@ class Engine:
         res.diagnostics["iterations"] = it + 1
         return res
 
-    def _geometric_stiffness_full(self, u_full: np.ndarray) -> sparse.csr_matrix:
+    def _geometric_stiffness_full(self, u_full: np.ndarray, pattern_loads: Optional[Dict[str, float]] = None
+                                  ) -> sparse.csr_matrix:
+        """Initial-stress stiffness from the actual axial forces: the end forces of
+        the displacements *and* of the element loads of the case (fixed-end actions,
+        temperature eigenstrains) - a free thermal expansion has no axial force, a
+        restrained one does (CA22)."""
         n = self.asm.dofs.n_full
         rows, cols, vals = [], [], []
+        am = self.am
         for fe in self.asm.frames:
             d = self.asm._element_dofs(fe.el.nodes)
-            f = fe.end_forces_local(u_full[d], [])
-            P = -f[0]  # tension positive (force on element at I along -1 means tension... f[0] is node->element)
+            loads = []
+            for pat, sf in (pattern_loads or {}).items():
+                for ld in fe.element_loads(pat, am.self_weight.get(pat, 0.0), am.gravity):
+                    loads.append(_scale_load(ld, sf))
+            f = fe.end_forces_local(u_full[d], loads)
+            # axial force (tension positive), the mean of the two ends (a distributed
+            # axial load makes it vary along the member)
+            P = 0.5 * (-f[0] + f[6])
             Kg = fe.geometric_stiffness_global(P)
             r, c = np.meshgrid(d, d, indexing="ij")
             rows.append(r.ravel())
@@ -420,9 +543,12 @@ class Engine:
     def modal(self, case: ModalCase) -> CaseResult:
         dofs = self.asm.dofs
         K_red = self._pdelta_K[case.stiffness_from] if case.stiffness_from else self.K_reduced()
-        M_red = self.asm.mass_reduced()
+        M_full = self.mass_full_for(getattr(case, "mass_source", None))
+        T = dofs.T
+        M_red = (T.T @ sparse.diags(M_full) @ T).tocsr()
         Kf = self._free_matrix(K_red)
         Mf = self._free_matrix(M_red)
+        self._check_mass(Mf, case.name)
         if case.method.lower() == "ritz":
             self.am.warnings.append("Ritz vectors not implemented; eigenvectors used instead")
         # the static factor is of this same matrix: the modal condensation reuses it
@@ -431,6 +557,12 @@ class Engine:
             w2, phi_free = self.kernel.eigen(Kf, Mf, case.max_modes, shift=case.shift, factor=fac)
         except TypeError:  # a kernel without the factor argument
             w2, phi_free = self.kernel.eigen(Kf, Mf, case.max_modes, shift=case.shift)
+        bad = ~np.isfinite(w2) | (w2 < 0)
+        if np.any(bad):
+            raise ModelError("NEGATIVE_EIGENVALUE",
+                             f"Modal case {case.name!r}: {int(bad.sum())} eigenvalue(s) are negative or not finite "
+                             f"(lowest {float(np.min(w2)):.4g} rad^2/s^2) - the mass or the stiffness is not positive "
+                             "(negative mass / density, or an unstable stiffness); no modal results are given")
         if case.cutoff > 0:
             keep = np.sqrt(np.maximum(w2, 0)) / (2 * np.pi) <= case.cutoff
             keep[:max(case.min_modes, 1)] = True
@@ -443,7 +575,6 @@ class Engine:
         phi_red[dofs.free] = phi_free
         phi_full = dofs.T @ phi_red
         # participation
-        M_full = self.asm.mass_full()
         com = self._center_of_mass(M_full)
         part = np.zeros((n_modes, 6))
         total = np.zeros(6)
@@ -463,7 +594,72 @@ class Engine:
         res = CaseResult(case.name, "Modal", np.zeros((self.am.n_nodes, 6)), {},
                          np.zeros((len(self.am.frames), 12)), modal=modal)
         res.modal_displacements = np.transpose(phi_full.reshape(self.am.n_nodes, 6, n_modes), (2, 0, 1))
+        res.mass_full = M_full
         return res
+
+    def _accidental_torsion(self, case, acc_full: np.ndarray, M_full: np.ndarray, warnings: List[str]):
+        """Static response to the accidental torsion of a spectrum case (CSI SAP2000 /
+        ETABS 2013 procedure): at every joint of a rigid diaphragm the combined X and Y
+        accelerations times the joint's mass times the eccentricity (ratio x diaphragm
+        extent across the motion) give two torsions; the larger is applied about the
+        joint.  Returns (u_full, reactions, end forces, base resultant) or None."""
+        am = self.am
+        xyz = am.coords()
+        F = np.zeros(self.asm.dofs.n_full)
+        n_diaph = 0
+        skipped = 0
+        for c in am.constraints:
+            if not c.rigid:
+                skipped += 1
+                continue
+            ids = list(c.nodes)
+            if not ids:
+                continue
+            ax = [a for a in range(3) if a != c.normal]  # the two in-plane axes
+            ext = xyz[ids][:, ax].max(axis=0) - xyz[ids][:, ax].min(axis=0)
+            e0, e1 = case.eccentricity_ratio * ext[1], case.eccentricity_ratio * ext[0]
+            t = 0.0
+            for n in ids:
+                m0, m1 = M_full[6 * n + ax[0]], M_full[6 * n + ax[1]]
+                a0, a1 = acc_full[6 * n + ax[0]], acc_full[6 * n + ax[1]]
+                t += max(abs(m0 * a0 * e0), abs(m1 * a1 * e1))
+            if t:
+                F[6 * c.master + 3 + c.normal] += t
+                n_diaph += 1
+        if skipped:
+            warnings.append(f"Spectrum {case.name}: accidental eccentricity is applied to rigid diaphragms only; "
+                            f"{skipped} semi-rigid diaphragm(s) get no accidental torsion")
+        if not n_diaph:
+            warnings.append(f"Spectrum {case.name}: eccentricity ratio {case.eccentricity_ratio:g} has no effect - "
+                            "the model has no rigid diaphragm with lateral mass (CSI applies accidental torsion "
+                            "at diaphragms only)")
+            return None
+        stiff = getattr(self.model.load_cases.get(case.modal_case), "stiffness_from", None)
+        u = self._solve_static(F, stiff)
+        K_full = self._pdelta_K_full[stiff] if stiff else None
+        reactions, ef, _, _ = self._recover(u, {}, F, K_full)
+        base = np.zeros(6)
+        for nid, rv in reactions.items():
+            base[:3] += rv[:3]
+            base[3:] += rv[3:] + np.cross(xyz[nid], rv[:3])
+        if self._last_distributed is not None:
+            base += self._last_distributed
+        return u, reactions, ef, base
+
+    def _check_mass(self, Mf, what: str):
+        """The assembled mass of the free DOFs must not be negative (negative added mass is
+        allowed while the net mass of every DOF stays >= 0)."""
+        d = np.asarray(Mf.diagonal()).ravel()
+        if d.size == 0:
+            return
+        tol = 1e-9 * max(float(np.max(np.abs(d))), 1e-300)
+        neg = np.where(d < -tol)[0]
+        if neg.size:
+            raise ModelError("NEGATIVE_MASS",
+                             f"Modal case {what!r}: the net mass is negative at {len(neg)} degree(s) of freedom "
+                             f"({self._dof_labels(neg)}; "
+                             f"lowest {float(d[neg].min()):.4g}) - check negative added mass, mass from loads "
+                             "and material densities; no modal results are given")
 
     def _modal_factor(self, Kf):
         """The static factor of K, when it exists or can be made cleanly (a stiffness
@@ -494,11 +690,12 @@ class Engine:
     def response_spectrum(self, case: ResponseSpectrumCase) -> CaseResult:
         if case.modal_case not in self.results:
             raise ModelError("CASE_ORDER", f"Run modal case {case.modal_case!r} before {case.name!r}")
+        check_spectrum_case(case)
         modal = self.results[case.modal_case].modal
         n_modes = modal.n_modes
         omega = modal.omega
         phi = modal.shapes  # (n_full, n_modes)
-        M_full = self.asm.mass_full()
+        M_full = self._case_mass(case.modal_case)
         ang = math.radians(case.angle)
         dir_vectors = {
             "U1": np.array([math.cos(ang), math.sin(ang), 0.0]),
@@ -533,8 +730,22 @@ class Engine:
 
         # modal combination per direction
         rho = _correlation(omega, case.damping, case.modal_combination)
+        alpha = _rigid_fractions(omega, case)
+
+        def comb(arr):
+            """Modal combination; with rigid frequencies (f1, f2) the response of each mode
+            is split into a periodic part (combined by the rule) and a rigid part (added
+            algebraically over the modes), Gupta / CSI: R = sqrt(Rp^2 + Rr^2)."""
+            if alpha is None:
+                return _combine_modes(arr, rho)
+            a = alpha.reshape((-1,) + (1,) * (arr.ndim - 1))
+            per = _combine_modes(arr * np.sqrt(1.0 - a * a), rho)
+            rig = np.abs(np.sum(arr * a, axis=0))
+            return np.sqrt(per * per + rig * rig)
+
         per_dir = []
         base_dir = []
+        acc_dir = []
         for u_modes in dir_results:
             disp_m = u_modes  # (n_modes, n_full)
             ef_m = np.zeros((n_modes, len(self.am.frames), 12))
@@ -548,21 +759,37 @@ class Engine:
                     xyz = np.asarray(self.am.nodes[nid].xyz, float)
                     base_m[n, :3] += rv[:3]
                     base_m[n, 3:] += rv[3:] + np.cross(xyz, rv[:3])
+                if self._last_distributed is not None:  # distributed supports (frame foundations)
+                    base_m[n] += self._last_distributed
             per_dir.append((
-                _combine_modes(disp_m, rho), _combine_modes(ef_m.reshape(n_modes, -1), rho).reshape(len(self.am.frames), 12),
-                {nid: _combine_modes(arr, rho) for nid, arr in react_m.items()},
+                comb(disp_m), comb(ef_m.reshape(n_modes, -1)).reshape(len(self.am.frames), 12),
+                {nid: comb(arr) for nid, arr in react_m.items()},
             ))
             # like ETABS, the base reaction is combined from the modal totals, not summed
             # from the (positive) envelopes of the individual supports
-            base_dir.append(_combine_modes(base_m, rho))
+            base_dir.append(comb(base_m))
+            if case.eccentricity_ratio:
+                acc_dir.append(comb(disp_m * (omega ** 2)[:, None]))  # joint (pseudo) accelerations
         # directional combination
         disp = _combine_directions([p[0] for p in per_dir], case)
         ef = _combine_directions([p[1] for p in per_dir], case)
         react_nodes = set().union(*[p[2].keys() for p in per_dir]) if per_dir else set()
         reactions = {nid: _combine_directions([p[2].get(nid, np.zeros(6)) for p in per_dir], case) for nid in react_nodes}
+        spectrum_base = _combine_directions(base_dir, case) if base_dir else np.zeros(6)
+        ecc = None
+        if case.eccentricity_ratio and acc_dir:
+            ecc = self._accidental_torsion(case, _combine_directions(acc_dir, case), M_full, warnings)
+            if ecc is not None:  # its static response is added to the spectrum envelope (+/- eccentricity)
+                u_t, react_t, ef_t, base_t = ecc
+                disp = disp + np.abs(u_t)
+                ef = ef + np.abs(ef_t)
+                for nid, rv in react_t.items():
+                    reactions[nid] = reactions.get(nid, np.zeros(6)) + np.abs(rv)
+                spectrum_base = spectrum_base + np.abs(base_t)
         res = CaseResult(case.name, "ResponseSpectrum", disp.reshape(-1, 6), reactions, ef, {}, {}, is_envelope=True,
                          modal=modal)
-        res.spectrum_base = _combine_directions(base_dir, case) if base_dir else np.zeros(6)
+        res.spectrum_base = spectrum_base
+        res.static_addition = None if ecc is None else ecc[0].reshape(-1, 6)  # accidental torsion response
         res.modal_displacements = np.stack([d.reshape(n_modes, self.am.n_nodes, 6) for d in dir_results]) if dir_results else None
         res.warnings = warnings
         return res
@@ -599,7 +826,10 @@ def _correlation(omega: np.ndarray, zeta: float, method: str) -> np.ndarray:
                     if lo > 0 and (hi - lo) <= 0.1 * lo:
                         rho[i, j] = 1.0
         return rho.view(AbsoluteCorrelation)
-    # CQC (Der Kiureghian) ; GMC treated as CQC
+    if method not in ("CQC", "GMC"):
+        raise ModelError("INVALID_COMBINATION", f"Unknown modal combination {method!r}")
+    # CQC (Der Kiureghian); GMC: the same correlation of the periodic parts (Gupta), the
+    # rigid parts are added algebraically (see _rigid_fractions)
     rho = np.eye(n)
     for i in range(n):
         for j in range(n):
@@ -610,6 +840,30 @@ def _correlation(omega: np.ndarray, zeta: float, method: str) -> np.ndarray:
             den = (1 - r * r) ** 2 + 4 * zeta ** 2 * r * (1 + r) ** 2
             rho[i, j] = num / den if den > 0 else 1.0
     return rho
+
+
+MODAL_COMBINATIONS = ("CQC", "SRSS", "ABS", "GMC", "NRC10%")
+DIRECTIONAL_COMBINATIONS = ("SRSS", "ABS")
+
+
+def check_spectrum_case(case) -> None:
+    """Refuse spectrum options that are unknown or not implemented (never substituted)."""
+    from ..model.loads import spectrum_case_problems
+    probs = spectrum_case_problems(case)
+    if probs:
+        raise ModelError(probs[0][0], "; ".join(m for _, m in probs))
+
+
+def _rigid_fractions(omega: np.ndarray, case) -> Optional[np.ndarray]:
+    """Rigid-response coefficient of each mode (Gupta): alpha = ln(f/f1) / ln(f2/f1)
+    clipped to [0, 1]; None when the case gives no rigid frequencies."""
+    if case.rigid_response is None:
+        return None
+    f1, f2 = float(case.rigid_response[0]), float(case.rigid_response[1])
+    f = np.asarray(omega, float) / (2 * np.pi)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        a = np.log(np.where(f > 0, f, f1) / f1) / math.log(f2 / f1)
+    return np.clip(a, 0.0, 1.0)
 
 
 def _combine_modes(values: np.ndarray, rho: np.ndarray) -> np.ndarray:
@@ -634,7 +888,7 @@ def _combine_directions(items: List[np.ndarray], case: ResponseSpectrumCase) -> 
         return np.zeros(0)
     method = case.directional_combination.upper()
     arr = np.stack(items)
-    if method in ("SRSS", "CQC3"):
+    if method == "SRSS":
         return np.sqrt(np.sum(arr * arr, axis=0))
     if method in ("ABS", "ABSSUM"):
         return case.directional_abs_factor * np.sum(np.abs(arr), axis=0)

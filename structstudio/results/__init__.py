@@ -227,19 +227,34 @@ class Results:
         return rows
 
     def base_reactions(self, case: str) -> np.ndarray:
-        """Sum of support reactions (FX, FY, FZ) in model units.  For spectrum
-        cases the modal base totals are combined (CQC/SRSS...), as in ETABS."""
-        r = self.cases.get(case)
-        if r is not None and getattr(r, "spectrum_base", None) is not None:
-            return r.spectrum_base[:3] / self.U.factor("force")
-        env = self.reaction_envelope(case)
-        tot = np.zeros(3)
-        for e in env.values():
-            tot += e.max[:3]
-        dist = self._distributed_reaction(case)
-        if dist is not None:
-            tot += dist.max[:3]
-        return tot
+        """Sum of support reactions (FX, FY, FZ) in model units (the max of an envelope).
+        Spectrum cases: the modal base totals are combined (CQC/SRSS...), as in ETABS;
+        combinations combine the base totals of their cases (never the sum of the
+        separately combined support maxima)."""
+        return self.base_reaction_envelope(case).max[:3]
+
+    def base_reaction_envelope(self, case: str) -> Envelope:
+        """Base resultant (FX, FY, FZ, MX, MY, MZ about the global origin), model units:
+        supports, springs, grounded links and distributed supports."""
+        if case in self.model.load_combinations:
+            return self._combine(self._combo(case), self.base_reaction_envelope)
+        r = self._case(case)
+        ff = self._force_factor()
+        if getattr(r, "spectrum_base", None) is not None:
+            return Envelope.symmetric(r.spectrum_base * ff)
+        h = r.history if isinstance(r.history, dict) else None
+        if h is not None and "base_reaction" in h and "envelope" in h:  # time history: peaks over time
+            br = np.asarray(h["base_reaction"], float)
+            return Envelope(br.max(axis=0) * ff, br.min(axis=0) * ff)
+        tot = np.zeros(6)
+        for nid, rv in r.reactions.items():
+            x = np.asarray(self.am.nodes[nid].xyz, float)
+            tot[:3] += rv[:3]
+            tot[3:] += rv[3:] + np.cross(x, rv[:3])
+        if getattr(r, "distributed_reaction", None) is not None:
+            tot += r.distributed_reaction
+        v = tot * ff
+        return Envelope.symmetric(v) if r.is_envelope else Envelope.single(v)
 
     def _distributed_reaction(self, case: str) -> Optional[Envelope]:
         """Reaction of distributed supports (frame foundations), model units."""
@@ -289,6 +304,19 @@ class Results:
             x1 = L - el.end_offset_j
             n = max(2, el.stations)
             xs = np.linspace(x0, x1, n)
+            # also at the point loads and at the ends of partial span loads of every pattern
+            # (where the moment diagram has its kinks and peaks)
+            extra = []
+            for ld in getattr(fe.el, "loads", []) or []:
+                if getattr(ld, "kind", "") in ("point", "distributed"):
+                    extra += [float(ld.x_a), float(ld.x_b)]
+            if extra:
+                tol = 1e-6 * max(L, 1.0)
+                ex = [x for x in extra if x0 + tol < x < x1 - tol]
+                if ex:
+                    allx = np.sort(np.concatenate([xs, ex]))
+                    keep = np.concatenate([[True], np.diff(allx) > tol])
+                    xs = allx[keep]
             x_obj = el.rel_start * L_obj + xs
             out.append((eid, xs, x_obj))
         return out
@@ -375,16 +403,35 @@ class Results:
                     break
         return FrameStationForces(frame, case, np.asarray(stations, float), out, out_min)
 
-    def _rs_station_forces(self, r: CaseResult, fe, xs: np.ndarray) -> np.ndarray:
-        from ..engine.solvers import _combine_directions, _correlation, _combine_modes
+    def _rs_combine(self, r: CaseResult, value_of_u) -> np.ndarray:
+        """Spectrum combination of a quantity that is linear in the displacements: the
+        quantity of every signed mode / direction is combined (modal rule with the rigid
+        part, then the directional rule), and the accidental-torsion response added.
+        ``value_of_u(u_full SI) -> array``.  Never the difference of combined values."""
+        from ..engine.solvers import _combine_directions, _correlation, _combine_modes, _rigid_fractions
         case = self.model.load_cases[r.case]
-        rho = _correlation(r.modal.omega, case.damping, case.modal_combination)
-        d = self.engine.asm._element_dofs(fe.el.nodes)
+        omega = r.modal.omega
+        rho = _correlation(omega, case.damping, case.modal_combination)
+        alpha = _rigid_fractions(omega, case)
         per_dir = []
         for u_modes in r.modal_displacements:  # (n_modes, n_nodes, 6)
-            vals = np.array([fe.internal_forces(u_modes[n].reshape(-1)[d], [], xs) for n in range(u_modes.shape[0])])
-            per_dir.append(_combine_modes(vals, rho))
-        return _combine_directions(per_dir, case)
+            vals = np.array([value_of_u(u_modes[n].reshape(-1)) for n in range(u_modes.shape[0])])
+            if alpha is None:
+                per_dir.append(_combine_modes(vals, rho))
+            else:
+                a = alpha.reshape((-1,) + (1,) * (vals.ndim - 1))
+                per = _combine_modes(vals * np.sqrt(1.0 - a * a), rho)
+                rig = np.abs(np.sum(vals * a, axis=0))
+                per_dir.append(np.sqrt(per * per + rig * rig))
+        out = _combine_directions(per_dir, case)
+        extra = getattr(r, "static_addition", None)
+        if extra is not None:
+            out = out + np.abs(value_of_u(np.asarray(extra).reshape(-1)))
+        return out
+
+    def _rs_station_forces(self, r: CaseResult, fe, xs: np.ndarray) -> np.ndarray:
+        d = self.engine.asm._element_dofs(fe.el.nodes)
+        return self._rs_combine(r, lambda u: fe.internal_forces(u[d], [], xs))
 
     def frame_end_forces(self, frame: str, case: str) -> np.ndarray:
         """Forces at the two ends of the object (first element I, last element J)
@@ -486,8 +533,8 @@ class Results:
         """Max / min joint displacements over a time history (model units)."""
         h = self._hist(case)
         env = h["envelope"]
-        f = self._disp_factor()
-        return {"displacements": Envelope(env["disp_max"] / f, env["disp_min"] / f)}
+        f = self._disp_factor()  # SI -> model units (a multiplier, as everywhere else)
+        return {"displacements": Envelope(env["disp_max"] * f, env["disp_min"] * f)}
 
     def time_history_frame_envelope(self, frame: str, case: str) -> np.ndarray:
         """Max / min local end forces of the elements of a frame object over a time
@@ -497,7 +544,7 @@ class Results:
         ff = np.concatenate([self._force_factor()] * 2)
         out = []
         for eid in self.am.object_to_frames.get(frame, []):
-            out.append(np.vstack([env["frame_max"][eid] / ff, env["frame_min"][eid] / ff]))
+            out.append(np.vstack([env["frame_max"][eid] * ff, env["frame_min"][eid] * ff]))
         return np.array(out)
 
     def story_drift_history(self, case: str) -> List[dict]:
@@ -597,72 +644,180 @@ class Results:
         return np.array([d[0] - d[2] * dy, d[1] + d[2] * dx])
 
     # ---------------------------------------------------------- stories
+    def _signed_envelope(self, case: str, value_of_u, value_of_case=None) -> Envelope:
+        """Envelope of a quantity formed from the signed response of each case (and of each
+        mode of a spectrum case, where it must be linear in the displacements) BEFORE any
+        combination.  ``value_of_case(r)``: the value of a single case (with its loads)."""
+        if case in self.model.load_combinations:
+            return self._combine(self._combo(case), lambda n: self._signed_envelope(n, value_of_u, value_of_case))
+        r = self._case(case)
+        if r.is_envelope and r.modal_displacements is not None:
+            return Envelope.symmetric(self._rs_combine(r, value_of_u))
+        if r.is_envelope:
+            raise ModelError("NOT_AVAILABLE", f"Case {case!r}: the signed response is not available")
+        if value_of_case is not None:
+            return Envelope.single(np.asarray(value_of_case(r), float))
+        return Envelope.single(np.asarray(value_of_u(r.displacements.reshape(-1)), float))
+
     def story_drifts(self, case: str) -> List[dict]:
-        """Maximum drift ratio per story in X and Y (point-based, like CSI)."""
-        env = self.displacement_envelope(case)
+        """Maximum drift ratio per story in X and Y (point-based, like CSI): the drift of
+        every pair of points above each other is formed from the signed displacements of
+        each case / mode first, then combined (never the difference of two envelopes)."""
         stories = self.model.stories_bottom_up()
-        rows = []
+        pairs = []  # (story index, point, node above, node below, height SI)
+        L = self.U.factor("length")
         for k in range(1, len(stories)):
             s, below = stories[k], stories[k - 1]
             h = s.elevation - below.elevation
             if h <= 0:
                 continue
-            best = {"X": (0.0, None), "Y": (0.0, None)}
             for p in self.model.points.values():
                 if p.story != s.name:
                     continue
                 q = self.model.find_point(p.x, p.y, below.elevation)
                 if q is None:
                     continue
-                dp = env.max[self._node_of_point(p.name)]
-                dq = env.max[self._node_of_point(q.name)]
-                for j, lab in ((0, "X"), (1, "Y")):
-                    drift = abs(dp[j] - dq[j]) / h
-                    if drift > best[lab][0]:
-                        best[lab] = (drift, p.name)
-            for lab in ("X", "Y"):
-                rows.append({"Story": s.name, "OutputCase": case, "Direction": lab, "Drift": float(best[lab][0]),
-                             "Label": best[lab][1]})
-        return rows
-
-    def story_shears(self, case: str) -> List[dict]:
-        """Story shear (VX, VY) and axial sum (P) just below each story level,
-        from the internal forces of all frame elements (columns, braces,
-        inclined members) crossing a horizontal plane slightly below the
-        level.  Wall (shell) contributions are not included yet."""
-        stories = self.model.stories_bottom_up()
-        L = self.U.factor("length")
-        F = self.U.factor("force")
+                pairs.append((k, p.name, self._node_of_point(p.name), self._node_of_point(q.name), h * L))
+        n_full = 6 * self.am.n_nodes
+        rows_i, cols_i, vals_i = [], [], []
+        for m, (_, _, na, nb, hh) in enumerate(pairs):
+            for j in (0, 1):
+                rows_i += [2 * m + j, 2 * m + j]
+                cols_i += [6 * na + j, 6 * nb + j]
+                vals_i += [1.0 / hh, -1.0 / hh]
+        from scipy import sparse
+        C = sparse.csr_matrix((vals_i, (rows_i, cols_i)), shape=(2 * len(pairs), n_full))
+        bound = False
+        r = self.cases.get(case)
+        h = r.history if (r is not None and isinstance(r.history, dict)) else None
+        if case not in self.model.load_combinations and h is not None and "envelope" in h:
+            env_d = self._th_drift(C, h)
+            bound = env_d is None
+            if bound:  # not every point was recorded: a safe bound from the joint envelopes
+                dmax = np.asarray(h["envelope"]["disp_max"]).reshape(-1)
+                dmin = np.asarray(h["envelope"]["disp_min"]).reshape(-1)
+                Cp, Cn = C.maximum(0), C.minimum(0)
+                env_d = Envelope(Cp @ dmax + Cn @ dmin, Cp @ dmin + Cn @ dmax)
+        else:
+            env_d = self._signed_envelope(case, lambda u: C @ u)
+        mag = np.maximum(np.abs(env_d.max), np.abs(env_d.min))
         rows = []
-        r = self._case(case) if case not in self.model.load_combinations else None
-        frames = self.engine.asm.frames
-        ZA, ZB = self._frame_end_z()
-        ZLO, ZHI = np.minimum(ZA, ZB), np.maximum(ZA, ZB)
         for k in range(1, len(stories)):
             s, below = stories[k], stories[k - 1]
-            z_cut = (s.elevation - 0.02 * (s.elevation - below.elevation)) * L
-            total = np.zeros(3)
-            total_min = np.zeros(3)
-            # the elements crossing the cut (in element order, as the sums were made)
+            if s.elevation - below.elevation <= 0:
+                continue
+            for j, lab in ((0, "X"), (1, "Y")):
+                best = (0.0, None)
+                for m, pr in enumerate(pairs):
+                    if pr[0] == k and mag[2 * m + j] > best[0]:
+                        best = (float(mag[2 * m + j]), pr[1])
+                row = {"Story": s.name, "OutputCase": case, "Direction": lab, "Drift": best[0], "Label": best[1]}
+                if bound:
+                    row["Bound"] = True  # from the joint envelopes: an upper bound
+                rows.append(row)
+        return rows
+
+    def _th_drift(self, C, h) -> Optional[Envelope]:
+        """Drifts over a time history from the recorded joints, None when a point is not recorded."""
+        mon = list(h.get("monitor_nodes", []))
+        disp = h.get("displacements")
+        if disp is None or not mon:
+            return None
+        cols = np.unique(C.indices)
+        pos = {n: i for i, n in enumerate(mon)}
+        if any(int(c) // 6 not in pos for c in cols):
+            return None
+        D = np.asarray(disp)  # (n_t, n_mon, 6)
+        U = np.zeros((D.shape[0], 6 * self.am.n_nodes))
+        for n, i in pos.items():
+            U[:, 6 * n:6 * n + 6] = D[:, i, :]
+        V = (C @ U.T).T
+        return Envelope(V.max(axis=0), V.min(axis=0))
+
+    def story_shears(self, case: str) -> List[dict]:
+        """Story shear (VX, VY) and axial sum (P) just below each story level: the force
+        transferred from below to above through every element crossing a horizontal
+        plane slightly below the level - frame elements (columns, braces, inclined
+        members) and shell elements (walls).  Each case (and each mode of a spectrum
+        case) is cut first, then combined."""
+        stories = self.model.stories_bottom_up()
+        F = self.U.factor("force")
+        r = self.cases.get(case)
+        if r is not None and isinstance(r.history, dict) and "envelope" in r.history:
+            raise ModelError("NOT_AVAILABLE", f"Story shears of the time history {case!r} are not available (only "
+                                              "the final step is kept); use the base reaction history")
+        cuts = []
+        L = self.U.factor("length")
+        for k in range(1, len(stories)):
+            s, below = stories[k], stories[k - 1]
+            cuts.append((s.name, (s.elevation - 0.02 * (s.elevation - below.elevation)) * L))
+        if not cuts:
+            return []
+        z_cuts = np.array([z for _, z in cuts])
+
+        env = self._signed_envelope(
+            case, lambda u: self._story_cut_forces(u, z_cuts, None).reshape(-1),
+            lambda rc: self._story_cut_forces(rc.displacements.reshape(-1), z_cuts, rc).reshape(-1))
+        tmax = env.max.reshape(-1, 3)
+        tmin = env.min.reshape(-1, 3)
+        rows = []
+        for k, (name, _) in enumerate(cuts):
+            row = {"Story": name, "OutputCase": case, "VX": float(tmax[k, 0] / F), "VY": float(tmax[k, 1] / F),
+                   "P": float(tmax[k, 2] / F)}
+            if not np.allclose(tmax[k], tmin[k]):
+                row.update({"VXMin": float(tmin[k, 0] / F), "VYMin": float(tmin[k, 1] / F),
+                            "PMin": float(tmin[k, 2] / F)})
+            rows.append(row)
+        return rows
+
+    def _story_cut_forces(self, u_full: np.ndarray, z_cuts: np.ndarray, r: Optional[CaseResult]) -> np.ndarray:
+        """(n_cuts, 3) global force transferred from below to above each cut (SI), for the
+        displacements ``u_full``; with the element loads (and the nonlinear end forces) of
+        case ``r``, or without any (a spectrum mode) when ``r`` is None."""
+        asm = self.engine.asm
+        frames = asm.frames
+        ZA, ZB = self._frame_end_z()
+        ZLO, ZHI = np.minimum(ZA, ZB), np.maximum(ZA, ZB)
+        out = np.zeros((len(z_cuts), 3))
+        for k, z_cut in enumerate(z_cuts):
             for i in np.flatnonzero((ZLO < z_cut) & (z_cut < ZHI)):
                 fe = frames[int(i)]
                 za, zb = float(ZA[i]), float(ZB[i])
-                t = (z_cut - za) / (zb - za)
-                x = np.array([t * fe.kin.L])
-                env = self._element_force_envelope(case, fe, x)
-                for arr, acc in ((env.max, total), (env.min, total_min)):
-                    f_local = arr[0, :3]
-                    f_global = fe.kin.axes.T @ f_local
-                    # section force on the +1 face = force of the J-side on the I-side.
-                    # we want the force transferred from below to above: flip when I is above
-                    sign = 1.0 if za < zb else -1.0
-                    acc += sign * f_global
-            row = {"Story": s.name, "OutputCase": case, "VX": float(total[0] / F), "VY": float(total[1] / F),
-                   "P": float(total[2] / F)}
-            if not np.allclose(total, total_min):
-                row.update({"VXMin": float(total_min[0] / F), "VYMin": float(total_min[1] / F), "PMin": float(total_min[2] / F)})
-            rows.append(row)
-        return rows
+                x = np.array([(z_cut - za) / (zb - za) * fe.kin.L])
+                d = asm._element_dofs(fe.el.nodes)
+                eid = fe.el.id
+                if r is None:
+                    f = fe.internal_forces(u_full[d], [], x)[0, :3]
+                else:
+                    f = fe.internal_forces(u_full[d], r.frame_loads.get(eid, []), x, _exact_end(r, eid))[0, :3]
+                # section force on the +1 face = force of the J side on the I side; we want
+                # the force from below to above: flip when I is above
+                sign = 1.0 if za < zb else -1.0
+                out[k] += sign * (fe.kin.axes.T @ f)
+        # shells crossing a cut: the nodal forces of the element at its nodes above the cut
+        # (same sign convention as the frames: + along the load applied above the cut)
+        shells = asm.shells
+        if shells:
+            nz = np.array([n.xyz[2] for n in self.am.nodes], float)
+            pats = {}
+            if r is not None:
+                case_obj = self.model.load_cases.get(r.case)
+                lds = getattr(case_obj, "loads", None)
+                pats = lds if isinstance(lds, dict) else {}
+            for se in shells:
+                zs = nz[list(se.el.nodes)]
+                hit = [k for k, z_cut in enumerate(z_cuts) if zs.min() < z_cut < zs.max()]
+                if not hit:
+                    continue
+                d = asm._element_dofs(se.el.nodes)
+                fn = se.stiffness_global() @ u_full[d]  # nodal forces that hold the element deformed
+                for pat, sf in pats.items():
+                    fn = fn - sf * se.load_vector_global(pat, self.am.self_weight.get(pat, 0.0))
+                for k in hit:
+                    for a, nid in enumerate(se.el.nodes):
+                        if nz[nid] > z_cuts[k]:
+                            out[k] += fn[6 * a:6 * a + 3]
+        return out
 
     def _frame_end_z(self):
         """Z of the two ends (with offsets) of every analysis frame element (SI)."""

@@ -10,6 +10,7 @@ from scipy import sparse
 
 from ...model.base import ModelError
 from ..results import CaseResult
+from ..solvers import _scale_load
 from .analysis import ConvergenceTest, Damping, GroundMotion, StaticAnalysis, StepFailed, TimeLoad, TransientAnalysis
 from .elements import ElementNonConvergence
 from .builder import NonlinearBuilder
@@ -76,13 +77,28 @@ class NonlinearRunner:
         return dom, const, ref0
 
     # ------------------------------------------------------------ recording
-    def _base_reaction(self, reactions: Dict[int, np.ndarray]) -> np.ndarray:
+    def _base_reaction(self, reactions: Dict[int, np.ndarray], u_full: Optional[np.ndarray] = None) -> np.ndarray:
         tot = np.zeros(6)
         for nid, r in reactions.items():
             x = np.asarray(self.am.nodes[nid].xyz, float)
             tot[:3] += r[:3]
             tot[3:] += r[3:] + np.cross(x, r[:3])
+        if u_full is not None:
+            dist = self._distributed_reaction(u_full)
+            if dist is not None:
+                tot += dist
         return tot
+
+    def _distributed_reaction(self, u_full: np.ndarray) -> Optional[np.ndarray]:
+        """Resultant of the distributed supports (frame foundations), global, about the origin."""
+        dist = None
+        for fe in self.asm.frames:
+            if getattr(fe.el, "foundation", None) is None:
+                continue
+            fr = fe.foundation_reaction_global(u_full[self.asm._element_dofs(fe.el.nodes)])
+            if fr is not None:
+                dist = fr.copy() if dist is None else dist + fr
+        return dist
 
     def _state(self, dom: NonlinearDomain):
         u = dom.u
@@ -96,6 +112,7 @@ class NonlinearRunner:
         ef = dom.frame_end_forces(uf)
         res = CaseResult(case.name, kind, uf.reshape(-1, 6), react, ef, dom.frame_loads_scaled(),
                          dom.shell_resultants(uf))
+        res.distributed_reaction = self._distributed_reaction(uf)
         res.diagnostics["nonlinear"] = True
         res.diagnostics["end_forces_exact"] = True
         res.history = history
@@ -104,6 +121,7 @@ class NonlinearRunner:
     # ===================================================== nonlinear static
     def nonlinear_static(self, case) -> CaseResult:
         U = self.model.units
+        self._reject_prescribed(case, case.loads)
         dom, const, ref0 = self._start(case, case.geometric_nonlinearity)
         unload = (getattr(case, "hinge_unloading", None) or "Redistribute").lower()
         redistribute = unload.startswith("redis")
@@ -139,7 +157,7 @@ class NonlinearRunner:
             uf, react = self._state(dom)
             st = {"step": len(steps) + 1, "lambda": sa.lam,
                   "control": float(ctrl_c @ dom.u) if ctrl_c is not None else None,
-                  "base_reaction": self._base_reaction(react), "hinges": dom.hinge_results()}
+                  "base_reaction": self._base_reaction(react, uf), "hinges": dom.hinge_results()}
             steps.append(st)
             if case.save_steps.lower().startswith("mult"):
                 disps.append(uf.reshape(-1, 6).copy())
@@ -233,9 +251,22 @@ class NonlinearRunner:
         return res
 
     # ======================================================= time history
+    def _reject_prescribed(self, case, patterns) -> None:
+        """Ground (support) displacements are applied by the linear static solver only:
+        a nonlinear / time-history case of such a pattern is refused, not run without them."""
+        pats = {p for p in patterns if p}
+        for node in self.am.nodes:
+            for pat, dg in (node.ground_disp or {}).items():
+                if pat in pats and dg is not None and np.any(np.asarray(dg) != 0):
+                    raise ModelError("NOT_IMPLEMENTED",
+                                     f"Case {case.name!r}: load pattern {pat!r} has a ground (support) displacement "
+                                     f"at {node.point or f'node {node.id}'}; prescribed displacements are applied "
+                                     "by linear static cases only - this case type cannot use them yet")
+
     def _ground_and_loads(self, case):
         U = self.model.units
         ground, tloads = [], []
+        self._reject_prescribed(case, [ld.name for ld in case.loads if not ld.type.lower().startswith("acc")])
         for ld in case.loads:
             fn = self.model.functions.get(ld.function)
             if fn is None or not hasattr(fn, "times"):
@@ -318,7 +349,8 @@ class NonlinearRunner:
             if case.initial_case:
                 self.am.warnings.append(f"Case {case.name}: a linear time history starts from zero initial "
                                         "conditions; initial case ignored")
-            dom = NonlinearDomain(self.asm, {}, [], geometry="None")
+            dom = NonlinearDomain(self.asm, {}, NonlinearBuilder(self.model, self.am, self.asm).linear_links(),
+                                  geometry="None")
             const, ref0 = {}, None
         ground, tloads = self._ground_and_loads(case)
         damp = self._damping(case, dom)
@@ -366,13 +398,13 @@ class NonlinearRunner:
                 D.append(u6[mon].copy())
                 V.append(dom.full(ta.v).reshape(-1, 6)[mon].copy())
                 A.append(dom.full(ta.a).reshape(-1, 6)[mon].copy())
-                BR.append(self._base_reaction(react))
+                BR.append(self._base_reaction(react, uf))
                 AG.append([ta.ground_accel(ta.t).get(d, 0.0) for d in ("UX", "UY", "UZ")])
 
         record(0)
         for k in range(1, int(case.n_steps) + 1):
             try:
-                ta.step(dt)
+                ta.step(dt, k * dt)
             except ModelError as exc:
                 failed = exc.message
                 break
@@ -495,25 +527,10 @@ class NonlinearRunner:
                 d = Damping.rayleigh_from_periods(case.damping_ratio, T1, case.damping_ratio, T2)
                 a0, a1 = d.alpha_m, d.beta_k
             z = a0 / (2 * np.maximum(om, 1e-12)) + a1 * om / 2
-        if np.any(z[om > 1e-9] >= 0.999):
-            self.am.warnings.append(f"Case {case.name}: FNA modal damping limited to 99.9 % of critical in "
-                                    f"{int(np.sum(z >= 0.999))} basis vector(s) (Rayleigh coefficients overdamp them)")
-        z = np.minimum(z, 0.999)
+        _check_modal_damping(case.name, z)
         dt = float(case.dt)
-        w = np.maximum(om, 1e-12)
-        kk = w * w
-        s1 = np.sqrt(1 - z * z)
-        wd = w * s1
-        e = np.exp(-z * w * dt)
-        sn, cs = np.sin(wd * dt), np.cos(wd * dt)
-        cA = e * (z / s1 * sn + cs)
-        cB = e * sn / wd
-        cC = (2 * z / (w * dt) + e * (((1 - 2 * z * z) / (wd * dt) - z / s1) * sn - (1 + 2 * z / (w * dt)) * cs)) / kk
-        cD = (1 - 2 * z / (w * dt) + e * ((2 * z * z - 1) / (wd * dt) * sn + 2 * z / (w * dt) * cs)) / kk
-        cAp = -e * (w / s1 * sn)
-        cBp = e * (cs - z / s1 * sn)
-        cCp = (-1 / dt + e * ((w / s1 + z / (dt * s1)) * sn + cs / dt)) / kk
-        cDp = (1 - e * (z / s1 * sn + cs)) / (kk * dt)
+        # exact for under-, critically and over-damped modes (no cap on the damping)
+        cA, cB, cC, cD, cAp, cBp, cCp, cDp = _modal_step_coefficients(om, z, dt)
         rigid = om <= 1e-9
         tol, max_it = float(case.tolerance), max(int(case.max_iterations), 4) * 2
 
@@ -569,7 +586,7 @@ class NonlinearRunner:
                 D.append(u6[mon].copy())
                 V.append(dom.full(ta.v).reshape(-1, 6)[mon].copy())
                 A.append(dom.full(ta.a).reshape(-1, 6)[mon].copy())
-                BR.append(self._base_reaction(react))
+                BR.append(self._base_reaction(react, uf))
                 AG.append([ta.ground_accel(ta.t).get(d, 0.0) for d in ("UX", "UY", "UZ")])
                 LK.append([(lk.d.copy(), lk.f.copy()) for lk in dom.links])
 
@@ -647,7 +664,7 @@ class NonlinearRunner:
         om = modal.omega
         m = phi.shape[1]
         asm = self.asm
-        M = asm.mass_full()
+        M = eng._case_mass(case.modal_case)
         ground, tloads = self._ground_and_loads(case)
         n = int(case.n_steps)
         dt = float(case.dt)
@@ -675,7 +692,8 @@ class NonlinearRunner:
                 d = Damping.rayleigh_from_periods(case.damping_ratio, T1, case.damping_ratio, T2)
                 a0, a1 = d.alpha_m, d.beta_k
             z = a0 / (2 * np.maximum(om, 1e-12)) + a1 * om / 2
-        Q = _piecewise_exact(om, np.minimum(z, 0.999), P, dt)
+        _check_modal_damping(case.name, z)
+        Q = _piecewise_exact(om, z, P, dt)  # exact for any damping ratio >= 0
         # outputs
         U = Q @ phi.T  # (n+1, n_full)
         n_nodes = self.am.n_nodes
@@ -695,6 +713,46 @@ class NonlinearRunner:
                 rm.setdefault(nid, np.zeros((m, 6)))[k] = r
         EF = np.einsum("tm,mfk->tfk", Q, ef_m)
         RE = {nid: Q @ arr for nid, arr in rm.items()}
+        # the loads of the patterns: fixed-end actions of the loaded members and the static
+        # response of the DOFs without mass (which the modes follow only through the
+        # stiffness: u_z = K_zz^-1 (F_z - K_zm u_m)); both at the instantaneous load factor
+        final_loads: Dict[int, list] = {}
+        if tloads:
+            stiff = getattr(self.model.load_cases.get(case.modal_case), "stiffness_from", None)
+            K_red = eng._pdelta_K[stiff] if stiff else eng.K_reduced()
+            dofs = asm.dofs
+            Kf = eng._free_matrix(K_red)
+            T = dofs.T
+            Mf = eng._free_matrix((T.T @ sparse.diags(M) @ T).tocsr())
+            zz = np.where(np.asarray(abs(Mf).sum(axis=1)).ravel() <= 0)[0]
+            lu_zz = None
+            if zz.size:
+                from scipy.sparse.linalg import splu
+                try:
+                    lu_zz = splu(Kf[zz][:, zz].tocsc())
+                except RuntimeError:
+                    lu_zz = None
+            for tl in tloads:
+                F_full = asm.load_vector_full(tl.pattern)
+                u_c = np.zeros(dofs.n_full)
+                if lu_zz is not None:
+                    F_free = (T.T @ F_full)[dofs.free]
+                    u_red = np.zeros(T.shape[1])
+                    sol = np.zeros(len(dofs.free))
+                    sol[zz] = lu_zz.solve(F_free[zz])
+                    u_red[dofs.free] = sol
+                    u_c = T @ u_red
+                react_p, ef_p, el_p, _ = eng._recover(u_c, {tl.pattern: 1.0}, F_full, K_full)
+                fac = np.array([tl(tt) for tt in t])
+                for eid, lds in el_p.items():  # span loads of the final step (station forces)
+                    if lds and fac[-1]:
+                        final_loads.setdefault(eid, []).extend(_scale_load(ld, float(fac[-1])) for ld in lds)
+                if np.any(u_c):
+                    U = U + np.outer(fac, u_c)
+                EF = EF + fac[:, None, None] * ef_p[None]
+                for nid, rv in react_p.items():
+                    RE[nid] = RE.get(nid, np.zeros((n + 1, 6))) + np.outer(fac, rv)
+            U6 = U.reshape(n + 1, n_nodes, 6)
         BR = np.zeros((n + 1, 6))
         for nid, r in RE.items():
             x = np.asarray(self.am.nodes[nid].xyz, float)
@@ -709,10 +767,40 @@ class NonlinearRunner:
                              "react_min": {k: v.min(0) for k, v in RE.items()}},
                 "modal_damping": z}
         react_end = {nid: r[-1] for nid, r in RE.items()}
-        res = CaseResult(case.name, "LinearModalTimeHistory", U6[-1], react_end, EF[-1], {}, {})
+        res = CaseResult(case.name, "LinearModalTimeHistory", U6[-1], react_end, EF[-1], final_loads, {})
         res.diagnostics["end_forces_exact"] = True
         res.history = hist
         return res
+
+
+def _check_modal_damping(name: str, z: np.ndarray) -> None:
+    if np.any(~np.isfinite(z)) or np.any(z < 0):
+        raise ModelError("INVALID_DAMPING", f"Case {name!r}: modal damping ratios must be finite and >= 0 "
+                                            f"(got min {float(np.nanmin(z)):.4g})")
+
+
+def _modal_step_coefficients(omega: np.ndarray, zeta: np.ndarray, dt: float):
+    """Exact one-step coefficients of unit-mass oscillators q'' + 2 zeta w q' + w^2 q = p(t)
+    for a load linear over the step, any zeta >= 0 (under-, critically and over-damped):
+    matrix exponential of the augmented state [q, q', p0, s].  Returns
+    (A, B, C, D, A', B', C', D'): q1 = A q0 + B v0 + C p0 + D p1, v1 = A' q0 + B' v0 + C' p0 + D' p1."""
+    from scipy.linalg import expm
+    m = len(omega)
+    out = np.zeros((8, m))
+    for k in range(m):
+        w = float(max(omega[k], 0.0))
+        z = float(zeta[k])
+        Mx = np.zeros((4, 4))
+        Mx[0, 1] = 1.0
+        Mx[1, 0] = -w * w
+        Mx[1, 1] = -2.0 * z * w
+        Mx[1, 2] = 1.0
+        Mx[2, 3] = 1.0
+        E = expm(Mx * dt)
+        G1, G2 = E[:2, 2], E[:2, 3] / dt
+        c0, c1 = G1 - G2, G2
+        out[:, k] = [E[0, 0], E[0, 1], c0[0], c1[0], E[1, 0], E[1, 1], c0[1], c1[1]]
+    return tuple(out)
 
 
 def _piecewise_exact(omega: np.ndarray, zeta: np.ndarray, P: np.ndarray, dt: float) -> np.ndarray:
@@ -722,21 +810,7 @@ def _piecewise_exact(omega: np.ndarray, zeta: np.ndarray, P: np.ndarray, dt: flo
     Q = np.zeros((nt, m))
     qv = np.zeros(m)
     q = np.zeros(m)
-    w = np.maximum(omega, 1e-12)
-    z = zeta
-    k = w * w
-    s1 = np.sqrt(1 - z * z)
-    wd = w * s1
-    e = np.exp(-z * w * dt)
-    sn, cs = np.sin(wd * dt), np.cos(wd * dt)
-    A = e * (z / s1 * sn + cs)
-    B = e * sn / wd
-    C = (2 * z / (w * dt) + e * (((1 - 2 * z * z) / (wd * dt) - z / s1) * sn - (1 + 2 * z / (w * dt)) * cs)) / k
-    D = (1 - 2 * z / (w * dt) + e * ((2 * z * z - 1) / (wd * dt) * sn + 2 * z / (w * dt) * cs)) / k
-    Ap = -e * (w / s1 * sn)
-    Bp = e * (cs - z / s1 * sn)
-    Cp = (-1 / dt + e * ((w / s1 + z / (dt * s1)) * sn + cs / dt)) / k
-    Dp = (1 - e * (z / s1 * sn + cs)) / (k * dt)
+    A, B, C, D, Ap, Bp, Cp, Dp = _modal_step_coefficients(omega, zeta, dt)
     rigid = omega <= 1e-9
     for i in range(nt - 1):
         q_new = A * q + B * qv + C * P[i] + D * P[i + 1]

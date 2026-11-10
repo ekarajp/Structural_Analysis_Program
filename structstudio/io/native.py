@@ -22,9 +22,14 @@ class ConversionError(RuntimeError):
 
 
 def default_out_dir(path: str) -> str:
-    base = os.path.splitext(os.path.basename(path))[0]
+    """Conversion folder of one input file: its name plus a key of its full path and type,
+    so that two models with the same name (another folder, another program) never share
+    a folder and read each other's converted files."""
+    import hashlib
+    base, ext = os.path.splitext(os.path.basename(path))
+    key = hashlib.sha1(os.path.normcase(os.path.abspath(path)).encode("utf-8")).hexdigest()[:10]
     root = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), ".structstudio")
-    return os.path.join(root, "StructuralStudio", "import", base)
+    return os.path.join(root, "StructuralStudio", "import", f"{base}{ext.replace('.', '-')}-{key}")
 
 
 def installed_programs() -> List[str]:
@@ -46,7 +51,15 @@ def convert(path: str, out_dir: Optional[str] = None, timeout: float = 900.0) ->
             "Access tables and import that file.")
     out_dir = out_dir or default_out_dir(path)
     os.makedirs(out_dir, exist_ok=True)
-    before = set(glob.glob(os.path.join(out_dir, "*")))
+    # what is in the folder before this run (path -> (mtime, size)): only files this run
+    # writes or rewrites are its output - an older file of the same name is never taken
+    before = {}
+    for p in glob.glob(os.path.join(out_dir, "*")):
+        try:
+            st = os.stat(p)
+            before[p] = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            pass
     cmd = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SCRIPT, "-OutDir", out_dir,
            os.path.abspath(path)]
     try:
@@ -56,8 +69,18 @@ def convert(path: str, out_dir: Optional[str] = None, timeout: float = 900.0) ->
         raise ConversionError(f"Conversion of {path} timed out after {timeout:.0f} s") from exc
     log = (proc.stdout or "") + (proc.stderr or "")
     base = os.path.splitext(os.path.basename(path))[0]
-    produced = [p for p in glob.glob(os.path.join(out_dir, base + "*"))
-                if p.lower().endswith((".e2k", ".tables.txt")) and (p not in before or os.path.getmtime(p) > 0)]
+
+    def fresh(p):
+        try:
+            st = os.stat(p)
+        except OSError:
+            return False
+        return p not in before or before[p] != (st.st_mtime_ns, st.st_size)
+
+    # the converter writes <name>.e2k (ETABS only) and <name>.<Program>.tables.txt
+    etabs = os.path.splitext(path)[1].lower() in (".edb",)
+    produced = [p for p in glob.glob(os.path.join(out_dir, glob.escape(base) + ".*"))
+                if (p.lower().endswith(".tables.txt") or (etabs and p.lower().endswith(".e2k"))) and fresh(p)]
     if proc.returncode != 0 or not produced:
         raise ConversionError(f"The installed CSI program could not convert {os.path.basename(path)}:\n{log.strip()}")
     return sorted(produced, key=lambda p: (not p.lower().endswith(".e2k"), p))

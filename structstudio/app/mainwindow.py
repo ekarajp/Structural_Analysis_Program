@@ -264,7 +264,17 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         a.setCheckable(checkable)
         a.setChecked(checked)
         a.setToolTip(tip or (f"{text} ({shortcut})" if shortcut else text))
-        a.triggered.connect(slot)
+        from .menus import guarded_call
+        import inspect
+        try:
+            takes_arg = any(p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.VAR_POSITIONAL)
+                            for p in inspect.signature(slot).parameters.values())
+        except (TypeError, ValueError):
+            takes_arg = False
+        if takes_arg:
+            a.triggered.connect(lambda checked=False, s=slot: guarded_call(s, self, checked))
+        else:
+            a.triggered.connect(lambda checked=False, s=slot: guarded_call(s, self))
         return a
 
     def _menu_tool(self, cid: str, icon_name: str, tip: Optional[str] = None):
@@ -1061,7 +1071,11 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         if d.hidden:
             self.load_box.setCurrentIndex(0)  # (none)
             return
-        factors, title = d.selection()
+        try:
+            factors, title = d.selection()
+        except (ValueError, KeyError) as exc:  # nothing ticked: say so, change nothing
+            QtWidgets.QMessageBox.information(self, "Show Loads", str(exc))
+            return
         kinds = d.kinds() or {"joint", "frame", "area", "panel"}
         self.set_load_kinds(kinds)
         self._set_load_box(factors, title)

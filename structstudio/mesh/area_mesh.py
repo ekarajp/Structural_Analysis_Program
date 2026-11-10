@@ -852,19 +852,18 @@ def _smooth(P, cells, feats, tol, passes):
 
 
 # ------------------------------------------------------------ automatic size
-# Default rule "etabs" (ETABS-like): an approximate maximum element size of 1.2 m
-# for floors and walls - a round metric value next to the ETABS default of
-# 48 in = 1.2192 m (FLOORMESHMAXSIZE / WALLMESHMAXSIZE of an ETABS file left at its
-# defaults) - with mesh lines through the columns, beams, walls and joints of the
-# floor (the features of tensor_mesh): each span between them is split into equal
-# elements no larger than that, so usual spans get 1.0 - 1.2 m elements (6 m: 5 x
-# 1.2 m; 5 m: 5 x 1.0 m; 7 m: 6 x 1.17 m; 8 m: 7 x 1.14 m).  Imported ETABS files
-# keep the size written in them.
+# Default rule "etabs": an approximate maximum element size of 0.5 m for floors and
+# walls (the ETABS default of 48 in = 1.22 m was found too coarse for slab moments
+# and wall stresses: 2026-11, user decision) with mesh lines through the columns,
+# beams, walls and joints of the floor (the features of tensor_mesh): each span
+# between them is split into equal elements no larger than that (6 m: 12 x 0.5 m;
+# 7 m: 14 x 0.5 m; 5.5 m: 11 x 0.5 m).  Imported ETABS files and the size set in
+# Analyze > Automatic Mesh Settings keep their own value.
 # Rule "fine": the earlier, finer Structural Studio mesh (at least 8 elements
 # across a shell and 6 between columns, never coarser than 1 m) - several times
 # as many elements.  Analyze > Check Mesh refines either one.
 AUTO_RULE = "etabs"
-DEFAULT_MAX_SIZE = 1.2  # m
+DEFAULT_MAX_SIZE = 0.5  # m
 ETABS_MAX_SIZE = DEFAULT_MAX_SIZE  # (name kept for callers)
 AUTO_MAX_SIZE = 1.0  # m, rule "fine": never coarser than this
 AUTO_MIN_SIZE = 0.1  # m: never finer than this (unless the shell itself is smaller)
@@ -878,8 +877,8 @@ def auto_size(Q: np.ndarray, feats: Optional[Features] = None, tol: float = 1e-6
     """Element size (SI) for one shell.
 
     Rule "etabs" (default, :data:`AUTO_RULE`): the approximate maximum mesh size
-    :data:`DEFAULT_MAX_SIZE` (1.2 m) times ``factor`` (a mesh check halves it:
-    0.6, 0.3 m...).
+    :data:`DEFAULT_MAX_SIZE` (0.5 m) times ``factor`` (a mesh check halves it:
+    0.25, 0.125 m...).
 
     Rule "fine", from the shell's geometry:
 

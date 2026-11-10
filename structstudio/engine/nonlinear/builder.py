@@ -366,7 +366,25 @@ class NonlinearBuilder:
             mats = {}
             for d in prop.dofs:
                 mats[_DOF_INDEX[d.dof.upper()]] = self._link_material(d)
-            out.append(Link(k, ni, nj, axes, mats, name))
+            link = Link(k, ni, nj, axes, mats, name)
+            link.mass = float(prop.mass) * U.factor("mass")
+            out.append(link)
+        return out
+
+    def linear_links(self) -> List[Link]:
+        """The links of the linear analyses (linear static, modal, response spectrum,
+        linear time histories): every DOF with its linear (initial) stiffness - the
+        effective stiffness of the nonlinear types - and the damping of Linear DOFs."""
+        out = []
+        for lk in self.links():
+            mats = {}
+            for i, m in lk.mats.items():
+                k0 = float(np.asarray(m.initial_tangent).ravel()[0])
+                mats[i] = Elastic(k0, eta=getattr(m, "eta", 0.0) if isinstance(m, Elastic) else 0.0)
+            R = lk.Tg[:3, :3] if len(lk.nodes) == 1 else lk.Tg[:3, 6:9]
+            link = Link(lk.id, lk.nodes[0], lk.nodes[1] if len(lk.nodes) > 1 else None, R, mats, lk.name)
+            link.mass = lk.mass
+            out.append(link)
         return out
 
     def _link_material(self, d) -> UniaxialMaterial:
