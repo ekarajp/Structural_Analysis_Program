@@ -1199,10 +1199,34 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             self._tree_selected(attr, name)
         elif action == "info":
             self.show_object_info(kind, name)
+        elif action == "assign_section":
+            self.assign_section_from_tree(attr, name)
         elif action == "section":
             self.edit_member_section(attr, name)
         elif action == "only":
             self.show_only_in_active_window(attr, name)
+
+    def assign_section_from_tree(self, attr: str, name: str):
+        """Model Explorer > right click > Assign section: the object is selected and the
+        Assign Section command opens in Properties of Object (choose or define a section,
+        pick more objects if wanted, Enter / right-click assigns)."""
+        m = self.doc.model
+        if attr == "frames":
+            self.state.set_selection([name])
+            tool = "frame_section"
+        else:
+            a = m.areas.get(name)
+            if a is None:
+                return
+            self.state.set_selection(areas=[name])
+            sec = m.shell_sections.get(a.section) if a.section else None
+            tool = "wall_section" if a.type == "Wall" else (
+                "deck_section" if sec is not None and sec.type == "Deck" else "slab_section")
+        self.load_command(tool)
+        dock = getattr(self, "dock_properties_of_object", None)
+        if dock is not None:
+            dock.show()
+            dock.raise_()
 
     def edit_member_section(self, attr: str, name: str):
         """Open the section form of a frame / shell (the section it uses)."""

@@ -37,6 +37,7 @@ class ModelTree(QtWidgets.QTreeWidget):
     #: right-click > what (menu text, action key); the same choices as right-click on the drawing
     #: (clicking the object in the tree already selects it, so there is no Select here)
     OBJECT_ACTIONS = (("Show Information and Properties...", "info"),
+                      ("Assign section...", "assign_section"),  # (used more often than Edit section)
                       ("Edit section...", "section"),
                       ("Show only this object (active window)", "only"))
 
@@ -215,7 +216,7 @@ class ModelTree(QtWidgets.QTreeWidget):
         has_section = bool(getattr(getattr(m, attr, {}).get(name), "section", None)) and attr in ("frames", "areas")
         out = []
         for text, key in self.OBJECT_ACTIONS:
-            if key == "section" and attr not in ("frames", "areas"):
+            if key in ("section", "assign_section") and attr not in ("frames", "areas"):
                 continue  # joints and load panels have no section
             if key == "only" and attr == "panel_loads":
                 continue  # a load panel is not something a window can isolate

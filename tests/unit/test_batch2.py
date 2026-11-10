@@ -512,3 +512,30 @@ def test_gui_hang_watchdog_writes_the_stacks(qapp, tmp_path, monkeypatch):
         stop.set()
     files = list(tmp_path.glob("hang-*.txt"))
     assert files and "Thread" in files[0].read_text(encoding="utf-8")
+
+
+@gui
+def test_gui_explorer_assign_section_opens_the_command(window, qapp, monkeypatch):
+    from structstudio.app.templates import new_building
+    window.doc.model = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
+    m = window.doc.model
+    window.tree.refresh() if hasattr(window.tree, "refresh") else None
+    beam = next(n for n, f in m.frames.items() if f.type == "Beam")
+    window._tree_object_action("assign_section", "frames", beam)
+    assert window.state.tool.name == "frame_section" and window.state.frames == {beam}
+    window.state.set_tool("select")
+    floor = next(n for n, a in m.areas.items() if a.type == "Floor")
+    window._tree_object_action("assign_section", "areas", floor)
+    assert window.state.tool.name == "slab_section" and window.state.areas == {floor}
+    p = window.object_props
+    assert p.section_list.count() >= 1 and "Define sections" in p.define_button.text()
+    # a new section made with Define sections... is the one chosen
+    from structstudio.model.properties import ShellSection
+    mat = next(iter(m.materials))
+    monkeypatch.setattr(window, "define_shell_sections",
+                        lambda: window.doc.edit(lambda mm: mm.shell_sections.__setitem__(
+                            "S300", ShellSection("S300", mat, "Slab", thickness=0.3))))
+    p.define_button.click()
+    assert window.state.settings.shell_section == "S300"
+    window.state.apply_load_tool()
+    assert m.areas[floor].section == "S300" if window.doc.model is m else window.doc.model.areas[floor].section == "S300"

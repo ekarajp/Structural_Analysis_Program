@@ -28,7 +28,9 @@ TOOL_TITLES = {
     "joint_load": "Joint Load", "frame_load": "Frame Load", "area_load": "Area Load (floors / walls)",
     "panel_load": "Load Panel (drawn load area)",
     "frame_section": "Frame Section",
+    "slab_section": "Slab Section", "deck_section": "Deck Section", "wall_section": "Wall Section",
 }
+SECTION_COMMANDS = ("frame_section", "slab_section", "deck_section", "wall_section")
 
 
 class ObjectPropertiesPanel(QtWidgets.QWidget):
@@ -245,10 +247,21 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
         self.picker_box.setVisible(False)
 
     def _build_section_picker(self):
-        """Assign Frame Section: a find box, the frame sections as a list (click to
-        choose), and a line about the chosen one.  Only the setting changes here; the
-        frames are assigned by Enter / right-click (the command's apply)."""
+        """Assign Frame / Slab / Deck / Wall Section: a find box, the sections as a list
+        (click to choose), a line about the chosen one and Define sections... (make a new
+        one here).  Only the setting changes here; the objects are assigned by Enter /
+        right-click (the command's apply)."""
         m, s = self.doc.model, self.state.settings
+        frame = self.tool_name == "frame_section"
+        tool = self.state.tool
+        attr = "frame_section" if frame else getattr(tool, "attr", "shell_section")
+        kind = "frame" if frame else getattr(tool, "kind", "Slab").lower()
+
+        def names_all():
+            if frame:
+                return list(m.frame_sections)
+            return tool.sections() if hasattr(tool, "sections") else list(m.shell_sections)
+
         find = QtWidgets.QLineEdit()
         find.setPlaceholderText("Find a section ...")
         find.setClearButtonEnabled(True)
@@ -258,35 +271,53 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
         info = QtWidgets.QLabel()
         info.setWordWrap(True)
         info.setStyleSheet("color: gray")
-        define = QtWidgets.QPushButton("Define sections...")
+        define = QtWidgets.QPushButton("Define sections...  (add a new one)")
+        define.setToolTip("Make a new section (or change one) without leaving the command")
         busy = [False]
 
         def fill(text: str = ""):
             busy[0] = True
             lst.clear()
-            names = [n for n in m.frame_sections if text.strip().lower() in n.lower()]
+            every = names_all()
+            names = [n for n in every if text.strip().lower() in n.lower()]
             lst.addItems(names)
-            if s.frame_section in names:
-                lst.setCurrentRow(names.index(s.frame_section))
-            info.setText(f"{len(names)} of {len(m.frame_sections)} sections"
-                         if m.frame_sections else "No frame section yet - use Define sections.")
+            if getattr(s, attr) in names:
+                lst.setCurrentRow(names.index(getattr(s, attr)))
+            info.setText(f"{len(names)} of {len(every)} sections"
+                         if every else f"No {kind} section yet - use Define sections.")
             busy[0] = False
 
         def chosen(row: int):
             if busy[0] or row < 0:
                 return
             name = lst.item(row).text()
-            s.frame_section = name
-            sec = m.frame_sections.get(name)
-            if sec is not None:
-                dims = [f"{k} = {getattr(sec, k)}" for k in ("t3", "t2") if getattr(sec, k, None)]
-                info.setText(f"{name}: {sec.shape}, {sec.material}" + (f"  ({', '.join(dims)})" if dims else ""))
+            setattr(s, attr, name)
+            if frame:
+                sec = m.frame_sections.get(name)
+                if sec is not None:
+                    dims = [f"{k} = {getattr(sec, k)}" for k in ("t3", "t2") if getattr(sec, k, None)]
+                    info.setText(f"{name}: {sec.shape}, {sec.material}" + (f"  ({', '.join(dims)})" if dims else ""))
+            else:
+                sec = m.shell_sections.get(name)
+                if sec is not None:
+                    info.setText(f"{name}: {sec.type}, {sec.material}, thickness {sec.thickness:g} "
+                                 f"{m.units.length}")
             self.state.update_hint()
             self._update_apply()
 
         def open_define():
-            from .section_manager import FrameSectionsDialog
-            FrameSectionsDialog(self.doc, self.window()).exec()
+            before = set(m.frame_sections if frame else m.shell_sections)
+            if frame:
+                from .section_manager import FrameSectionsDialog
+                FrameSectionsDialog(self.doc, self.window()).exec()
+            else:
+                w = self.window()
+                if hasattr(w, "define_shell_sections"):
+                    w.define_shell_sections()
+            mm = self.doc.model
+            new = [n for n in (mm.frame_sections if frame else mm.shell_sections) if n not in before]
+            if new:
+                setattr(s, attr, new[-1])  # a section just made is the one to assign
             fill(find.text())
             self.refresh()
 
@@ -300,8 +331,9 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
         self.picker_lay.addWidget(info)
         self.picker_lay.addWidget(define)
         self.picker_box.setVisible(True)
+        self.section_list, self.define_button = lst, define
         fill()
-        if s.frame_section and lst.currentRow() >= 0:
+        if getattr(s, attr) and lst.currentRow() >= 0:
             chosen(lst.currentRow())
 
     # ------------------------------------------------------------- build
@@ -343,9 +375,10 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
                 pass
             return
         self.title.setText(f"Properties of Object - {TOOL_TITLES.get(self.tool_name, self.tool_name)}")
-        if self.tool_name == "frame_section":
-            self.hint.setText("Pick the section here, then pick frames in the model and press Enter / right-click. "
-                              "Nothing changes until then.")
+        if self.tool_name in SECTION_COMMANDS:
+            what = {"frame_section": "frames", "wall_section": "walls"}.get(self.tool_name, "floors")
+            self.hint.setText(f"Pick the section here, then pick {what} in the model and press Enter / "
+                              "right-click. Nothing changes until then.")
             self.table.setVisible(False)
             self._build_section_picker()
             self.state.update_hint()

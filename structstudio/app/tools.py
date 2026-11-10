@@ -255,6 +255,7 @@ class DrawSettings:
     brace_section: Optional[str] = None
     shell_section: Optional[str] = None
     wall_section: Optional[str] = None
+    deck_section: Optional[str] = None  # Assign > Shell > Deck Section (command)
     all_stories: bool = False  # draw on all stories (ETABS "All Stories")
     column_angle: float = 0.0
     diaphragm: Optional[str] = None
@@ -2557,6 +2558,96 @@ class FrameSectionTool(LoadPickTool):
                                                   "Esc = clear the picks")
 
 
+class ShellSectionTool(FrameSectionTool):
+    """Assign > Shell > Slab / Deck / Wall Section, as a command like Assign Frame
+    Section: the sections of that type are listed in Properties of Object (with
+    Define sections... to make a new one), pick floors / walls, Enter / right-click
+    assigns it."""
+
+    kind = "Slab"  # Slab | Deck | Wall (the ShellSection.type listed)
+    attr = "shell_section"  # the DrawSettings item
+    noun = "floor"
+    picks = ("area",)
+
+    def sections(self) -> List[str]:
+        m = self.model
+        return [n for n, x in m.shell_sections.items() if x.type == self.kind] or list(m.shell_sections)
+
+    def _default_section(self) -> None:
+        secs = self.sections()
+        if getattr(self.settings, self.attr) not in secs and secs:
+            setattr(self.settings, self.attr, secs[0])
+
+    def prefill(self, names: Sequence[str]) -> None:
+        m = self.model
+        secs = self.sections()
+        for n in names:
+            a = m.areas.get(n)
+            if a is not None and a.section in secs:
+                setattr(self.settings, self.attr, a.section)
+                return
+
+    def section(self) -> str:
+        sec = getattr(self.settings, self.attr)
+        if sec not in self.model.shell_sections:
+            raise ModelError("NO_SECTION", f"Choose a {self.kind.lower()} section in Properties of Object "
+                                           "(define one first: Define sections...)")
+        return sec
+
+    def targets(self, names: Sequence[str]) -> List[str]:
+        """The picked areas of this kind (walls for a wall section, floors otherwise); all
+        of them when none is."""
+        m = self.model
+        wall = self.kind == "Wall"
+        mine = [n for n in names if n in m.areas and (m.areas[n].type == "Wall") == wall]
+        return mine or [n for n in names if n in m.areas]
+
+    def apply_many(self, names: Sequence[str]) -> str:
+        sec = self.section()
+        names = self.targets(names)
+
+        def mutate(model: Model):
+            for n in names:
+                model.areas[n].section = sec
+
+        self.doc.edit(mutate)
+        return f"Section {sec} assigned to {len(names)} {self.plural(len(names))}"
+
+    def hint(self, state=None) -> str:
+        n = len(self.picked(state)) if state is not None else 0
+        self._default_section()
+        sec = getattr(self.settings, self.attr) or "(none)"
+        if n == 0:
+            return next_step(f"{self.title} ({sec})", f"pick the {self.plural()} (click or drag a window)",
+                             "change the section in Properties of Object", "Esc = cancel (back to Select)")
+        return next_step(f"{self.title} ({sec})", f"press Enter (or right-click) to assign it to the {n} "
+                                                  f"picked {self.plural(n)}", "click = add / remove a pick",
+                                                  "Esc = clear the picks")
+
+
+class SlabSectionTool(ShellSectionTool):
+    name = "slab_section"
+    title = "Assign Slab Section"
+    prompt = "Choose a slab section, pick floors, then Enter / right-click to assign it"
+
+
+class DeckSectionTool(ShellSectionTool):
+    name = "deck_section"
+    title = "Assign Deck Section"
+    kind = "Deck"
+    attr = "deck_section"
+    prompt = "Choose a deck section, pick floors, then Enter / right-click to assign it"
+
+
+class WallSectionTool(ShellSectionTool):
+    name = "wall_section"
+    title = "Assign Wall Section"
+    kind = "Wall"
+    attr = "wall_section"
+    noun = "wall"
+    prompt = "Choose a wall section, pick walls, then Enter / right-click to assign it"
+
+
 class AreaLoadTool(LoadPickTool):
     """Area loads are load panels made from the areas (on the area itself, or
     one-way / two-way to the frames around it)."""
@@ -2615,7 +2706,11 @@ class AreaLoadTool(LoadPickTool):
 
 
 TOOLS.update({"joint_load": JointLoadTool, "frame_load": FrameLoadTool, "area_load": AreaLoadTool,
-              "frame_section": FrameSectionTool})
+              "frame_section": FrameSectionTool, "slab_section": SlabSectionTool,
+              "deck_section": DeckSectionTool, "wall_section": WallSectionTool})
+TOOL_PROPERTIES["slab_section"] = [("shell_section", "Section", "section_list", "")]
+TOOL_PROPERTIES["deck_section"] = [("deck_section", "Section", "section_list", "")]
+TOOL_PROPERTIES["wall_section"] = [("wall_section", "Section", "section_list", "")]
 _LOAD_MODE = ("load_mode", "Existing loads (this pattern)", "choice", ["Add", "Replace", "Delete"])
 TOOL_PROPERTIES["joint_load"] = [
     ("load_pattern", "Load pattern", "pattern", ""), _LOAD_MODE,

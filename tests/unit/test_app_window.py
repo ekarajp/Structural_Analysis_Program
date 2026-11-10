@@ -1279,9 +1279,10 @@ def test_model_explorer_title_and_right_click_actions(window, app, monkeypatch):
     beam = next(n for n, f in m.frames.items() if f.type == "Beam")
     # the choices: frames and shells have all four, joints no section, nothing for headings
     keys = lambda attr, name: [k for _t, k, _e in tree.object_actions(attr, name)]
-    assert keys("frames", beam) == ["info", "section", "only"]
+    # Assign section (used more often) above Edit section
+    assert keys("frames", beam) == ["info", "assign_section", "section", "only"]
     area = next(iter(m.areas))
-    assert keys("areas", area) == ["info", "section", "only"]
+    assert keys("areas", area) == ["info", "assign_section", "section", "only"]
     assert keys("points", next(iter(m.points))) == ["info", "only"]
     # Select
     vp = window.views.viewports[0]
@@ -1316,7 +1317,7 @@ def test_model_explorer_title_and_right_click_actions(window, app, monkeypatch):
     # the menu: titled with the object, then the actions; right click on a heading shows nothing
     menu, acts = tree.object_menu("frames", beam)
     assert [x.text() for x in menu.actions()][0] == f"Frame {beam}"
-    assert list(acts.values()) == ["info", "section", "only"]
+    assert list(acts.values()) == ["info", "assign_section", "section", "only"]
     got = []
     tree.object_action.connect(lambda *a: got.append(a))
     real = tree.object_menu

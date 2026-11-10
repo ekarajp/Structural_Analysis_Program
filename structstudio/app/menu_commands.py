@@ -119,8 +119,10 @@ class MenuCommandsMixin:
             "assign.frame_mesh": self.assign_frame_mesh,
             "assign.frame_floor_mesh": self.assign_frame_floor_mesh,
             # Assign - shell
-            "assign.slab_section": lambda: self.assign_shell_section_of("Slab"),
-            "assign.wall_section": lambda: self.assign_shell_section_of("Wall"),
+            # commands in Properties of Object, like Assign Frame Section (pick, Enter)
+            "assign.slab_section": lambda: self.load_command("slab_section"),
+            "assign.wall_section": lambda: self.load_command("wall_section"),
+            "assign.deck_section": lambda: self.load_command("deck_section"),
             "assign.openings": self.assign_openings,
             "assign.shell_modifiers": self.assign_shell_modifiers,
             "assign.area_diaphragm": self.assign_diaphragm,
