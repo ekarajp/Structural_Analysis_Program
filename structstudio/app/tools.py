@@ -11,7 +11,7 @@ import copy
 import dataclasses
 import math
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -2380,8 +2380,11 @@ class LoadPickTool(Tool):
             self.settings.load_mode = "Add"
 
     def picked(self, state) -> List[str]:
-        target = {"point": state.points, "frame": state.frames, "area": state.areas}[self.picks[0]]
-        return sorted(target)
+        sets = {"point": state.points, "frame": state.frames, "area": state.areas}
+        out = set()
+        for k in self.picks:
+            out |= set(sets[k])
+        return sorted(out)
 
     def prefill(self, names: Sequence[str]) -> None:
         """Copy the current load (pattern of the form) of the first of ``names``
@@ -2556,6 +2559,91 @@ class FrameSectionTool(LoadPickTool):
         return next_step(f"{self.title} ({sec})", f"press Enter (or right-click) to assign it to the {n} "
                                                   f"picked {self.plural(n)}", "click = add / remove a pick",
                                                   "Esc = clear the picks")
+
+
+@dataclass
+class AssignSpec:
+    """An Assign command shown in the box at the lower left (Properties of Object):
+
+    ``fields(obj)`` - the form (FormDialog field tuples) with the values of ``obj`` (the
+    first picked object, or a new default one); or ``widget(obj)`` - (QWidget,
+    values()) for a form of its own; ``apply(names, values)`` changes the model (one
+    undo step) and may return the status text."""
+
+    key: str
+    title: str
+    picks: Tuple[str, ...]
+    apply: Callable
+    fields: Optional[Callable] = None
+    widget: Optional[Callable] = None
+    note: Optional[str] = None
+    noun: str = ""
+    nouns: str = ""
+
+
+class AssignFormTool(LoadPickTool):
+    """Assign > ... as a command in the box at the lower left: the form opens at once
+    (with the values of the objects selected before, if any); pick / unpick objects;
+    Apply assigns and keeps the box for the next set, OK / Enter assigns and ends,
+    Cancel / Esc leaves."""
+
+    name = "assign_form"
+    apply_label = "Assign"
+
+    def __init__(self, doc, settings, spec: AssignSpec):
+        super().__init__(doc, settings)
+        self.spec = spec
+        self.name = "assign:" + spec.key
+        self.title = spec.title
+        self.picks = tuple(spec.picks)
+        words = {"point": ("joint", "joints"), "frame": ("frame", "frames"), "area": ("shell", "shells")}
+        if spec.noun:
+            self.noun, self.nouns = spec.noun, spec.nouns or spec.noun + "s"
+        elif len(self.picks) == 1:
+            self.noun, self.nouns = words[self.picks[0]]
+        else:
+            self.noun, self.nouns = "object", "objects"
+        self.prompt = f"Set the values, pick {self.nouns}, then Apply / Enter"
+        self.fields: list = []
+        self.read_values: Optional[Callable] = None  # set by the box: the form's values
+        self.first = None
+
+    def first_object(self, names):
+        m = self.model
+        for n in names:
+            for kind in self.picks:
+                table = {"point": m.points, "frame": m.frames, "area": m.areas}[kind]
+                if n in table:
+                    return table[n]
+        from ..model.objects import Area, Frame, Point
+        return {"point": Point(""), "frame": Frame("", "", "", ""), "area": Area("", [])}[self.picks[0]]
+
+    def activate(self, state) -> None:
+        names = self.picked(state)
+        self.editing = bool(names)
+        self.first = self.first_object(names)
+        if self.spec.fields is not None:
+            self.fields = list(self.spec.fields(self.first))
+
+    def apply_many(self, names: Sequence[str]) -> str:
+        if self.read_values is None:
+            raise ModelError("NO_FORM", f"{self.title}: the form is not open")
+        try:
+            values = self.read_values()
+        except ValueError as exc:
+            raise ModelError("BAD_VALUE", f"{self.title}: {exc}") from None
+        msg = self.spec.apply(list(names), values)
+        return msg if isinstance(msg, str) and msg else \
+            f"{self.title}: assigned to {len(names)} {self.plural(len(names))}"
+
+    def hint(self, state=None) -> str:
+        n = len(self.picked(state)) if state is not None else 0
+        if n == 0:
+            return next_step(self.title, f"pick the {self.plural()} (click or drag a window)",
+                             "set the values in the box at the left", "Cancel / Esc = leave")
+        return next_step(self.title, f"Apply (assign, pick the next set) or Enter / OK (assign and finish) "
+                                     f"for the {n} picked {self.plural(n)}", "click = add / remove a pick",
+                                     "Esc = clear the picks")
 
 
 class ShellSectionTool(FrameSectionTool):

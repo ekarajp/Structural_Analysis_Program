@@ -100,10 +100,22 @@ class AnalysisOptions:
 
 @dataclass
 class ProjectInfo:
+    """File > Project Information: the project data for reports and drawing title
+    blocks (kept with the model)."""
+
     name: str = "Untitled"
     engineer: str = ""
     company: str = ""
     notes: str = ""
+    number: str = ""  # project number
+    location: str = ""
+    owner: str = ""
+    license_no: str = ""  # engineer's licence / registration number (e.g. COE)
+    checker: str = ""
+    logo: str = ""  # company logo image file
+    revision: str = ""
+    date: str = ""
+    design_codes: str = ""
 
 
 
@@ -949,7 +961,8 @@ class Model:
         u = data.get("units", {})
         m = cls(data.get("info", {}).get("name", "Untitled"),
                 UnitSystem(u.get("force", "kN"), u.get("length", "m"), u.get("temperature", "C")))
-        m.info = ProjectInfo(**_strip(data.get("info", {})))
+        known = {f.name for f in dataclasses.fields(ProjectInfo)}
+        m.info = ProjectInfo(**{k: v for k, v in _strip(data.get("info", {})).items() if k in known})
         from ..display_units import force_label
         m.display_units = {str(k): force_label(v) for k, v in (data.get("display_units") or {}).items() if v}
         m.options = AnalysisOptions(**_coerce_tuples(_strip(data.get("options", {}))))

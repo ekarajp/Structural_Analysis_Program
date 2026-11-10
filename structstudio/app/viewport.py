@@ -2075,7 +2075,7 @@ class ModelViewport(QtWidgets.QWidget):
         if picks:  # load command: picking adds / removes objects of its kind
             if self._dragging:
                 self._window_select(p0, (x, y), True, crossing=x < p0[0])
-                st.keep_only(picks[0])
+                st.keep_only(*picks)
             else:
                 hit = next((h for h in self.pick_all(x, y) if h[0] in picks), None)
                 if hit is not None:
@@ -2537,7 +2537,7 @@ class ModelViewport(QtWidgets.QWidget):
         st = self.state
         if True:
             if getattr(st.tool, "picks", None):
-                st.apply_load_tool()
+                st.finish_load_tool()  # Enter = assign and finish (Apply in the box: assign, go on)
                 self.render()
                 return
             if getattr(st.tool, "selecting", False):

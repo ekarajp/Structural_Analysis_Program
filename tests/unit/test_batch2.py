@@ -342,28 +342,95 @@ def test_gui_fine_mesh_lives_in_floor_auto_mesh(window, qapp):
 
 
 @gui
-def test_gui_assign_area_mesh_sets_the_mode(window, qapp, monkeypatch):
-    from structstudio.app import mesh_dialog
+def test_gui_assign_area_mesh_sets_the_mode(window, qapp):
+    """Floor Auto Mesh Options in the box at the lower left: the mode of the floor
+    selected before; Apply keeps the box, OK (Enter) ends."""
     from structstudio.app.templates import new_building
-    m = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
-    window.doc.model = m
+    window.doc.model = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
+    m = window.doc.model
     floor = next(a for a in m.areas.values() if a.type == "Floor")
     m.options.fine_mesh_factor = 0.5
-    monkeypatch.setattr(window, "_names", lambda kind: [floor.name] if kind == "area" else [])
-    monkeypatch.setattr(window, "_first", lambda kind: floor)
-    monkeypatch.setattr(window, "_need", lambda kind: True)
-    for mode, check in (("manual", lambda: floor.max_mesh_size == 0.4 and not floor.fine_mesh),
-                        ("fine", lambda: floor.fine_mesh and floor.max_mesh_size is None),
-                        ("none", lambda: not floor.auto_mesh and not floor.fine_mesh),
-                        ("auto", lambda: floor.auto_mesh and not floor.fine_mesh and floor.max_mesh_size is None)):
-        def run(self, mode=mode):
-            getattr(self, mode).setChecked(True)
-            if mode == "manual":
-                self.size.setText("0.4")
-            return 1
-        monkeypatch.setattr(mesh_dialog.AreaMeshDialog, "exec", run)
+    st = window.state
+    for mode, check in (("manual", lambda a: a.max_mesh_size == 0.4 and not a.fine_mesh),
+                        ("fine", lambda a: a.fine_mesh and a.max_mesh_size is None),
+                        ("none", lambda a: not a.auto_mesh and not a.fine_mesh),
+                        ("auto", lambda a: a.auto_mesh and not a.fine_mesh and a.max_mesh_size is None)):
+        st.set_tool("select")
+        st.set_selection(areas=[floor.name])
         window.assign_area_mesh("Floor")
-        assert check(), mode
+        assert st.tool.name.startswith("assign:") and window.dock_properties_of_object.windowTitle() \
+            == "Assign - Floor Auto Mesh Options"
+        d = window.object_props._form
+        getattr(d, mode).setChecked(True)
+        if mode == "manual":
+            d.size.setText("0.4")
+        window.object_props.apply_button.click()  # Apply: assigned, the box stays
+        assert check(window.doc.model.areas[floor.name]), mode
+        assert st.tool.name.startswith("assign:") and window.object_props._form is d
+    st.set_selection(areas=[floor.name])
+    window.object_props.ok_button.click()  # OK: assign and finish
+    assert st.tool.name == "select"
+
+
+@gui
+def test_gui_assign_forms_in_the_box(window, qapp):
+    """Command first: the box opens at once; pick, Apply (stay), Enter (finish); objects
+    first: the box shows their values; Cancel leaves."""
+    from structstudio.app.templates import new_building
+    window.doc.model = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
+    m = window.doc.model
+    st = window.state
+    beams = [n for n, f in m.frames.items() if f.type == "Beam"][:2]
+    st.set_tool("select")
+    window.assign_frame_mesh()
+    p = window.object_props
+    assert st.tool.name == "assign:frame.mesh" and p._form is not None and p.title.text().startswith("Assign -")
+    assert not p.ok_button.isEnabled()
+    p._form.set_value("auto", False)
+    st.toggle("frame", beams[0], True)
+    p.apply_button.click()
+    assert window.doc.model.frames[beams[0]].auto_mesh is False and st.tool.name == "assign:frame.mesh"
+    st.toggle("frame", beams[1], True)
+    vp = window.views.visible_viewports()[0]
+    vp.enter()  # Enter: assign and finish
+    assert window.doc.model.frames[beams[1]].auto_mesh is False and st.tool.name == "select"
+    # objects first: the values of the selected frame
+    st.set_selection([beams[0]])
+    window.assign_frame_mesh()
+    assert p._form.values()["auto"] is False
+    p.cancel_button.click()
+    assert st.tool.name == "select"
+    # Assign > Slab / Wall: split menus, a wall command changes walls only
+    from structstudio.app.menus import ETABS_MENUS
+    assign = dict((t, e) for t, e in ETABS_MENUS)["&Assign"]
+    subs = [t for t, *_ in assign if isinstance(t, str)]
+    assert "Slab" in subs and "Wall" in subs and "Shell" not in subs
+    floor = next(n for n, a in m.areas.items() if a.type == "Floor")
+    window.menu_actions["assign.wall_mass"].trigger()
+    st.toggle("area", floor, True)
+    p._form.set_value("v", 1.0)
+    p.apply_button.click()  # a floor picked in a wall command: nothing changes
+    assert window.doc.model.areas[floor].mass_per_area == 0.0
+    p.cancel_button.click()
+
+
+@gui
+def test_gui_restraints_in_the_box(window, qapp):
+    from structstudio.app.templates import new_building
+    window.doc.model = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
+    m = window.doc.model
+    j = next(n for n, pt in m.points.items() if pt.z > 0)
+    st = window.state
+    st.set_selection(points=[j])
+    window.assign_restraints()
+    p = window.object_props
+    assert window.dock_properties_of_object.windowTitle() == "Assign - Restraints"
+    w = p._form
+    for b in w.boxes:
+        b.setChecked(True)
+    window.views.visible_viewports()[0].enter()
+    assert all(window.doc.model.points[j].restraints) and st.tool.name == "select"
+    assert window.dock_properties_of_object.windowTitle() == "Properties of Object"
 
 
 @gui
@@ -438,9 +505,9 @@ def test_gui_right_click_runs_a_waiting_assign(window, qapp, monkeypatch):
     floor = next(a for a in m.areas.values() if a.type == "Floor")
     window.state.clear_selection()
     asked = []
-    monkeypatch.setattr(QtWidgets.QMessageBox, "question",
-                        lambda *a, **k: (asked.append(1), QtWidgets.QMessageBox.No)[1])
-    window.assign_openings()  # nothing selected: the command waits
+    monkeypatch.setattr(QtWidgets.QInputDialog, "getItem",
+                        lambda *a, **k: (asked.append(1), ("", False))[1])
+    window.assign_group()  # nothing selected: the command waits
     assert window._pending_assign is not None and not asked
     assert window._pending_right_click(("area", floor.name)) is True
     assert asked == [1] and window._pending_assign is None and window._have("area")
@@ -539,3 +606,25 @@ def test_gui_explorer_assign_section_opens_the_command(window, qapp, monkeypatch
     assert window.state.settings.shell_section == "S300"
     window.state.apply_load_tool()
     assert m.areas[floor].section == "S300" if window.doc.model is m else window.doc.model.areas[floor].section == "S300"
+
+
+@gui
+def test_gui_project_information(window, qapp, monkeypatch, tmp_path):
+    from structstudio.app import project_info as pi
+    from structstudio.model import Model
+
+    def fake_exec(self):
+        self._widgets["name"].setText("Hospital A")
+        self._widgets["license_no"].setText("ส-12345")
+        self._widgets["revision"].setText("R1")
+        return QtWidgets.QDialog.Accepted
+    monkeypatch.setattr(pi.ProjectInfoDialog, "exec", fake_exec)
+    window.menu_actions["file.project_info"].trigger()
+    info = window.doc.model.info
+    assert info.name == "Hospital A" and info.license_no == "ส-12345" and info.revision == "R1"
+    back = Model.from_dict(window.doc.model.to_dict())
+    assert back.info.license_no == "ส-12345"
+    # an older file (four fields) still opens
+    d = window.doc.model.to_dict()
+    d["info"] = {"name": "Old", "engineer": "", "company": "", "notes": ""}
+    assert Model.from_dict(d).info.name == "Old"

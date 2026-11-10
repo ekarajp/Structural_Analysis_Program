@@ -101,7 +101,7 @@ class MenuCommandsMixin:
             # Assign - joint
             "assign.restraints": self.assign_restraints,
             "assign.point_springs": self.assign_point_springs,
-            "assign.point_diaphragm": self.assign_diaphragm,
+            "assign.point_diaphragm": lambda: self.assign_diaphragm(("point",)),
             "assign.point_mass": self.assign_point_mass,
             # Assign - frame
             "assign.frame_section": self.assign_frame_section,
@@ -124,15 +124,27 @@ class MenuCommandsMixin:
             "assign.wall_section": lambda: self.load_command("wall_section"),
             "assign.deck_section": lambda: self.load_command("deck_section"),
             "assign.openings": self.assign_openings,
+            "assign.slab_openings": lambda: self.assign_openings("Slab"),
+            "assign.wall_openings": lambda: self.assign_openings("Wall"),
             "assign.shell_modifiers": self.assign_shell_modifiers,
-            "assign.area_diaphragm": self.assign_diaphragm,
+            "assign.slab_modifiers": lambda: self.assign_shell_modifiers("Slab"),
+            "assign.wall_modifiers": lambda: self.assign_shell_modifiers("Wall"),
+            "assign.area_diaphragm": lambda: self.assign_diaphragm(("area",)),
             "assign.shell_axes": lambda: self._assign_angle("area"),
-            "assign.area_springs": lambda: self._assign_number("area", "spring", "Area Springs",
-                                                               "Subgrade modulus (force / length^3)"),
+            "assign.slab_axes": lambda: self._assign_angle("area", "Slab"),
+            "assign.wall_axes": lambda: self._assign_angle("area", "Wall"),
+            "assign.area_springs": lambda: self._assign_number("area", "spring", "Slab Area Springs",
+                                                               "Subgrade modulus (force / length^3)", "Slab"),
+            "assign.wall_springs": lambda: self._assign_number("area", "spring", "Wall Area Springs",
+                                                               "Spring modulus (force / length^3)", "Wall"),
             "assign.shell_mass": lambda: self._assign_number("area", "mass_per_area", "Shell Additional Mass",
                                                              "Mass per unit area"),
-            "assign.shell_pier": lambda: self._assign_label("area", "pier"),
-            "assign.shell_spandrel": lambda: self._assign_label("area", "spandrel"),
+            "assign.slab_mass": lambda: self._assign_number("area", "mass_per_area", "Slab Additional Mass",
+                                                            "Mass per unit area", "Slab"),
+            "assign.wall_mass": lambda: self._assign_number("area", "mass_per_area", "Wall Additional Mass",
+                                                            "Mass per unit area", "Wall"),
+            "assign.shell_pier": lambda: self._assign_label("area", "pier", "Wall"),
+            "assign.shell_spandrel": lambda: self._assign_label("area", "spandrel", "Wall"),
             "assign.floor_mesh": lambda: self.assign_area_mesh("Floor"),
             "assign.wall_mesh": lambda: self.assign_area_mesh("Wall"),
             # Assign - loads
@@ -321,11 +333,9 @@ class MenuCommandsMixin:
             self.grab().save(path)
 
     def project_info(self):
-        info = self.doc.model.info
-        v = ask(self, "Project Information", [("name", "Project name", info.name),
-                                              ("engineer", "Engineer", info.engineer),
-                                              ("company", "Company", info.company),
-                                              ("notes", "Notes", info.notes)])
+        """File > Project Information (reports, drawing title blocks)."""
+        from .project_info import edit_project_info, info_dict
+        v = edit_project_info(info_dict(self.doc.model.info), self)
         if v:
             self.doc.edit(lambda m: [setattr(m.info, k, val) for k, val in v.items()])
 
@@ -784,62 +794,69 @@ class MenuCommandsMixin:
     def _names(self, kind: str) -> List[str]:
         return list({"point": self.state.points, "frame": self.state.frames, "area": self.state.areas}[kind])
 
-    def _assign_number(self, kind: str, attr: str, title: str, label: str):
-        if not self._need(kind):
-            return
-        v = ask(self, title, [("v", label, float(getattr(self._first(kind), attr) or 0.0))])
-        if v:
-            C.assign(self.doc, kind, self._names(kind), **{attr: v["v"]})
+    def assign_form(self, key: str, title: str, picks, apply, fields=None, widget=None, note=None):
+        """Start an Assign command in the box at the lower left (see tools.AssignFormTool):
+        the form opens at once, with the values of the objects selected before; pick /
+        unpick objects; Apply assigns and stays, OK / Enter assigns and ends, Cancel leaves."""
+        from .tools import AssignFormTool, AssignSpec
+        if getattr(self, "_pending_assign", None) is not None:
+            self.cancel_pending_assign()
+        spec = AssignSpec(key, title, tuple(picks), apply, fields=fields, widget=widget, note=note)
+        self.state.start_tool(lambda: AssignFormTool(self.doc, self.state.settings, spec))
+        dock = getattr(self, "dock_properties_of_object", None)
+        if dock is not None:
+            dock.show()
+            dock.raise_()
 
-    def _assign_angle(self, kind: str):
-        if not self._need(kind):
-            return
-        v = ask(self, ("Frame" if kind == "frame" else "Shell") + " Local Axes",
-                [("angle", "Rotate local axes about axis 1 / 3 by (deg)", float(self._first(kind).angle))])
-        if v:
-            C.assign(self.doc, kind, self._names(kind), angle=v["angle"])
+    def _assign_number(self, kind: str, attr: str, title: str, label: str, of: str = ""):
+        self.assign_form(f"{kind}.{attr}.{of}", title, (kind,),
+                         lambda names, v: C.assign(self.doc, kind, self._of_kind(names, of), **{attr: v["v"]}),
+                         fields=lambda o: [("v", label, float(getattr(o, attr) or 0.0))])
 
-    def _assign_label(self, kind: str, attr: str):
-        if not self._need(kind):
-            return
-        cur = getattr(self._first(kind), attr) or ""
-        text, ok = QtWidgets.QInputDialog.getText(self, f"{attr.title()} Label", f"{attr.title()} label "
-                                                  "(blank = none):", text=cur)
-        if ok:
-            C.assign(self.doc, kind, self._names(kind), **{attr: text.strip() or None})
+    def _assign_angle(self, kind: str, of: str = ""):
+        what = "Frame" if kind == "frame" else (of or "Shell")
+        self.assign_form(f"{kind}.angle.{of}", what + " Local Axes", (kind,),
+                         lambda names, v: C.assign(self.doc, kind, self._of_kind(names, of), angle=v["angle"]),
+                         fields=lambda o: [("angle", "Rotate local axes about axis 1 / 3 by (deg)",
+                                            float(o.angle))])
+
+    def _assign_label(self, kind: str, attr: str, of: str = ""):
+        self.assign_form(f"{kind}.{attr}.{of}", f"{attr.title()} Label", (kind,),
+                         lambda names, v: C.assign(self.doc, kind, self._of_kind(names, of),
+                                                   **{attr: v["label"].strip() or None}),
+                         fields=lambda o: [("label", f"{attr.title()} label (blank = none)",
+                                            str(getattr(o, attr) or ""))])
 
     def assign_point_springs(self):
-        if not self._need("point"):
-            return
-        p = self._first("point")
         u = self.doc.model.units
         ku, kr = u.label("translational_stiffness"), u.label("rotational_stiffness")
-        fields = [("-", f"Translational springs ({ku})")]
-        vals = tuple(p.springs) + tuple(p.rotational_springs)
-        for i, lab in enumerate(DOF_LABELS):
-            if i == 3:
-                fields.append(("-", f"Rotational springs ({kr})"))
-            fields.append((f"k{i}", f"{lab} stiffness  [{ku if i < 3 else kr}]", float(vals[i])))
-        v = ask(self, "Assign Joint Springs", fields)
-        if v:
+
+        def fields(p):
+            out = [("-", f"Translational springs ({ku})")]
+            vals = tuple(p.springs) + tuple(p.rotational_springs)
+            for i, lab in enumerate(DOF_LABELS):
+                if i == 3:
+                    out.append(("-", f"Rotational springs ({kr})"))
+                out.append((f"k{i}", f"{lab} stiffness  [{ku if i < 3 else kr}]", float(vals[i])))
+            return out
+
+        def apply(names, v):
             k = [v[f"k{i}"] for i in range(6)]
-            C.assign(self.doc, "point", self._names("point"), springs=tuple(k[:3]), rotational_springs=tuple(k[3:]))
+            C.assign(self.doc, "point", names, springs=tuple(k[:3]), rotational_springs=tuple(k[3:]))
+        self.assign_form("point.springs", "Joint Springs", ("point",), apply, fields=fields)
 
     def assign_point_mass(self):
-        if not self._need("point"):
-            return
-        p = self._first("point")
         mu = self.doc.model.units.shown("mass")
         mi = f"{mu}·{self.doc.model.units.shown('length')}²"
-        v = ask(self, "Assign Joint Additional Mass", [
-            ("ux", f"Mass UX  [{mu}]", float(p.mass[0])), ("uy", f"Mass UY  [{mu}]", float(p.mass[1])),
-            ("uz", f"Mass UZ  [{mu}]", float(p.mass[2])),
-            ("rx", f"Mass moment RX  [{mi}]", float(p.rotational_mass[0])),
-            ("ry", f"Mass moment RY  [{mi}]", float(p.rotational_mass[1])),
-            ("rz", f"Mass moment RZ  [{mi}]", float(p.rotational_mass[2]))])
-        if v:
-            C.assign(self.doc, "point", self._names("point"), mass=(v["ux"], v["uy"], v["uz"]),
-                     rotational_mass=(v["rx"], v["ry"], v["rz"]))
+        self.assign_form("point.mass", "Joint Additional Mass", ("point",),
+                         lambda names, v: C.assign(self.doc, "point", names, mass=(v["ux"], v["uy"], v["uz"]),
+                                                   rotational_mass=(v["rx"], v["ry"], v["rz"])),
+                         fields=lambda p: [
+                             ("ux", f"Mass UX  [{mu}]", float(p.mass[0])), ("uy", f"Mass UY  [{mu}]", float(p.mass[1])),
+                             ("uz", f"Mass UZ  [{mu}]", float(p.mass[2])),
+                             ("rx", f"Mass moment RX  [{mi}]", float(p.rotational_mass[0])),
+                             ("ry", f"Mass moment RY  [{mi}]", float(p.rotational_mass[1])),
+                             ("rz", f"Mass moment RZ  [{mi}]", float(p.rotational_mass[2]))])
 
     def define_rebar_sizes(self):
         """Define > Reinforcing Bar Sizes: the project's bar sizes, with the
@@ -854,67 +871,85 @@ class MenuCommandsMixin:
         FrameSectionsDialog(self.doc, self).exec()
 
     def assign_frame_modifiers(self):
-        if not self._need("frame"):
-            return
         from ..model.properties import FrameModifiers
-        cur = self._first("frame").modifiers or FrameModifiers()
-        names = ("A", "As2", "As3", "J", "I22", "I33", "mass", "weight")
+        names_ = ("A", "As2", "As3", "J", "I22", "I33", "mass", "weight")
         labels = ("Cross-section (axial) area", "Shear area in 2 direction", "Shear area in 3 direction",
                   "Torsional constant", "Moment of inertia about 2 axis", "Moment of inertia about 3 axis",
                   "Mass", "Weight")
-        v = ask(self, "Frame Property/Stiffness Modifiers", [(n, l, float(getattr(cur, n))) for n, l in zip(names, labels)])
-        if v:
-            C.assign(self.doc, "frame", self._names("frame"), modifiers=FrameModifiers(**v))
 
-    def assign_shell_modifiers(self):
-        if not self._need("area"):
-            return
+        def fields(f):
+            cur = f.modifiers or FrameModifiers()
+            return [(n, l, float(getattr(cur, n))) for n, l in zip(names_, labels)]
+        self.assign_form("frame.modifiers", "Frame Property/Stiffness Modifiers", ("frame",),
+                         lambda names, v: C.assign(self.doc, "frame", names, modifiers=FrameModifiers(**v)),
+                         fields=fields)
+
+    def assign_shell_modifiers(self, kind: str = "Shell"):
         from ..model.properties import ShellModifiers
-        cur = self._first("area").modifiers or ShellModifiers()
-        names = ("f11", "f22", "f12", "m11", "m22", "m12", "v13", "v23", "mass", "weight")
-        v = ask(self, "Shell Stiffness Modifiers", [(n, {"mass": "Mass", "weight": "Weight"}.get(
-            n, f"{n[0].upper()}{n[1:]} {'membrane' if n[0] == 'f' else 'bending' if n[0] == 'm' else 'shear'}"),
-            float(getattr(cur, n))) for n in names])
-        if v:
-            C.assign(self.doc, "area", self._names("area"), modifiers=ShellModifiers(**v))
+        keys = ("f11", "f22", "f12", "m11", "m22", "m12", "v13", "v23", "mass", "weight")
+
+        def fields(a):
+            cur = a.modifiers or ShellModifiers()
+            return [(n, {"mass": "Mass", "weight": "Weight"}.get(
+                n, f"{n[0].upper()}{n[1:]} {'membrane' if n[0] == 'f' else 'bending' if n[0] == 'm' else 'shear'}"),
+                float(getattr(cur, n))) for n in keys]
+        self.assign_form(f"{kind.lower()}.modifiers", f"{kind} Stiffness Modifiers", ("area",),
+                         lambda names, v: C.assign(self.doc, "area", self._of_kind(names, kind),
+                                                   modifiers=ShellModifiers(**v)),
+                         fields=fields)
+
+    def _of_kind(self, names, kind: str):
+        """The picked areas a Slab / Wall command changes: walls for Wall, the others
+        (floors, ramps) for Slab; every one for the plain Shell commands."""
+        m = self.doc.model
+        if kind not in ("Slab", "Wall", "Floor"):
+            return list(names)
+        wall = kind == "Wall"
+        mine = [n for n in names if n in m.areas and (m.areas[n].type == "Wall") == wall]
+        if not mine:
+            self.state.status.emit(f"None of the picked shells is a {'wall' if wall else 'floor'} "
+                                   f"(Assign > {'Wall' if wall else 'Slab'}): nothing changed")
+        return mine
 
     def assign_releases_full(self):
-        if not self._need("frame"):
-            return
-        f = self._first("frame")
         labels = ("Axial load (P)", "Shear force 2 (V2)", "Shear force 3 (V3)", "Torsion (T)",
                   "Moment 22 (M2)", "Moment 33 (M3)")
-        fields = [("-", "Release  (Start | End)")]
-        for k, lab in enumerate(labels):
-            fields.append((f"i{k}", f"{lab} - Start", bool(f.releases_i[k])))
-            fields.append((f"j{k}", f"{lab} - End", bool(f.releases_j[k])))
-        v = ask(self, "Frame Releases", fields)
-        if v:
+
+        def fields(f):
+            out = [("-", "Release  (Start | End)")]
+            for k, lab in enumerate(labels):
+                out.append((f"i{k}", f"{lab} - Start", bool(f.releases_i[k])))
+                out.append((f"j{k}", f"{lab} - End", bool(f.releases_j[k])))
+            return out
+
+        def apply(names, v):
             ri = tuple(v[f"i{k}"] for k in range(6))
             rj = tuple(v[f"j{k}"] for k in range(6))
-            C.assign(self.doc, "frame", self._names("frame"), releases_i=ri, releases_j=rj)
+            C.assign(self.doc, "frame", names, releases_i=ri, releases_j=rj)
+        self.assign_form("frame.releases", "Frame Releases", ("frame",), apply, fields=fields)
 
     def assign_end_offsets(self):
-        if not self._need("frame"):
-            return
-        f = self._first("frame")
         m = self.doc.model
-        default = f.auto_end_offsets is None and f.rigid_factor is None
-        v = ask(self, "Frame End Length Offsets", [
-            ("default", "Use the model defaults (Analyze > Analysis Model Defaults)", default),
-            ("auto", "Automatic from connectivity", m.frame_auto_end_offsets(f)),
-            ("i", "End-I length offset", float(f.end_offset_i), {"item": "coordinates"}),
-            ("j", "End-J length offset", float(f.end_offset_j), {"item": "coordinates"}),
-            ("rz", "Rigid-zone factor (0 = flexible ... 1 = fully rigid)", m.frame_rigid_factor(f))],
-            note="Rigid-zone factor: the fraction of each end offset taken as rigid for bending and shear "
-                 "(recommended: 0.5 for concrete frames; steel 0, or 1.0 only together with panel zones).")
-        if v:
+
+        def fields(f):
+            default = f.auto_end_offsets is None and f.rigid_factor is None
+            return [("default", "Use the model defaults (Analyze > Analysis Model Defaults)", default),
+                    ("auto", "Automatic from connectivity", m.frame_auto_end_offsets(f)),
+                    ("i", "End-I length offset", float(f.end_offset_i), {"item": "coordinates"}),
+                    ("j", "End-J length offset", float(f.end_offset_j), {"item": "coordinates"}),
+                    ("rz", "Rigid-zone factor (0 = flexible ... 1 = fully rigid)", m.frame_rigid_factor(f))]
+
+        def apply(names, v):
             if v["default"]:
-                C.assign(self.doc, "frame", self._names("frame"), auto_end_offsets=None, rigid_factor=None,
+                C.assign(self.doc, "frame", names, auto_end_offsets=None, rigid_factor=None,
                          end_offset_i=v["i"], end_offset_j=v["j"])
             else:
-                C.assign(self.doc, "frame", self._names("frame"), auto_end_offsets=v["auto"], end_offset_i=v["i"],
+                C.assign(self.doc, "frame", names, auto_end_offsets=v["auto"], end_offset_i=v["i"],
                          end_offset_j=v["j"], rigid_factor=max(0.0, min(1.0, v["rz"])))
+        self.assign_form("frame.end_offsets", "Frame End Length Offsets", ("frame",), apply, fields=fields,
+                         note="Rigid-zone factor: the fraction of each end offset taken as rigid for bending and "
+                              "shear (recommended: 0.5 for concrete frames; steel 0, or 1.0 only together with "
+                              "panel zones).")
 
     def analyze_model_defaults(self):
         """Analyze > Analysis Model Defaults: what frames and slabs get unless the
@@ -949,61 +984,54 @@ class MenuCommandsMixin:
         self.doc.edit(apply)
 
     def assign_insertion_point(self):
-        if not self._need("frame"):
-            return
-        f = self._first("frame")
-        cur = CARDINAL_POINTS[max(1, min(11, int(f.cardinal_point))) - 1]
-        v = ask(self, "Frame Insertion Point", [
-            ("cp", "Cardinal point", cur, {"choices": CARDINAL_POINTS}),
-            ("ix", "Joint offset End-I  X", float(f.joint_offset_i[0]), {"item": "coordinates"}),
-            ("iy", "Y", float(f.joint_offset_i[1]), {"item": "coordinates"}),
-            ("iz", "Z", float(f.joint_offset_i[2]), {"item": "coordinates"}),
-            ("jx", "Joint offset End-J  X", float(f.joint_offset_j[0]), {"item": "coordinates"}),
-            ("jy", "Y", float(f.joint_offset_j[1]), {"item": "coordinates"}),
-            ("jz", "Z", float(f.joint_offset_j[2]), {"item": "coordinates"})])
-        if v:
+        def fields(f):
+            cur = CARDINAL_POINTS[max(1, min(11, int(f.cardinal_point))) - 1]
+            return [("cp", "Cardinal point", cur, {"choices": CARDINAL_POINTS}),
+                    ("ix", "Joint offset End-I  X", float(f.joint_offset_i[0]), {"item": "coordinates"}),
+                    ("iy", "Y", float(f.joint_offset_i[1]), {"item": "coordinates"}),
+                    ("iz", "Z", float(f.joint_offset_i[2]), {"item": "coordinates"}),
+                    ("jx", "Joint offset End-J  X", float(f.joint_offset_j[0]), {"item": "coordinates"}),
+                    ("jy", "Y", float(f.joint_offset_j[1]), {"item": "coordinates"}),
+                    ("jz", "Z", float(f.joint_offset_j[2]), {"item": "coordinates"})]
+
+        def apply(names, v):
             cp = int(v["cp"].split()[0])
-            C.assign(self.doc, "frame", self._names("frame"), cardinal_point=cp, display_cardinal=cp,
+            C.assign(self.doc, "frame", names, cardinal_point=cp, display_cardinal=cp,
                      joint_offset_i=(v["ix"], v["iy"], v["iz"]), joint_offset_j=(v["jx"], v["jy"], v["jz"]))
+        self.assign_form("frame.insertion", "Frame Insertion Point", ("frame",), apply, fields=fields)
 
     def assign_output_stations(self):
-        if not self._need("frame"):
-            return
-        f = self._first("frame")
-        v = ask(self, "Frame Output Stations", [
-            ("spacing", "Max station spacing (blank = by number)", f.max_station_spacing,
-             {"optional": True, "item": "coordinates"}),
-            ("n", "Min number of stations", int(f.min_stations), {"min": 2, "max": 100})])
-        if v:
-            C.assign(self.doc, "frame", self._names("frame"), max_station_spacing=v["spacing"], min_stations=v["n"])
+        self.assign_form("frame.stations", "Frame Output Stations", ("frame",),
+                         lambda names, v: C.assign(self.doc, "frame", names, max_station_spacing=v["spacing"],
+                                                   min_stations=v["n"]),
+                         fields=lambda f: [
+                             ("spacing", "Max station spacing (blank = by number)", f.max_station_spacing,
+                              {"optional": True, "item": "coordinates"}),
+                             ("n", "Min number of stations", int(f.min_stations), {"min": 2, "max": 100})])
 
     def assign_tc_limits(self):
-        if not self._need("frame"):
-            return
-        f = self._first("frame")
-        v = ask(self, "Frame Tension/Compression Limits", [
-            ("t", "Tension limit (blank = none)", f.tension_limit, {"optional": True, "item": "force"}),
-            ("c", "Compression limit (blank = none)", f.compression_limit, {"optional": True, "item": "force"})])
-        if v:
-            C.assign(self.doc, "frame", self._names("frame"), tension_limit=v["t"], compression_limit=v["c"])
+        self.assign_form("frame.tc_limits", "Frame Tension/Compression Limits", ("frame",),
+                         lambda names, v: C.assign(self.doc, "frame", names, tension_limit=v["t"],
+                                                   compression_limit=v["c"]),
+                         fields=lambda f: [
+                             ("t", "Tension limit (blank = none)", f.tension_limit, {"optional": True, "item": "force"}),
+                             ("c", "Compression limit (blank = none)", f.compression_limit,
+                              {"optional": True, "item": "force"})])
 
     def assign_frame_mesh(self):
-        if not self._need("frame"):
-            return
-        f = self._first("frame")
-        v = ask(self, "Frame Auto Mesh Options", [
-            ("auto", "Auto mesh frame at intermediate joints / intersections", bool(f.auto_mesh)),
-            ("inter", "Mesh at intersections with other frames and area edges", bool(f.mesh_at_intersections))])
-        if v:
-            C.assign(self.doc, "frame", self._names("frame"), auto_mesh=v["auto"], mesh_at_intersections=v["inter"])
+        self.assign_form("frame.mesh", "Frame Auto Mesh Options", ("frame",),
+                         lambda names, v: C.assign(self.doc, "frame", names, auto_mesh=v["auto"],
+                                                   mesh_at_intersections=v["inter"]),
+                         fields=lambda f: [
+                             ("auto", "Auto mesh frame at intermediate joints / intersections", bool(f.auto_mesh)),
+                             ("inter", "Mesh at intersections with other frames and area edges",
+                              bool(f.mesh_at_intersections))])
 
     def assign_frame_floor_mesh(self):
-        if not self._need("frame"):
-            return
-        v = ask(self, "Frame Floor Meshing Options", [
-            ("floor", "Include frame in floor meshing (split at mesh nodes)", bool(self._first("frame").mesh_at_floor))])
-        if v:
-            C.assign(self.doc, "frame", self._names("frame"), mesh_at_floor=v["floor"])
+        self.assign_form("frame.floor_mesh", "Frame Floor Meshing Options", ("frame",),
+                         lambda names, v: C.assign(self.doc, "frame", names, mesh_at_floor=v["floor"]),
+                         fields=lambda f: [("floor", "Include frame in floor meshing (split at mesh nodes)",
+                                            bool(f.mesh_at_floor))])
 
     def assign_shell_section_of(self, kind: str):
         if not self._need("area"):
@@ -1018,45 +1046,49 @@ class MenuCommandsMixin:
                      if (self.doc.model.areas[n].type == "Wall") == (kind == "Wall")] or self._names("area")
             C.assign(self.doc, "area", names, section=v["sec"])
 
-    def assign_openings(self):
-        if not self._need("area"):
-            return
-        if QtWidgets.QMessageBox.question(self, "Shell Openings", "Make the selected shells openings?") \
-                == QtWidgets.QMessageBox.Yes:
-            C.assign(self.doc, "area", self._names("area"), type="Opening", section=None)
+    def assign_openings(self, of: str = ""):
+        self.assign_form(f"shell.openings.{of}", f"{of or 'Shell'} Openings", ("area",),
+                         lambda names, v: C.assign(self.doc, "area", self._of_kind(names, of), type="Opening",
+                                                   section=None),
+                         fields=lambda a: [],
+                         note="The picked shells become openings (holes in the floors / walls they lie in).")
 
     def assign_area_mesh(self, kind: str):
-        """Assign > Floor / Wall Auto Mesh Options: one choice for the selected areas - auto
-        mesh, manual maximum mesh size, fine mesh (once found) or no mesh - and the allowed
-        error of Find Fine Mesh."""
-        if not self._need("area"):
-            return
+        """Assign > Slab / Wall > Auto Mesh Options, in the box: one choice for the picked
+        areas - auto mesh, manual maximum mesh size, fine mesh (once found) or no mesh -
+        and the allowed error of Find Fine Mesh."""
         from .mesh_dialog import AreaMeshDialog, area_mode
         m = self.doc.model
-        a = self._first("area")
-        mode = area_mode(a)
-        if mode == "auto" and m.options.use_fine_mesh and m.options.fine_mesh_factor:
-            mode = "fine"  # (models saved with the earlier whole-model fine mesh)
-        dlg = AreaMeshDialog(kind, m, mode, a.max_mesh_size, self.check_mesh, self)
-        self._mesh_dialog = dlg
-        try:
-            if not dlg.exec():
-                return
-            v = dlg.values()
-            if dlg.apply_tolerance():
-                self.doc.dirty = True
-        finally:
-            self._mesh_dialog = None
-        if m.options.use_fine_mesh:
-            # the earlier whole-model fine mesh becomes the fine mesh of each auto-meshed area
-            rest = [n for n, ar in m.areas.items() if ar.auto_mesh and not ar.max_mesh_size and not ar.fine_mesh]
-            if rest:
-                C.assign(self.doc, "area", rest, fine_mesh=True)
-            self.set_fine_mesh(False)
-        names = [n for n in self._names("area") if (m.areas[n].type == "Wall") == (kind == "Wall")]
-        C.assign(self.doc, "area", names or self._names("area"), auto_mesh=v["auto"],
-                 max_mesh_size=v["size"], fine_mesh=v["fine"])
-        self._sync_fine_mesh()
+
+        def widget(a):
+            mode = area_mode(a) if a.name else "auto"
+            if mode == "auto" and m.options.use_fine_mesh and m.options.fine_mesh_factor:
+                mode = "fine"  # (models saved with the earlier whole-model fine mesh)
+            dlg = AreaMeshDialog(kind, m, mode, a.max_mesh_size, self.check_mesh, self)
+            bb = dlg.findChild(QtWidgets.QDialogButtonBox)
+            if bb is not None:
+                bb.hide()
+            self._mesh_dialog = dlg  # Find Fine Mesh refreshes it when done
+
+            def values():
+                v = dlg.values()  # (ValueError: shown, nothing assigned)
+                if dlg.apply_tolerance():
+                    self.doc.dirty = True
+                return v
+            return dlg, values
+
+        def apply(names, v):
+            mm = self.doc.model
+            if mm.options.use_fine_mesh:
+                # the earlier whole-model fine mesh becomes the fine mesh of each auto-meshed area
+                rest = [n for n, ar in mm.areas.items() if ar.auto_mesh and not ar.max_mesh_size and not ar.fine_mesh]
+                if rest:
+                    C.assign(self.doc, "area", rest, fine_mesh=True)
+                self.set_fine_mesh(False)
+            C.assign(self.doc, "area", self._of_kind(names, kind), auto_mesh=v["auto"],
+                     max_mesh_size=v["size"], fine_mesh=v["fine"])
+            self._sync_fine_mesh()
+        self.assign_form(f"{kind.lower()}.mesh", f"{kind} Auto Mesh Options", ("area",), apply, widget=widget)
 
     def assign_frame_point_load(self):
         if not self._need("frame"):

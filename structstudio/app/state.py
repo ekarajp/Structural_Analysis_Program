@@ -139,16 +139,25 @@ class ViewState(QtCore.QObject):
         self.status.emit(self.NAV_PROMPTS.get(self.nav_mode, self.tool.prompt))
 
     def set_tool(self, name: str):
+        cls = TOOLS.get(name, SelectTool)
+        self.start_tool(lambda: cls(self.doc, self.settings), getattr(cls, "name", name))
+
+    def start_tool(self, make, name: Optional[str] = None):
+        """Make the current tool ``make()`` (a tool built elsewhere, e.g. an Assign form
+        command of the main window)."""
         if self.nav_mode:
             self.set_nav_mode(None)
-        cls = TOOLS.get(name, SelectTool)
         old = self.tool
-        self._swap_tool_settings(old.name, getattr(cls, "name", name))
-        self.tool = cls(self.doc, self.settings)
+        if not callable(make):
+            tool = make
+            make = lambda: tool  # noqa: E731
+        new = make()
+        self._swap_tool_settings(old.name, name or new.name)
+        self.tool = new
         self.tool.set_plane(old.plane)
         picks = getattr(self.tool, "picks", ())
         if picks:  # load commands: the selection of their kind is what they act on
-            self.keep_only(picks[0])
+            self.keep_only(*picks)
         self.tool.activate(self)
         self.tool_changed.emit(self.tool.name)
         self.update_hint()
@@ -229,12 +238,12 @@ class ViewState(QtCore.QObject):
             text = self.tool.prompt
         self.hint_changed.emit(text)
 
-    def keep_only(self, kind: str):
-        """Drop every selected object that is not of ``kind`` (point | frame | area)."""
-        keep = {"point": "points", "frame": "frames", "area": "areas"}[kind]
+    def keep_only(self, *kinds: str):
+        """Drop every selected object that is not of ``kinds`` (point | frame | area)."""
+        keep = {{"point": "points", "frame": "frames", "area": "areas"}[k] for k in kinds}
         changed = False
         for attr in ("points", "frames", "areas", "panels"):
-            if attr != keep and getattr(self, attr):
+            if attr not in keep and getattr(self, attr):
                 setattr(self, attr, set())
                 changed = True
         if changed:
@@ -257,9 +266,17 @@ class ViewState(QtCore.QObject):
             return 0
         tool.editing = False
         self.clear_selection()
-        self.status.emit(msg + " - pick more, or Esc")
+        self.status.emit(f"{msg} - pick more, or Esc")
         self.update_hint()
         return len(names)
+
+    def finish_load_tool(self) -> int:
+        """Enter / OK with a pick command: apply it to the picked objects and end the
+        command (Apply in the box applies and stays for the next set)."""
+        n = self.apply_load_tool()
+        if n:
+            self.set_tool("select")
+        return n
 
     def cancel_tool(self):
         if self.nav_mode:

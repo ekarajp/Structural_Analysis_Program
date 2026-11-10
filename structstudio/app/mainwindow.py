@@ -225,6 +225,8 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             self.addDockWidget(area, dock)
             setattr(self, "dock_" + title.lower().replace(" ", "_"), dock)
         self.tabifyDockWidget(self.dock_results, self.dock_log)
+        # the box's title follows the command: "Assign - Restraints", "Properties of Object"
+        self.object_props.title_changed.connect(self.dock_properties_of_object.setWindowTitle)
         # ETABS: the Properties of Object form sits below the Model Explorer
         self.splitDockWidget(self.dock_model, self.dock_properties_of_object, QtCore.Qt.Vertical)
         self.dock_results.raise_()
@@ -1872,26 +1874,34 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         return True
 
     def assign_restraints(self):
-        if not self._need("point"):
-            return
-        pts = list(self.state.points)
-        from .object_info import RestraintDialog
-        p0 = self.doc.model.points[pts[0]]
-        d = RestraintDialog(p0.restraints, p0.local_axes, self)
-        if d.exec():
-            val, la = d.value(), d.local_axes()
-            self.doc.edit(lambda m: [(setattr(m.points[p], "restraints", val), setattr(m.points[p], "local_axes", la))
-                                     for p in pts])
+        """Assign > Joint > Restraints, in the box at the lower left (pictures, inclined
+        supports); pick joints, Apply / OK."""
+        from .object_info import RestraintPicker
 
-    def assign_diaphragm(self):
-        if not self.state.points and not self.state.areas:
-            return self._need("point_area")
-        d = dialogs.ChoiceDialog("Assign diaphragm", "Diaphragm", ["(none)"] + list(self.doc.model.diaphragms), self)
-        if d.exec():
-            val = None if d.value() == "(none)" else d.value()
-            pts, areas = list(self.state.points), list(self.state.areas)
-            self.doc.edit(lambda m: [setattr(m.points[p], "diaphragm", val) for p in pts]
-                          + [setattr(m.areas[a], "diaphragm", val) for a in areas])
+        def widget(p):
+            w = RestraintPicker(p.restraints, p.local_axes)
+            return w, lambda: (w.restraints(), w.local_axes())
+
+        def apply(names, v):
+            val, la = v
+            self.doc.edit(lambda m: [(setattr(m.points[p], "restraints", val), setattr(m.points[p], "local_axes", la))
+                                     for p in names])
+        self.assign_form("point.restraints", "Restraints", ("point",), apply, widget=widget)
+
+    def assign_diaphragm(self, picks=("point", "area")):
+        """Assign > Joint / Slab > Diaphragms, in the box: joints and / or floors."""
+        m = self.doc.model
+
+        def fields(o):
+            cur = getattr(o, "diaphragm", None) or "(none)"
+            return [("d", "Diaphragm", cur, {"choices": ["(none)"] + list(self.doc.model.diaphragms)})]
+
+        def apply(names, v):
+            val = None if v["d"] == "(none)" else v["d"]
+            self.doc.edit(lambda mm: [setattr(mm.points[n] if n in mm.points else mm.areas[n], "diaphragm", val)
+                                      for n in names if n in mm.points or n in mm.areas])
+        self.assign_form("diaphragm." + "_".join(picks), "Diaphragms", tuple(picks), apply, fields=fields,
+                         note=None if m.diaphragms else "No diaphragm defined yet: Define > Diaphragms.")
 
     def assign_frame_section(self):
         """Assign > Frame > Section Property: a command (choose here, pick, Enter / right-click)."""

@@ -34,7 +34,11 @@ SECTION_COMMANDS = ("frame_section", "slab_section", "deck_section", "wall_secti
 
 
 class ObjectPropertiesPanel(QtWidgets.QWidget):
-    """The form; ``state.settings`` (a DrawSettings) holds the values."""
+    """The form; ``state.settings`` (a DrawSettings) holds the values.  Assign and load
+    commands show their form here too ("Assign - Restraints"): Apply assigns and keeps
+    the box for the next set, OK / Enter assigns and ends, Cancel leaves."""
+
+    title_changed = QtCore.Signal(str)  # the box's (dock's) title
 
     def __init__(self, state: ViewState, document: Document, parent=None):
         super().__init__(parent)
@@ -63,11 +67,29 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
         self.hint.setWordWrap(True)
         self.hint.setStyleSheet("color: gray")
         lay.addWidget(self.hint)
-        # load commands: apply the form to the picked objects (= Enter / right-click)
-        self.apply_button = QtWidgets.QPushButton("Apply to Picked Objects  (Enter)")
+        # assign / load commands: Apply (assign, pick the next set) | OK (= Enter: assign,
+        # finish) | Cancel (leave)
+        self.apply_button = QtWidgets.QPushButton("Apply to Picked Objects")
+        self.apply_button.setToolTip("Assign to the picked objects and keep the box open for the next set "
+                                     "(right-click in the model does the same)")
         self.apply_button.clicked.connect(self._apply_load)
         self.apply_button.setVisible(False)
         lay.addWidget(self.apply_button)
+        self.button_row = QtWidgets.QWidget()
+        br = QtWidgets.QHBoxLayout(self.button_row)
+        br.setContentsMargins(0, 0, 0, 0)
+        self.ok_button = QtWidgets.QPushButton("OK  (Enter)")
+        self.ok_button.setToolTip("Assign to the picked objects and finish the command")
+        self.ok_button.clicked.connect(self._ok)
+        self.cancel_button = QtWidgets.QPushButton("Cancel")
+        self.cancel_button.setToolTip("Leave the command (Esc)")
+        self.cancel_button.clicked.connect(lambda: self.state.set_tool("select"))
+        br.addWidget(self.ok_button, 1)
+        br.addWidget(self.cancel_button, 1)
+        self.button_row.setVisible(False)
+        lay.addWidget(self.button_row)
+        self._form = None  # the Assign form shown (FormDialog / own widget)
+        self._form_tool = None
         self.state.selection_changed.connect(self._update_apply)
         self.state.selection_changed.connect(self._selection_changed)
         self.editors: Dict[str, QtWidgets.QWidget] = {}
@@ -92,7 +114,7 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
         pass  # the panel shows the tool's settings or the selection, not the results
 
     def _selection_changed(self):
-        if self.tool_name in ("select", "select_line"):
+        if self.tool_name in ("select", "select_line") and self.state.tool.name in ("select", "select_line"):
             self.refresh()
 
     # ------------------------------------------------------- selection summary
@@ -336,6 +358,34 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
         if getattr(s, attr) and lst.currentRow() >= 0:
             chosen(lst.currentRow())
 
+    def _build_assign_form(self, tool, spec):
+        """An Assign command's own form, in the box: the values of the objects picked
+        before the command (or the defaults); Apply / OK / Cancel below."""
+        from .forms import FormDialog
+        self._set_title(f"Assign - {tool.title.replace('Assign ', '')}")
+        n = len(tool.picked(self.state))
+        self.hint.setText((f"Showing the values of the {n} picked {tool.plural(n)}. " if n else "") +
+                          f"Pick {tool.plural()} in the model (click / window); Apply = assign and pick the "
+                          "next set, OK / Enter = assign and finish, Cancel / Esc = leave.")
+        self.table.setVisible(False)
+        if spec.widget is not None:
+            w, values = spec.widget(tool.first)
+        else:
+            w = FormDialog(tool.title, tool.fields, self, spec.note)
+            bb = w.findChild(QtWidgets.QDialogButtonBox)
+            if bb is not None:
+                bb.hide()
+            values = w.values
+        w.setWindowFlags(QtCore.Qt.Widget)
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setWidget(w)
+        self.picker_lay.addWidget(scroll, 1)
+        self.picker_box.setVisible(True)
+        tool.read_values = values
+        self._form, self._form_tool = w, tool
+
     # ------------------------------------------------------------- build
     def _tool_changed(self, name: str):
         self.tool_name = name
@@ -347,9 +397,29 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
     def _apply_load(self):
         self.state.apply_load_tool()
 
+    def _ok(self):
+        tool = self.state.tool
+        if tool.picked(self.state) if hasattr(tool, "picked") else False:
+            self.state.finish_load_tool()
+        else:
+            self.state.status.emit(f"{tool.title}: pick {tool.plural()} first, or Cancel")
+
+    def _set_title(self, text: str):
+        self.title.setText(text)
+        tool = self.state.tool
+        if getattr(tool, "picks", None):
+            box = f"Assign - {getattr(tool, 'title', '').replace('Assign ', '')}"
+        else:
+            box = "Properties of Object"
+        self.title_changed.emit(box)
+
     def _update_apply(self):
         on = self._is_load_command()
         self.apply_button.setVisible(on)
+        self.button_row.setVisible(on)
+        if on:
+            n = len(self.state.tool.picked(self.state))
+            self.ok_button.setEnabled(n > 0)
         if on:
             tool = self.state.tool
             n = len(tool.picked(self.state))
@@ -362,19 +432,36 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
                                           f"(Enter / right-click)" if n else f"Pick {tool.plural()} in the model first")
 
     def refresh(self):
+        tool = self.state.tool
+        spec = getattr(tool, "spec", None)
+        if spec is not None and self._form_tool is tool and self._form is not None:
+            self._update_apply()  # the same command: keep the form and the values typed in it
+            self._set_title(self.title.text())
+            return
+        self._form, self._form_tool = None, None
+        if spec is not None:
+            self.editors.clear()
+            self.table.setRowCount(0)
+            self._clear_picker()
+            self._build_assign_form(tool, spec)
+            self._update_apply()
+            self.state.update_hint()
+            return
+        self.table.setVisible(True)
         items = TOOL_PROPERTIES.get(self.tool_name)
         self.editors.clear()
         self.table.setRowCount(0)
         self._clear_picker()
         self._update_apply()
         if not items:
-            self.title.setText("")
+            self._set_title("")
             self.hint.setText("Select a draw tool: its drawing properties appear here."
                               if self.tool_name in ("select", "select_line") else "")
             if self.tool_name in ("select", "select_line") and self._selection_summary():
                 pass
             return
-        self.title.setText(f"Properties of Object - {TOOL_TITLES.get(self.tool_name, self.tool_name)}")
+        what = TOOL_TITLES.get(self.tool_name, self.tool_name)
+        self._set_title(f"Assign - {what}" if self._is_load_command() else f"Properties of Object - {what}")
         if self.tool_name in SECTION_COMMANDS:
             what = {"frame_section": "frames", "wall_section": "walls"}.get(self.tool_name, "floors")
             self.hint.setText(f"Pick the section here, then pick {what} in the model and press Enter / "

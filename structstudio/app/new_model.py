@@ -532,6 +532,13 @@ class NewModelWizard(QtWidgets.QDialog):
         self.src_info.setWordWrap(True)
         gl.addWidget(self.src_info)
         gl.addStretch(1)
+        # the project data (reports, title blocks): here or later in File > Project Information
+        self.project_values = {}
+        self.btn_project = QtWidgets.QPushButton("Project Information...")
+        self.btn_project.setToolTip("Project name, number, engineer, company ... for reports and drawings "
+                                    "(also File > Project Information later)")
+        self.btn_project.clicked.connect(self._edit_project)
+        gl.addWidget(self.btn_project)
         self.src_builtin.setChecked(True)
         self.src_buttons.buttonToggled.connect(lambda *_: self._source_changed())
         h.addWidget(g)
@@ -1543,6 +1550,13 @@ class NewModelWizard(QtWidgets.QDialog):
                                                              "rebar_db": self._rebar_key()}))
         self.accept()
 
+    def _edit_project(self):
+        from .project_info import edit_project_info
+        v = edit_project_info(dict(self.project_values), self)
+        if v is not None:
+            self.project_values = v
+            self.btn_project.setText(f"Project Information: {v.get('name') or 'Untitled'}")
+
     def build(self) -> Model:
         xs, ys, st = self.grid_data()
         structure = self.structure
@@ -1571,6 +1585,9 @@ class NewModelWizard(QtWidgets.QDialog):
             r = extra.get((g.direction, g.name))
             if r is not None:
                 g.bubble_location, g.visible = r[2], bool(r[3])
+        for k, v in getattr(self, "project_values", {}).items():
+            if hasattr(m.info, k):
+                setattr(m.info, k, v)
         return m
 
     def model(self) -> Model:
