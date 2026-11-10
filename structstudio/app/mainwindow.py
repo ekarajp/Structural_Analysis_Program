@@ -87,7 +87,7 @@ DRAW_PALETTE = [
     ("Modify", ["move", "copy", "rotate", "mirror", "offset", "trim", "extend"]),
 ]
 # the load tools are on the top Loads toolbar (the left palette: select, draw, modify only)
-LOAD_PALETTE = ["area_load", "panel_load", "frame_load", "joint_load"]
+LOAD_PALETTE = ["area_load", "frame_load", "joint_load", "panel_load"]
 
 
 class AnalysisWorker(QtCore.QThread):
@@ -289,6 +289,10 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
                            checked=(key == "select"), icon_name=ic)
             self.tool_group.addAction(a)
             self.tool_actions[key] = a
+        # Load Panel: a small window of panel commands (draw, edit shape / load, move, copy, delete)
+        pa = self.tool_actions["panel_load"]
+        pa.triggered.disconnect()
+        pa.triggered.connect(lambda _=False: self.show_panel_commands())
         # Move = the CAD Move command (Ctrl+M as in ETABS, or M V); exact distances are typed
         # in the window (dx,dy,dz), which replaces the old ETABS Move form
         self.act_move = self.tool_actions["move"]
@@ -1102,11 +1106,133 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         self.state.display_changed.emit()
 
     # ---------------------------------------------------- right-click forms
+    # ------------------------------------------------------------ load panels
+    PANEL_COMMANDS = (("draw", "Draw Panel", "Draw a new load panel (corners), then set its loads"),
+                      ("shape", "Edit Panel Shape", "Pick a panel, then draw its new outline"),
+                      ("load", "Edit Panel Load", "Pick panels, then change their loads"),
+                      ("move", "Move Panel", "Pick panels, then move them (base point, destination)"),
+                      ("copy", "Copy Panel", "Pick panels, then copy them"),
+                      ("delete", "Delete Panel", "Pick panels, then delete them"))
+
+    def show_panel_commands(self):
+        """Load > Load Panel: a small window with the panel commands.  Panels can be picked
+        only in these commands (elsewhere the floors / members under them are picked)."""
+        dlg = getattr(self, "_panel_commands", None)
+        if dlg is None:
+            dlg = QtWidgets.QDialog(self)
+            dlg.setWindowTitle("Load Panel")
+            dlg.setWindowFlag(QtCore.Qt.Tool, True)
+            dlg.setWindowFlag(QtCore.Qt.WindowContextHelpButtonHint, False)
+            lay = QtWidgets.QVBoxLayout(dlg)
+            lay.setSpacing(4)
+            dlg.buttons = {}
+            for key, label, tip in self.PANEL_COMMANDS:
+                b = QtWidgets.QPushButton(label)
+                b.setToolTip(tip)
+                b.setStyleSheet("text-align: left; padding: 4px 10px;")
+                b.clicked.connect(lambda _=False, k=key: (dlg.accept(), self.panel_command(k)))
+                lay.addWidget(b)
+                dlg.buttons[key] = b
+            dlg.rejected.connect(self._recheck_tool_action)
+            self._panel_commands = dlg
+        self._recheck_tool_action()
+        dlg.adjustSize()
+        if not dlg.isVisible():
+            g = self.geometry()
+            dlg.move(g.x() + 240, g.y() + 140)
+        dlg.show()
+        dlg.raise_()
+
+    def _recheck_tool_action(self):
+        """The Load Panel button is a command, not a tool: the current tool stays checked."""
+        a = self.tool_actions.get(self.state.tool.name) or self.tool_actions.get("select")
+        if a is not None and self.state.tool.name in self.tool_actions:
+            a.setChecked(True)
+        elif self.tool_actions.get("panel_load") is not None:
+            self.tool_actions["panel_load"].setChecked(False)
+
+    def panel_command(self, key: str):
+        """One of the Load Panel commands.  Draw: the panel tool (its loads are asked when
+        the outline is closed).  The others pick panels first (only panels can be picked)."""
+        m = self.doc.model
+        if key == "draw":
+            self.state.set_tool("panel_load")
+            return
+        st = self.state
+        free = lambda names: [n for n in names if n in m.panel_loads]  # noqa: E731
+
+        def delete(names, _v=None):
+            names = free(names)
+            self.doc.edit(lambda mm: [mm.panel_loads.pop(n, None) for n in names])
+            return f"{len(names)} load panel(s) deleted"
+
+        def edit_load(names, _v=None):
+            for n in free(names):
+                self.edit_panel_load(n)
+            return f"{len(names)} load panel(s) edited"
+
+        def move_or_copy(tool):
+            def ok(names):
+                names = [n for n in free(names) if not m.panel_loads[n].area]
+                if not names:
+                    raise ModelError("AREA_PANEL", "Area loads follow their floor / wall: move the floor / wall")
+                st.set_tool("select")
+                st.clear_selection()
+                for n in names:
+                    st.toggle("panel", n, True)
+                st.set_tool(tool)
+            return ok
+
+        def shape(names):
+            names = [n for n in free(names) if not self.doc.model.panel_loads[n].area]
+            if not names:
+                raise ModelError("AREA_PANEL", "An area load has the shape of its floor / wall: edit the floor / wall")
+            st.clear_selection()  # (Load Panel with panels selected would edit their loads)
+            st.set_tool("panel_load")
+            st.tool.reshape_of = names[0]
+            st.toggle("panel", names[0], True)  # its present outline stays highlighted
+            st.status.emit(f"Edit Panel Shape {names[0]}: click the new corners, close the outline")
+            st.update_hint()
+
+        specs = {"shape": ("Edit Panel Shape", None, shape),
+                 "load": ("Edit Panel Load", edit_load, None),
+                 "move": ("Move Panel", None, move_or_copy("move")),
+                 "copy": ("Copy Panel", None, move_or_copy("copy")),
+                 "delete": ("Delete Panel", delete, None)}
+        title, apply, ok = specs[key]
+        from .tools import AssignFormTool, AssignSpec
+        notes = {"shape": "Click the load panel to reshape (only load panels can be picked now), then OK: "
+                          "draw its new outline.",
+                 "load": "Click the load panels (only load panels can be picked now); Apply / OK opens their loads.",
+                 "move": "Click the load panels to move, then OK: base point, destination.",
+                 "copy": "Click the load panels to copy, then OK: base point, destination.",
+                 "delete": "Click the load panels to delete; Apply / OK deletes them (Undo brings them back)."}
+        spec = AssignSpec("panel." + key, title, ("panel",), apply, fields=lambda _o: [], note=notes[key],
+                          on_ok=ok)
+        if getattr(self, "_pending_assign", None) is not None:
+            self.cancel_pending_assign()
+        st.start_tool(lambda: AssignFormTool(self.doc, st.settings, spec))
+
     def add_panel_load(self, points):
-        """A load panel polygon was drawn: ask for its loads, then add it."""
+        """A load panel polygon was drawn: ask for its loads, then add it (Edit Panel Shape:
+        the new outline of that panel, its loads kept)."""
         from .panel_dialog import PanelLoadDialog
         from ..model.objects import PanelLoad
         m = self.doc.model
+        target = getattr(self.state.tool, "reshape_of", None)
+        if target and target in m.panel_loads:
+            pts = [tuple(float(v) for v in p) for p in points]
+
+            def reshape(model):
+                pl = model.panel_loads[target]
+                pl.points = pts
+                if pl.distribution == "one_way":
+                    from .panel_dialog import edge_direction
+                    pl.span_dir = pl.span_dir or edge_direction(pts, 0)
+            self.doc.edit(reshape)
+            self.state.set_tool("select")
+            self.state.status.emit(f"Load panel {target}: new outline")
+            return
         if not m.load_patterns:
             QtWidgets.QMessageBox.information(self, "Load panel", "Define a load pattern first (Define menu).")
             return
@@ -1439,7 +1565,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         a = self.tool_actions.get(key)
         if a and not a.isChecked():
             a.setChecked(True)
-        if key == "panel_load" and self.state.panels:
+        if key == "panel_load" and self.state.panels and not getattr(self.state.tool, "reshape_of", None):
             # Load Panel with panels selected first: edit them (the command's form)
             names = sorted(self.state.panels)
             QtCore.QTimer.singleShot(0, lambda: self._edit_selected_panels(names))

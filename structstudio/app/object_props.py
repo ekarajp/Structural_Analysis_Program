@@ -430,6 +430,8 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
         if on:
             tool = self.state.tool
             n = len(tool.picked(self.state))
+            spec = getattr(tool, "spec", None)
+            self.apply_button.setVisible(spec is None or spec.apply is not None)
             self.apply_button.setEnabled(n > 0)
             what = f"{n} {tool.plural(n)} picked" if n else f"Pick {tool.plural()} in the model (click / window)"
             if n and not getattr(tool, "apply_label", None) and not getattr(tool, "spec", None):

@@ -2453,13 +2453,15 @@ LOAD_KIND_LABELS = {"joint": "Joint loads", "frame": "Frame loads", "area": "Are
                     "panel": "Free load panels", "applied": "Panel and area loads as applied to the members"}
 
 
-def build_panel_actors(model: Model, selected: Optional[set] = None) -> List[vtk.vtkProp]:
+def build_panel_actors(model: Model, selected: Optional[set] = None,
+                       only_selected: bool = False) -> List[vtk.vtkProp]:
     """Load panels as objects: a dashed outline, a light fill and the span arrow
-    (one-way) or a cross (two-way) at the centre."""
+    (one-way) or a cross (two-way) at the centre.  ``only_selected``: the panels are
+    hidden (Display Options) - only the selected ones are drawn."""
     # area loads (panels made from an area) are drawn as loads, not as objects -
     # only a selected one gets its outline
     panels = [pl for pl in getattr(model, "panel_loads", {}).values()
-              if not pl.area or (selected and pl.name in selected)]
+              if (selected and pl.name in selected) or (not pl.area and not only_selected)]
     if not panels:
         return []
     color = COLORS["load"]

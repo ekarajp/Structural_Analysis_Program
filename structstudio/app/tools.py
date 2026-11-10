@@ -2300,6 +2300,7 @@ class PanelLoadTool(Tool):
     def __init__(self, doc: Document, settings: DrawSettings):
         super().__init__(doc, settings)
         self.pending: Optional[List[XYZ]] = None
+        self.reshape_of: Optional[str] = None  # Edit Panel Shape: the panel whose outline is redrawn
 
     def click(self, pt, snap: Optional[SnapResult] = None) -> bool:
         p = self._p3(pt)
@@ -2380,7 +2381,8 @@ class LoadPickTool(Tool):
             self.settings.load_mode = "Add"
 
     def picked(self, state) -> List[str]:
-        sets = {"point": state.points, "frame": state.frames, "area": state.areas}
+        sets = {"point": state.points, "frame": state.frames, "area": state.areas,
+                "panel": getattr(state, "panels", set())}
         out = set()
         for k in self.picks:
             out |= set(sets[k])
@@ -2579,6 +2581,9 @@ class AssignSpec:
     note: Optional[str] = None
     noun: str = ""
     nouns: str = ""
+    # OK runs this with the picked names instead of apply + close (e.g. Move Panel: the
+    # Move command starts with them selected); ``apply`` may then be None (no Apply button)
+    on_ok: Optional[Callable] = None
 
 
 class AssignFormTool(LoadPickTool):
@@ -2596,7 +2601,8 @@ class AssignFormTool(LoadPickTool):
         self.name = "assign:" + spec.key
         self.title = spec.title
         self.picks = tuple(spec.picks)
-        words = {"point": ("joint", "joints"), "frame": ("frame", "frames"), "area": ("shell", "shells")}
+        words = {"point": ("joint", "joints"), "frame": ("frame", "frames"), "area": ("shell", "shells"),
+                 "panel": ("load panel", "load panels")}
         if spec.noun:
             self.noun, self.nouns = spec.noun, spec.nouns or spec.noun + "s"
         elif len(self.picks) == 1:
@@ -2612,11 +2618,13 @@ class AssignFormTool(LoadPickTool):
         m = self.model
         for n in names:
             for kind in self.picks:
-                table = {"point": m.points, "frame": m.frames, "area": m.areas}[kind]
+                table = {"point": m.points, "frame": m.frames, "area": m.areas,
+                         "panel": getattr(m, "panel_loads", {})}[kind]
                 if n in table:
                     return table[n]
         from ..model.objects import Area, Frame, Point
-        return {"point": Point(""), "frame": Frame("", "", "", ""), "area": Area("", [])}[self.picks[0]]
+        return {"point": Point(""), "frame": Frame("", "", "", ""), "area": Area("", []),
+                "panel": None}[self.picks[0]]
 
     def activate(self, state) -> None:
         names = self.picked(state)
@@ -2626,6 +2634,8 @@ class AssignFormTool(LoadPickTool):
             self.fields = list(self.spec.fields(self.first))
 
     def apply_many(self, names: Sequence[str]) -> str:
+        if self.spec.apply is None:
+            raise ModelError("NO_APPLY", f"{self.title}: press OK")
         if self.read_values is None:
             raise ModelError("NO_FORM", f"{self.title}: the form is not open")
         try:

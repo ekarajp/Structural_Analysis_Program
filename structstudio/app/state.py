@@ -240,7 +240,7 @@ class ViewState(QtCore.QObject):
 
     def keep_only(self, *kinds: str):
         """Drop every selected object that is not of ``kinds`` (point | frame | area)."""
-        keep = {{"point": "points", "frame": "frames", "area": "areas"}[k] for k in kinds}
+        keep = {{"point": "points", "frame": "frames", "area": "areas", "panel": "panels"}[k] for k in kinds}
         changed = False
         for attr in ("points", "frames", "areas", "panels"):
             if attr not in keep and getattr(self, attr):
@@ -273,6 +273,18 @@ class ViewState(QtCore.QObject):
     def finish_load_tool(self) -> int:
         """Enter / OK with a pick command: apply it to the picked objects and end the
         command (Apply in the box applies and stays for the next set)."""
+        spec = getattr(self.tool, "spec", None)
+        if spec is not None and spec.on_ok is not None:
+            names = self.tool.picked(self)
+            if not names:
+                self.status.emit(f"{self.tool.title}: pick {self.tool.plural()} first")
+                return 0
+            try:
+                spec.on_ok(list(names))
+            except Exception as exc:
+                self.report(exc)
+                return 0
+            return len(names)
         n = self.apply_load_tool()
         if n:
             self.set_tool("select")

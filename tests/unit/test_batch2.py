@@ -633,3 +633,64 @@ def test_gui_project_information(window, qapp, monkeypatch, tmp_path):
     d = window.doc.model.to_dict()
     d["info"] = {"name": "Old", "engineer": "", "company": "", "notes": ""}
     assert Model.from_dict(d).info.name == "Old"
+
+
+@gui
+def test_gui_load_panel_commands(window, qapp):
+    """Load Panel: a small window of commands; panels are picked only in them; shape /
+    load / move / copy / delete; Display Options > Load panels hides them."""
+    from structstudio.app.mainwindow import LOAD_PALETTE
+    from structstudio.app.templates import new_building
+    assert LOAD_PALETTE == ["area_load", "frame_load", "joint_load", "panel_load"]
+    window.doc.model = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
+    m = window.doc.model
+    pat = next(iter(m.load_patterns))
+    from structstudio.model.objects import PanelLoadCase
+    z = m.stories["Story1"].elevation
+    pl = m.add_panel_load([(1, 1, z), (3, 1, z), (3, 3, z), (1, 3, z)], "two_way",
+                          loads=[PanelLoadCase(pat, 2.0, "Gravity")])
+    window.doc.edit(lambda mm: None)
+    st = window.state
+    window.tool_actions["panel_load"].trigger()
+    d = window._panel_commands
+    assert d.isVisible() and set(d.buttons) == {"draw", "shape", "load", "move", "copy", "delete"}
+    assert st.tool.name == "select" and window.tool_actions["select"].isChecked()
+    d.buttons["draw"].click()
+    assert st.tool.name == "panel_load" and not d.isVisible()
+    # delete: only panels can be picked, Apply deletes
+    window.panel_command("delete")
+    assert st.tool.picks == ("panel",) and window.assign_window.isVisible()
+    st.toggle("panel", pl.name, True)
+    window.assign_panel.ok_button.click()
+    assert pl.name not in window.doc.model.panel_loads and st.tool.name == "select"
+    window.doc.undo()
+    assert pl.name in window.doc.model.panel_loads
+    # move: OK starts Move with the panel selected
+    window.panel_command("move")
+    assert not window.assign_panel.apply_button.isVisible()
+    st.toggle("panel", pl.name, True)
+    window.assign_panel.ok_button.click()
+    assert st.tool.name == "move" and st.panels == {pl.name} and not st.tool.selecting
+    st.set_tool("select")
+    # shape: OK, then the new outline replaces the old one (loads kept)
+    st.clear_selection()
+    window.panel_command("shape")
+    st.toggle("panel", pl.name, True)
+    window.assign_panel.ok_button.click()
+    assert st.tool.name == "panel_load" and st.tool.reshape_of == pl.name
+    window.add_panel_load([(0, 0, z), (4, 0, z), (4, 4, z)])
+    new = window.doc.model.panel_loads[pl.name]
+    assert len(new.points) == 3 and new.loads[0].value == 2.0 and st.tool.name == "select"
+    # Display Options > Load panels off: hidden, but shown while a panel command runs
+    vp = window.views.visible_viewports()[0]
+    st.clear_selection()  # (a selected panel is always drawn)
+    o = vp.display_options
+    o.load_panels = False
+    vp.set_display_options(o)
+    vp.rebuild() if hasattr(vp, "rebuild") else None
+    vp._build_panels()
+    assert not vp._panel_actors
+    window.panel_command("load")
+    assert vp._panel_actors
+    window.assign_panel.cancel_button.click()
+    assert not vp._panel_actors

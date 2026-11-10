@@ -722,7 +722,8 @@ def test_load_menu_and_click_tools(window, app):
     labels = [a.text() for a in load.actions() if not a.isSeparator()]
     # workflow order: define the patterns / cases / combinations, then assign the loads
     assert labels[:3] == ["Load Patterns...", "Load Cases...", "Load Combinations..."]
-    assert labels[3:7] == ["Area Load (Floors / Walls)", "Load Panel (drawn load area)", "Frame Load", "Joint Load"]
+    assert labels[3:7] == ["Area Load (Floors / Walls)", "Frame Load", "Joint Load",
+                           "Load Panel (draw / edit / move / copy / delete)..."]
     assert not any("Selected" in t or "Click" in t for t in labels)  # no duplicate entries
     assert window.menu_actions["load.report"].isEnabled() and window.menu_actions["load.delete"].isEnabled()
     # Load > Show Loads...: one form (load types, patterns / case / combination), no sub-menu

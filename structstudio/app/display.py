@@ -26,6 +26,7 @@ class DisplayOptions:
     walls: bool = True
     ramps: bool = True
     openings: bool = True
+    load_panels: bool = True  # drawn load panels (Load > Load Panel); always shown while a panel command runs
     # ---- assignments
     supports: bool = True
     springs: bool = True  # spring supports (elastic): drawn like the rigid supports
@@ -99,7 +100,8 @@ class DisplayOptions:
 GROUPS: List[Tuple[str, List[Tuple[str, str]]]] = [
     ("Object Visibility", [("joints", "Joints"), ("beams", "Beams"), ("columns", "Columns"), ("braces", "Braces"),
                            ("null_lines", "Null lines"), ("floors", "Floors"), ("walls", "Walls"),
-                           ("ramps", "Ramps"), ("openings", "Openings / null areas")]),
+                           ("ramps", "Ramps"), ("openings", "Openings / null areas"),
+                           ("load_panels", "Load panels (drawn load areas)")]),
     ("Assignments", [("supports", "Joint restraints"), ("springs", "Joint springs"),
                      ("releases", "Frame releases"), ("local_axes", "Frame local axes")]),
     ("Labels", [("joint_labels", "Joint labels"), ("frame_labels", "Frame labels"), ("area_labels", "Area labels"),

@@ -488,6 +488,7 @@ class ModelViewport(QtWidgets.QWidget):
         if hasattr(self.state, "preview_shown"):
             self.state.preview_shown.connect(self._on_shared_preview)
         self.state.tool_changed.connect(lambda _n: self._on_shared_preview(None, None))
+        self.state.tool_changed.connect(self._panels_for_tool)
         self._watch_header()
         self._last_cursor = None  # last snapped cursor point (typed distances follow its direction)
         self._last_xy = (0, 0)
@@ -1408,6 +1409,13 @@ class ModelViewport(QtWidgets.QWidget):
             hide += ("releases",)  # the pin symbols are drawn on the deflected members instead
         self._hide_scene(hide)
 
+    def _panels_for_tool(self, _name=None):
+        """Panel commands show the load panels even when they are hidden (Display Options)."""
+        if getattr(self, "_finalized", False) or self.display_options.load_panels:
+            return
+        self._build_panels()
+        self.render()
+
     def _build_panels(self, rd=None):
         """Load panels (a selected one with its outline): shown with the plain
         model - they would veil a contour / member colours."""
@@ -1417,9 +1425,15 @@ class ModelViewport(QtWidgets.QWidget):
         rd = rd or self._result_display()
         _shown, fcol, contour_on = self._result_flags(rd)
         st = self.state
+        tool = st.tool
+        # Display Options > Load panels; a panel command shows them anyway (to pick / see them)
+        panel_cmd = tool.name == "panel_load" or "panel" in tuple(getattr(tool, "picks", ()) or ())
+        shown = bool(self.display_options.load_panels) or panel_cmd
         try:
-            if not (contour_on or fcol) or getattr(st, "panels", None):
-                self._panel_actors = scene.build_panel_actors(self.doc.model, getattr(st, "panels", None))
+            if (shown and not (contour_on or fcol)) or getattr(st, "panels", None) or panel_cmd:
+                self._panel_actors = scene.build_panel_actors(
+                    self.doc.model, getattr(st, "panels", None),
+                    only_selected=not shown)
         except Exception as exc:
             print("panel display error:", exc)
         for a in self._panel_actors:
