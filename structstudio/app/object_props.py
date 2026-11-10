@@ -111,9 +111,13 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
     # or a line started - the joint under the cursor was then somewhere else,
     # and the click took the wrong point.  Long items scroll inside the table.
     def minimumSizeHint(self):  # noqa: N802 (Qt name)
+        if getattr(self, "role", "dock") == "assign":  # its own window: as big as the form
+            return super().minimumSizeHint()
         return QtCore.QSize(120, super().minimumSizeHint().height())
 
     def sizeHint(self):  # noqa: N802
+        if getattr(self, "role", "dock") == "assign":
+            return super().sizeHint()
         return QtCore.QSize(240, super().sizeHint().height())
 
     def _display_changed(self):
@@ -389,6 +393,8 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
         scroll.setWidget(w)
+        hint = w.sizeHint()  # the window opens big enough for the form (scrolls only on a small screen)
+        scroll.setMinimumSize(min(hint.width() + 24, 1000), min(hint.height() + 8, 640))
         self.picker_lay.addWidget(scroll, 1)
         self.picker_box.setVisible(True)
         tool.read_values = values
@@ -562,10 +568,11 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
             if cp is None:
                 cp = 10 if self.tool_name in ("column", "quick_column", "brace", "quick_brace") else 8
             d = InsertionPointDialog(m, s.frame_section, int(cp), bool(getattr(s, "cardinal_transform", False)),
-                                     self.window())
+                                     self.window(), shift=tuple(getattr(s, "insertion_shift", (0.0, 0.0))))
             if d.exec():
                 v = d.form.values()
                 s.cardinal_transform = v["transform"]
+                s.insertion_shift = tuple(v["shift"])
                 box.setCurrentIndex(v["cp"])
         more.clicked.connect(open_form)
         h.addWidget(box, 1)
@@ -687,8 +694,18 @@ class AssignWindow(QtWidgets.QDialog):
         self._placed = False
         self.resize(360, 460)
 
+    def _fit(self):
+        """Big enough for the command's form (the Insertion Point picture ...), within the screen."""
+        self.layout().activate()
+        want = self.sizeHint()
+        scr = (self.screen() or QtWidgets.QApplication.primaryScreen()).availableGeometry()
+        w = min(max(self.width(), want.width()), int(scr.width() * 0.9))
+        h = min(max(want.height(), 200), int(scr.height() * 0.9))
+        self.resize(w, h)
+
     def _tool_changed(self, _name: str):
         if getattr(self.state.tool, "picks", None):
+            self._fit()
             if not self.isVisible():
                 self._place()
                 self.show()

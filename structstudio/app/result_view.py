@@ -439,8 +439,7 @@ def frame_color_actors(model: Model, results, case: str, quantity: str, frames=N
     r = scene._tube_radius(model)
     for name, (x, v) in vals.items():
         f = model.frames[name]
-        a = np.array(model.points[f.point_i].xyz, float) + np.array(f.joint_offset_i, float)
-        b = np.array(model.points[f.point_j].xyz, float) + np.array(f.joint_offset_j, float)
+        a, b = ex.frame_ends(model, f)
         L = float(np.linalg.norm(b - a))
         if L <= 1e-12 or len(x) < 2:
             continue

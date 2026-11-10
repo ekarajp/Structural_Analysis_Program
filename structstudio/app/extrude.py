@@ -187,6 +187,22 @@ class _MeshBuilder:
         return normals.GetOutput()
 
 
+def frame_ends(model: Model, f) -> Tuple[np.ndarray, np.ndarray]:
+    """The member's end points with its joint offsets (global, or along its local axes
+    when ``joint_offset_local``) - where it is drawn."""
+    pi = np.array(model.points[f.point_i].xyz, float)
+    pj = np.array(model.points[f.point_j].xyz, float)
+    oi = np.array(f.joint_offset_i, float)
+    oj = np.array(f.joint_offset_j, float)
+    if getattr(f, "joint_offset_local", False) and (oi.any() or oj.any()):
+        try:
+            ax = frame_axes(pi, pj, f.angle)
+            oi, oj = ax.T @ oi, ax.T @ oj
+        except ValueError:
+            pass
+    return pi + oi, pj + oj
+
+
 def frame_solids(model: Model, names: Iterable[str]) -> Tuple[Optional[vtk.vtkPolyData], List[str]]:
     """Solid polydata of the frames with a usable section, and the names of the
     frames that have none (drawn as tubes by the caller)."""
@@ -195,8 +211,7 @@ def frame_solids(model: Model, names: Iterable[str]) -> Tuple[Optional[vtk.vtkPo
     for n in names:
         f = model.frames[n]
         pieces = section_profile(model.frame_sections.get(f.section))
-        a = np.array(model.points[f.point_i].xyz, float) + np.array(f.joint_offset_i, float)
-        b = np.array(model.points[f.point_j].xyz, float) + np.array(f.joint_offset_j, float)
+        a, b = frame_ends(model, f)
         if pieces is None or np.linalg.norm(b - a) <= 1e-12:
             missing.append(n)
             continue

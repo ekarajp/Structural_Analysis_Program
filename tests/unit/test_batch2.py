@@ -753,7 +753,9 @@ def test_gui_insertion_point(window, qapp, monkeypatch):
     assert st.settings.cardinal_transform is False
 
     def fake_exec(self):
-        assert self.form.values() == {"cp": 8, "transform": False}  # (Auto for a beam: 8)
+        v = self.form.values()
+        assert v["cp"] == 8 and v["transform"] is False and v["shift"] == (0.0, 0.0)  # (Auto for a beam: 8)
+        assert not self.form.mode.isEnabled()  # drawing: dx, dy only
         self.form.picture.picked.emit(2)  # a click on point 2
         self.form.transform.setChecked(True)
         return 1
@@ -780,7 +782,49 @@ def test_gui_insertion_point(window, qapp, monkeypatch):
     assert f.values()["transform"] is False  # ... without the eccentric stiffness (as before)
     f.cardinal.setCurrentIndex(1)
     f.transform.setChecked(True)
+    f.mode.setCurrentIndex(1)  # each end, global X Y Z
     f.offset_boxes[("End-I", 2)].setValue(0.1)
     window.assign_panel.ok_button.click()
     fr = window.doc.model.frames[beam]
     assert fr.cardinal_point == 2 and fr.display_cardinal == 2 and fr.joint_offset_i[2] == pytest.approx(0.1)
+
+
+@gui
+def test_gui_insertion_shift_and_window_size(window, qapp):
+    """Insertion Point window opens big enough; dx / dy from the cardinal point are joint
+    offsets along the section (local 3 / 2, both ends), drawn and in the analysis."""
+    from structstudio.app import extrude as ex
+    from structstudio.app.templates import new_building
+    window.doc.model = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
+    m = window.doc.model
+    st = window.state
+    beam = next(n for n, f in m.frames.items() if f.type == "Beam")
+    st.set_selection([beam])
+    window.assign_insertion_point()
+    _settle(qapp)
+    f = window.assign_panel._form
+    win = window.assign_window
+    assert win.width() >= f.sizeHint().width() and win.height() >= f.sizeHint().height()
+    assert f.mode.currentIndex() == 0 and f.local_box.isVisibleTo(f) and not f.global_box.isVisibleTo(f)
+    f.dy.setValue(-0.2)
+    assert f.picture.offset == (-0.2, 0.0) and not f.shift_warn.text()
+    f.dx.setValue(5.0)
+    assert "rigid arm" in f.shift_warn.text()
+    f.dx.setValue(0.1)
+    window.assign_panel.ok_button.click()
+    fr = window.doc.model.frames[beam]
+    assert fr.joint_offset_local and fr.joint_offset_i == pytest.approx((0.0, -0.2, 0.1)) \
+        and fr.joint_offset_j == pytest.approx((0.0, -0.2, 0.1))
+    a, b = ex.frame_ends(window.doc.model, fr)  # drawn along the local axes
+    pi = window.doc.model.points[fr.point_i].xyz
+    assert abs((a - pi)[2] - (-0.2)) < 1e-9  # a level beam: local 2 = +Z
+    # opened again: the same dx / dy
+    st.set_selection([beam])
+    window.assign_insertion_point()
+    f = window.assign_panel._form
+    assert f.mode.currentIndex() == 0 and f.dy.value() == pytest.approx(-0.2) and f.dx.value() == pytest.approx(0.1)
+    f.mode.setCurrentIndex(1)  # each end, global
+    f.offset_boxes[("End-J", 0)].setValue(0.3)
+    window.assign_panel.ok_button.click()
+    fr = window.doc.model.frames[beam]
+    assert not fr.joint_offset_local and fr.joint_offset_j[0] == pytest.approx(0.3)

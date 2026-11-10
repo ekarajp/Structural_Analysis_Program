@@ -276,6 +276,8 @@ class DrawSettings:
     # the offset from the centroid goes into the analysis (eccentric member); off = drawn
     # there only (ETABS "Do not transform frame stiffness for offsets from centroid")
     cardinal_transform: bool = False
+    # (dy along local 2, dx along local 3) from the cardinal point: joint offsets (local) at both ends
+    insertion_shift: Tuple[float, float] = (0.0, 0.0)
     offset_x: float = 0.0  # plan offsets of the clicked locations (ETABS joints / columns)
     offset_y: float = 0.0
     offset_z: float = 0.0  # offset normal to the drawing plane (SAP2000 "XY Plane Offset Normal")
@@ -1013,7 +1015,12 @@ def _cardinal_fields(settings, ftype: Optional[str] = "Beam") -> dict:
         cp = 8 if (ftype or "Beam") == "Beam" else 10
     cp = int(cp)
     transform = bool(getattr(settings, "cardinal_transform", False))
-    return {"cardinal_point": cp if transform else 10, "display_cardinal": cp}
+    out = {"cardinal_point": cp if transform else 10, "display_cardinal": cp}
+    shift = tuple(getattr(settings, "insertion_shift", (0.0, 0.0)) or (0.0, 0.0))
+    if any(shift):
+        d = (0.0, float(shift[0]), float(shift[1]))
+        out.update(joint_offset_i=d, joint_offset_j=d, joint_offset_local=True)
+    return out
 
 
 def _geom_type(a, b, tol: float = 1e-6) -> str:

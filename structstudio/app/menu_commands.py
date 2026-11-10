@@ -1004,18 +1004,18 @@ class MenuCommandsMixin:
     def assign_insertion_point(self):
         """Assign > Frame > Insertion Point: the cardinal point on a picture of the section,
         whether its offset goes into the analysis, and the joint offsets."""
-        from .insertion_dialog import InsertionPointWidget, frame_fields, frame_state
+        from .insertion_dialog import InsertionPointWidget, frame_fields, frame_state, offset_fields, offset_state
         m = self.doc.model
 
         def widget(f):
             sec = f.section if f.section in m.frame_sections else next(iter(m.frame_sections), None)
             cp, transform = frame_state(f, m) if f.name else (10, False)
-            w = InsertionPointWidget(m, sec, cp, transform, tuple(f.joint_offset_i), tuple(f.joint_offset_j))
+            local, shift, oi, oj = offset_state(f)
+            w = InsertionPointWidget(m, sec, cp, transform, oi, oj, shift=shift, local=local)
             return w, w.values
 
         def apply(names, v):
-            C.assign(self.doc, "frame", names, joint_offset_i=v["ioff"], joint_offset_j=v["joff"],
-                     **frame_fields(v["cp"], v["transform"]))
+            C.assign(self.doc, "frame", names, **offset_fields(v), **frame_fields(v["cp"], v["transform"]))
         self.assign_form("frame.insertion", "Frame Insertion Point", ("frame",), apply, widget=widget)
 
     def assign_output_stations(self):

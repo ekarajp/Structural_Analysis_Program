@@ -895,7 +895,7 @@ ASSIGN_FIELDS = {
     "point": ("restraints", "springs", "rotational_springs", "mass", "rotational_mass", "diaphragm", "panel_zone"),
     "frame": ("section", "angle", "releases_i", "releases_j", "fixity_i_trans", "fixity_i_rot", "fixity_j_trans",
               "fixity_j_rot", "end_offset_i", "end_offset_j", "rigid_factor", "auto_end_offsets", "cardinal_point",
-              "display_cardinal", "joint_offset_i", "joint_offset_j", "modifiers", "mass_per_length",
+              "display_cardinal", "joint_offset_i", "joint_offset_j", "joint_offset_local", "modifiers", "mass_per_length",
               "tension_limit", "compression_limit", "auto_mesh", "mesh_at_intersections", "mesh_at_floor",
               "max_station_spacing", "min_stations", "pier", "spandrel"),
     "area": ("section", "diaphragm", "angle", "modifiers", "mass_per_area", "auto_mesh", "mesh_type",
