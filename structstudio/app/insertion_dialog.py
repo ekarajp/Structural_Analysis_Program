@@ -65,6 +65,7 @@ class SectionPicture(QtWidgets.QWidget):
         self.pieces = [np.asarray(p, float) for p in pieces]
         self.cardinal = 10
         self.offset = (0.0, 0.0)  # (d2, d3): the section moved from the cardinal point
+        self.fit_offsets = None  # offsets the scale must hold (End-I and End-J share one scale)
         self.setMinimumSize(190, 230)
         self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         self.setToolTip("Click a point to choose it")
@@ -80,8 +81,10 @@ class SectionPicture(QtWidgets.QWidget):
     def _frame(self):
         allp = np.vstack(self.pieces)
         lo, hi = allp.min(axis=0), allp.max(axis=0)  # (y2, y3)
-        d = np.asarray(self.offset, float)
-        lo_all, hi_all = np.minimum(lo, lo - d), np.maximum(hi, hi - d)  # room for the line moved by d
+        lo_all, hi_all = lo.copy(), hi.copy()
+        for d in (self.fit_offsets or [self.offset]):  # room for the line moved by d
+            d = np.asarray(d, float)
+            lo_all, hi_all = np.minimum(lo_all, lo - d), np.maximum(hi_all, hi - d)
         w3, h2 = max(hi_all[1] - lo_all[1], 1e-9), max(hi_all[0] - lo_all[0], 1e-9)
         m = 34
         s = min((self.width() - 2 * m) / w3, (self.height() - 2 * m) / h2)
@@ -346,12 +349,17 @@ class InsertionPointWidget(QtWidgets.QWidget):
     def _shift_changed(self, *_):
         if self.mode.currentIndex() == 0:
             d2, d3 = self.dy.value(), self.dx.value()
+            self.picture.fit_offsets = None
             self.picture.set_offset(d2, d3)
             far = max(abs(d2), abs(d3)) > self._size
         else:
             far = False
+            locs = {end: self._to_local([self.offset_boxes[(end, c)].value() for c in range(3)])
+                    for end in ("End-I", "End-J")}
+            both = [(float(v[1]), float(v[2])) for v in locs.values()]
             for end, pic in (("End-I", self.picture), ("End-J", self.picture_j)):
-                loc = self._to_local([self.offset_boxes[(end, c)].value() for c in range(3)])
+                loc = locs[end]
+                pic.fit_offsets = both  # one scale for both ends: the same section, the same size
                 pic.set_offset(float(loc[1]), float(loc[2]))  # (the part along the member: not drawn)
                 far = far or max(abs(loc[1]), abs(loc[2])) > self._size
         self.shift_warn.setText("Larger than the section itself: in the analysis a long rigid arm "

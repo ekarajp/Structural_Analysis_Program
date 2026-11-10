@@ -832,6 +832,11 @@ def test_gui_insertion_shift_and_window_size(window, qapp):
     assert vi == pytest.approx(vj) and abs(vi[2] - (-0.2)) < 1e-9 and f.picture_j.isVisibleTo(f)
     assert f.picture.offset == pytest.approx((-0.2, 0.1)) and f.picture_j.offset == pytest.approx((-0.2, 0.1))
     f.offset_boxes[("End-J", 2)].setValue(0.5)
+
+    def scale(pic):
+        to_px = pic._frame()[2]
+        return to_px(0.0, 1.0).x() - to_px(0.0, 0.0).x()
+    assert scale(f.picture) == pytest.approx(scale(f.picture_j))  # one beam: the same section size at both ends
     f.mode.setCurrentIndex(0)  # back: End-I's dx / dy, and a note that End-J differed
     assert f.dy.value() == pytest.approx(-0.2) and f.dx.value() == pytest.approx(0.1) and "End-J" in f.mode_note.text()
     f.mode.setCurrentIndex(1)
