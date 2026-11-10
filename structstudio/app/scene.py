@@ -1894,6 +1894,94 @@ def build_mesh_actors(model: Model, am, areas: Optional[set] = None, frames: Opt
     return out
 
 
+def build_offset_axis_actors(model: Model, am, frames: Optional[set] = None) -> List[vtk.vtkProp]:
+    """Analysis model of frames whose insertion offsets are in the analysis (Show Analysis
+    Mesh): the frame elements on their true axis (a beam moved by its joint offset /
+    cardinal point is meshed there) and the rigid links that join them to their joints -
+    the drawn object itself stays between its joints, as in ETABS."""
+    if am is None:
+        return []
+    links = [lk for lk in (getattr(am, "rigid_links", None) or [])
+             if frames is None or getattr(lk, "object", None) in frames]
+    objs = {getattr(lk, "object", None) for lk in links}
+    # also members with element end arms (vertical part of an offset, columns with offsets)
+    for fname, eids in getattr(am, "object_to_frames", {}).items():
+        if frames is not None and fname not in frames:
+            continue
+        if any(np.any(am.frames[e].offset_i) or np.any(am.frames[e].offset_j) for e in eids):
+            objs.add(fname)
+    objs.discard(None)
+    if not objs and not links:
+        return []
+    Lf = model.units.factor("length")
+    X = np.array([n.xyz for n in am.nodes], float) / Lf
+    out: List[vtk.vtkProp] = []
+
+    def lines(segs, color, width, dashed=False):
+        if not segs:
+            return
+        pts = vtk.vtkPoints()
+        cells = vtk.vtkCellArray()
+        for a, b in segs:
+            i = pts.InsertNextPoint(*a)
+            j = pts.InsertNextPoint(*b)
+            cells.InsertNextCell(2)
+            cells.InsertCellPoint(i)
+            cells.InsertCellPoint(j)
+        poly = vtk.vtkPolyData()
+        poly.SetPoints(pts)
+        poly.SetLines(cells)
+        mp = vtk.vtkPolyDataMapper()
+        mp.SetInputData(poly)
+        mp.SetResolveCoincidentTopologyToPolygonOffset()
+        act = vtk.vtkActor()
+        act.SetMapper(mp)
+        pr = act.GetProperty()
+        pr.SetColor(*color)
+        pr.SetLineWidth(width)
+        pr.SetLighting(False)
+        if dashed:
+            pr.SetLineStipplePattern(0xF0F0)
+            pr.SetLineStippleRepeatFactor(1)
+        out.append(act)
+
+    axis, arms = [], []
+    for fname in sorted(objs):
+        for e in am.object_to_frames.get(fname, []):
+            el = am.frames[e]
+            a, b = X[el.node_i], X[el.node_j]
+            ea = a + np.asarray(el.offset_i, float) / Lf
+            eb = b + np.asarray(el.offset_j, float) / Lf
+            axis.append((ea, eb))
+            if np.any(el.offset_i):
+                arms.append((a, ea))
+            if np.any(el.offset_j):
+                arms.append((b, eb))
+    lines(axis, (0.10, 0.45, 0.95), 2.5)  # the analysis axis of the members
+    lines([(X[lk.node_i], X[lk.node_j]) for lk in links] + arms, (0.95, 0.45, 0.05), 3.0)  # rigid links / arms
+    pts = sorted({n for lk in links for n in (lk.node_i, lk.node_j)})
+    if pts:
+        tp = vtk.vtkPoints()
+        verts = vtk.vtkCellArray()
+        for k, n in enumerate(pts):
+            tp.InsertNextPoint(*X[n])
+            verts.InsertNextCell(1)
+            verts.InsertCellPoint(k)
+        poly = vtk.vtkPolyData()
+        poly.SetPoints(tp)
+        poly.SetVerts(verts)
+        mp = vtk.vtkPolyDataMapper()
+        mp.SetInputData(poly)
+        act = vtk.vtkActor()
+        act.SetMapper(mp)
+        act.GetProperty().SetColor(0.95, 0.45, 0.05)
+        act.GetProperty().SetPointSize(6)
+        act.GetProperty().RenderPointsAsSpheresOn()
+        act.GetProperty().SetLighting(False)
+        out.append(act)
+    return out
+
+
 def _displacement_field(model: Model, results, case: str, mode: Optional[int]) -> np.ndarray:
     names = list(model.points)
     if mode is not None:

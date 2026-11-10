@@ -1460,8 +1460,10 @@ class ModelViewport(QtWidgets.QWidget):
             # Set Display Options > Analysis mesh: the mesh the analysis used (nothing
             # before an analysis)
             try:
-                _, ar, _ = self._view_sets()
+                fr, ar, _ = self._view_sets()
                 self._overlay_actors += scene.build_mesh_actors(self.doc.model, res.am, areas=ar)
+                # beams meshed on their true (offset) axis and the rigid links to their joints
+                self._overlay_actors += scene.build_offset_axis_actors(self.doc.model, res.am, frames=fr)
             except Exception as exc:
                 print("mesh display error:", exc)
         if res is not None and rd.display_case and self.config.results:

@@ -464,3 +464,20 @@ def test_o12_mechanism_message_names_the_loose_joint():
 
 def test_o14_empty_model_says_so():
     assert code_of(lambda: run(Model("e", "kN m"))) == "EMPTY_MODEL"
+
+
+def test_offset_beam_is_shown_on_its_true_axis_with_rigid_links():
+    """Show Analysis Mesh draws the analysis axis of a beam moved by its joint offset and
+    the rigid links to its joints (the drawn object stays between its joints)."""
+    pytest.importorskip("vtk")
+    from structstudio.app import scene
+    m = _building()
+    b = [f for f in m.frames.values() if f.type == "Beam"
+         and abs(m.points[f.point_i].y) < 1e-9 and abs(m.points[f.point_j].y) < 1e-9][0]
+    b.joint_offset_i = b.joint_offset_j = (0.0, 0.3, 0.0)
+    r = run(m)
+    X = r.am.coords()
+    ys = {round(float(X[n][1]), 9) for e in r.am.object_to_frames[b.name] for n in (r.am.frames[e].node_i, r.am.frames[e].node_j)}
+    assert ys == {0.3}  # analysis nodes on the true axis
+    assert len([lk for lk in r.am.rigid_links if lk.object == b.name]) == 2
+    assert len(scene.build_offset_axis_actors(m, r.am)) == 3  # axis, rigid links, link ends
