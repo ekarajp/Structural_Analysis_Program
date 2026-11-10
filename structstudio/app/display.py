@@ -22,6 +22,7 @@ class DisplayOptions:
     columns: bool = True
     braces: bool = True
     null_lines: bool = True
+    rigid_links: bool = True
     floors: bool = True
     walls: bool = True
     ramps: bool = True
@@ -86,7 +87,7 @@ class DisplayOptions:
         return DisplayOptions.from_dict(self.to_dict())
 
     # ---- helpers for the scene builder
-    FRAME_TYPES = {"Beam": "beams", "Column": "columns", "Brace": "braces", "Null": "null_lines"}
+    FRAME_TYPES = {"Beam": "beams", "Column": "columns", "Brace": "braces", "Null": "null_lines", "Rigid": "rigid_links"}
     AREA_TYPES = {"Floor": "floors", "Wall": "walls", "Ramp": "ramps", "Opening": "openings", "Null": "openings"}
 
     def shows_frame_type(self, ftype: str) -> bool:
@@ -99,7 +100,7 @@ class DisplayOptions:
 # dialog layout: (group title, [(field, label), ...]) - follows the ETABS dialog
 GROUPS: List[Tuple[str, List[Tuple[str, str]]]] = [
     ("Object Visibility", [("joints", "Joints"), ("beams", "Beams"), ("columns", "Columns"), ("braces", "Braces"),
-                           ("null_lines", "Null lines"), ("floors", "Floors"), ("walls", "Walls"),
+                           ("null_lines", "Null lines"), ("rigid_links", "Rigid links"), ("floors", "Floors"), ("walls", "Walls"),
                            ("ramps", "Ramps"), ("openings", "Openings / null areas"),
                            ("load_panels", "Load panels (drawn load areas)")]),
     ("Assignments", [("supports", "Joint restraints"), ("springs", "Joint springs"),

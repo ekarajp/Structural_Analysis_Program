@@ -44,6 +44,7 @@ DRAW_TOOLS = [
     ("point", "Draw Joint Objects", "J", "point"),
     ("beam", "Draw Beam / Column / Brace (line)", "B", "beam"),
     ("quick_beam", "Quick Draw Beams (click grid segment)", "Shift+B", "quick_beam"),
+    ("rigid_link", "Draw Rigid Links (joints move as one rigid body)", "R, L", "beam"),
     ("secondary_beams", "Quick Draw Secondary Beams", "Shift+E", "secondary_beams"),
     ("column", "Draw Columns (plan click)", "C, L", "column"),
     ("quick_column", "Quick Draw Columns (grid intersections)", "Shift+C", "quick_column"),
@@ -77,7 +78,7 @@ TOOL_ITEMS = [(k, l, s) for k, l, s, _ in SELECT_TOOLS + DRAW_TOOLS + MODIFY_TOO
 DRAW_PALETTE = [
     ("Select", ["select", "select_line"]),
     ("Draw Joints", ["point"]),
-    ("Draw Beams", ["beam", "quick_beam", "secondary_beams"]),
+    ("Draw Beams", ["beam", "quick_beam", "secondary_beams", "rigid_link"]),
     ("Draw Columns", ["column", "quick_column"]),
     # braces: drawn with the line tool (Draw Beam / Column / Brace); only the bay click here
     ("Quick Draw Braces", ["quick_brace"]),

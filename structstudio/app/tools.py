@@ -264,7 +264,7 @@ class DrawSettings:
     secondary_direction: str = "X"  # secondary beams parallel to X or Y
     pinned_beams: bool = False
     # ETABS / SAP2000 Properties of Object items
-    line_type: str = "Auto"  # Auto (from geometry) | Beam | Column | Brace | Null
+    line_type: str = "Auto"  # Auto (from geometry) | Beam | Column | Brace | Null | Rigid
     moment_releases: str = "Continuous"  # Continuous | Pinned | Pinned at start | Pinned at end
     line_shape: str = "Straight"  # Straight | Arc: 3 points | Arc: start, center, end | Arc: start, end, radius
     arc_segments: int = 8  # an arc is drawn as this many straight members (CSI curved frames)
@@ -342,7 +342,7 @@ TOOL_PROPERTIES: Dict[str, List[tuple]] = {
     "point": [*_OFFSETS,
               ("special_joint", "Special joint", "bool", "keep the joint even when nothing connects to it"),
               ("all_stories", "All stories", "bool", "")],
-    "beam": [("line_type", "Line object type", "choice", ["Auto", "Beam", "Column", "Brace", "Null"]),
+    "beam": [("line_type", "Line object type", "choice", ["Auto", "Beam", "Column", "Brace", "Null", "Rigid"]),
              ("frame_section", "Section", "section_frame", ""),
              ("line_shape", "Line shape", "choice", list(LINE_SHAPES)),
              ("arc_segments", "Arc: number of members", "int", "the arc is made of this many straight members"),
@@ -356,6 +356,10 @@ TOOL_PROPERTIES: Dict[str, List[tuple]] = {
               ["None", "Parallel to X", "Parallel to Y", "Parallel to Z", "Fixed length", "Fixed angle"]),
              ("fixed_length", "Fixed length", "float", ""), ("fixed_angle", "Fixed angle [deg]", "float", ""),
              _WORK_PLANE_ITEM, ("all_stories", "All stories", "bool", "")],
+    "rigid_link": [("drawing_control", "Drawing control", "choice",
+                    ["None", "Parallel to X", "Parallel to Y", "Parallel to Z", "Fixed length", "Fixed angle"]),
+                   ("fixed_length", "Fixed length", "float", ""), ("fixed_angle", "Fixed angle [deg]", "float", ""),
+                   _WORK_PLANE_ITEM, ("all_stories", "All stories", "bool", "")],
     "brace": [("brace_section", "Section", "section_frame", ""),
               ("moment_releases", "Moment releases", "choice", ["Continuous", "Pinned"]),
               ("frame_angle", "Local axis 2 angle [deg]", "float", "degrees"), *_OFFSETS,
@@ -1992,11 +1996,35 @@ class MeasureAngleTool(MeasureTool):
     prompt = "Measure Angle: click three points, the second is the vertex"
 
 
+class RigidLinkTool(BeamTool):
+    """Draw Rigid Links: a line between two joints that makes them move as one rigid
+    body in the analysis (all six DOFs, exact; no section, no element).  For an
+    eccentric connection the joint offsets cannot describe - a beam outside the
+    column's cross-section, a transfer girder, two members' axes joined."""
+
+    title = "Draw Rigid Links"
+    name = "rigid_link"
+    frame_type = "Rigid"
+
+    def _type_for(self, a, b) -> Optional[str]:
+        return "Rigid"
+
+    def _section_for(self, a, b) -> str:
+        return ""
+
+    def _releases_for(self, a, b):
+        return FREE6, FREE6
+
+    def _cardinal_extra(self, ftype: Optional[str] = "Beam") -> dict:
+        return {}
+
+
 TOOLS: Dict[str, type] = {
     "select": SelectTool,
     "select_line": SelectLineTool,
     "point": PointTool,
     "beam": BeamTool,
+    "rigid_link": RigidLinkTool,
     "quick_beam": QuickBeamTool,
     "secondary_beams": SecondaryBeamTool,
     "column": ColumnTool,
@@ -2319,6 +2347,8 @@ def select_by_type(model: Model, kind: str) -> Tuple[List[str], List[str], List[
         return [], [a.name for a in model.areas.values() if a.type == t], []
     if k in ("null lines", "null"):
         return [f.name for f in model.frames.values() if f.type == "Null"], [], []
+    if k in ("rigid links", "rigid"):
+        return [f.name for f in model.frames.values() if f.type == "Rigid"], [], []
     if k == "supports":
         return [], [], [p.name for p in model.points.values() if any(p.restraints)]
     return [], [], list(model.points)  # Joints

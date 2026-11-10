@@ -169,7 +169,7 @@ def view_snap_objects(view):
     o = getattr(view, "display_options", None)
     ft = o is not None and hasattr(o, "shows_frame_type")
     at = o is not None and hasattr(o, "shows_area_type")
-    if hf or (ft and not all(o.shows_frame_type(t) for t in ("Beam", "Column", "Brace", "Null"))):
+    if hf or (ft and not all(o.shows_frame_type(t) for t in ("Beam", "Column", "Brace", "Null", "Rigid"))):
         fr = {n for n in (fr if fr is not None else m.frames)
               if n not in hf and (not ft or o.shows_frame_type(m.frames[n].type))}
     if ha or (at and not all(o.shows_area_type(t) for t in ("Floor", "Wall", "Ramp", "Opening"))):

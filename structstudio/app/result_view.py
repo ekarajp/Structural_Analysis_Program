@@ -73,7 +73,7 @@ def frame_values(model: Model, results, case: str, quantity: str, frames=None):
     for f in model.frames.values():
         if frames is not None and f.name not in frames:
             continue
-        if f.type == "Null":
+        if f.type in ("Null", "Rigid"):
             continue
         try:
             st = results.frame_forces(f.name, case)

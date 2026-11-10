@@ -250,7 +250,7 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
 
                 def set_type(t, f=fr.name):
                     self._apply(lambda mm: setattr(mm.frames[f], "type", t))
-                out["Type"] = self._combo(("Beam", "Column", "Brace", "Null"), fr.type, set_type)
+                out["Type"] = self._combo(("Beam", "Column", "Brace", "Null", "Rigid"), fr.type, set_type)
         if areas and not frames:
             secs = {m.areas[a].section for a in areas}
             cur = next(iter(secs)) if len(secs) == 1 else ""

@@ -34,7 +34,7 @@ DISPLAY = {"color_by": "object", "theme": "light", "opacity": {}}
 # Graphics Sizes (theme.SIZE_ITEMS): heavy members over light area edges, the CAD
 # hierarchy of ETABS / CYPE 3D (columns heaviest, null lines thin)
 from .theme import SIZE_DEFAULTS as _SIZE_DEFAULTS  # noqa: E402
-_FRAME_WIDTH_KEY = {"Beam": "frame_width", "Brace": "frame_width", "Column": "column_width", "Null": "null_width"}
+_FRAME_WIDTH_KEY = {"Beam": "frame_width", "Brace": "frame_width", "Column": "column_width", "Null": "null_width", "Rigid": "rigid_width"}
 
 
 def gsize(key: str) -> float:
@@ -469,19 +469,19 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
     vis_a = vis[1] if vis else None
     vis_p = vis[2] if vis else None
     # ---- frames (lines, coloured by type / section / material) --------------
-    for ftype, color_key in (("Beam", "beam"), ("Column", "column"), ("Brace", "brace"), ("Null", "null_line")):
+    for ftype, color_key in (("Beam", "beam"), ("Column", "column"), ("Brace", "brace"), ("Null", "null_line"), ("Rigid", "rigid_link")):
         groups: Dict[str, Tuple[tuple, List[str]]] = {}
         if not opts.shows_frame_type(ftype):
             continue
         for f in model.frames.values():
             if f.type == ftype and (vis_f is None or f.name in vis_f):
-                gkey, color = _group_color(model, f, "frame", color_key) if ftype != "Null" else (color_key, COLORS[color_key])
+                gkey, color = _group_color(model, f, "frame", color_key) if ftype not in ("Null", "Rigid") else (color_key, COLORS[color_key])
                 groups.setdefault(gkey, (color, []))[1].append(f.name)
         for gkey, (color, names) in groups.items():
             key = f"frames_{ftype}" if gkey == color_key else f"frames_{ftype}_{gkey}"
             out.frame_ids += names
             sel = [n for n in names if n in selection] if sel_on else []
-            if extruded and ftype != "Null":
+            if extruded and ftype not in ("Null", "Rigid"):
                 # real cross-sections (ETABS "Extrude"); selected members as solids in the selection colour
                 from .extrude import frame_solids
                 if sel:

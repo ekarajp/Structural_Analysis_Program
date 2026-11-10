@@ -55,7 +55,7 @@ class DisplayOptionsDialog(QtWidgets.QDialog):
         install(self)
 
     def _all_objects(self):
-        for f in ("beams", "columns", "braces", "null_lines", "floors", "walls", "ramps", "openings", "load_panels"):
+        for f in ("beams", "columns", "braces", "null_lines", "rigid_links", "floors", "walls", "ramps", "openings", "load_panels"):
             self.boxes[f].setChecked(True)
 
     def _defaults(self):

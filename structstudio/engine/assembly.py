@@ -144,6 +144,66 @@ class Assembler:
         return F
 
     # -------------------------------------------------------------- numbering
+    def _rigid_link_defs(self, defs: Dict[int, List], restrained_nodes) -> None:
+        """Rigid links: every group of nodes joined by links moves as one rigid body
+        (exact, no stiffness).  One master per group - a supported node, else a
+        diaphragm node, else the first - and the others follow it in all six DOFs
+        (a DOF already constrained by a diaphragm / tie / rigid zone, or supported,
+        keeps that)."""
+        am = self.am
+        links = getattr(am, "rigid_links", [])
+        if not links:
+            return
+        parent: Dict[int, int] = {}
+
+        def find(x):
+            parent.setdefault(x, x)
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+        for lk in links:
+            if lk.node_i == lk.node_j:
+                continue
+            ra, rb = find(lk.node_i), find(lk.node_j)
+            if ra != rb:
+                parent[max(ra, rb)] = min(ra, rb)
+        groups: Dict[int, List[int]] = {}
+        for x in list(parent):
+            groups.setdefault(find(x), []).append(x)
+        in_defs = {dof // 6 for dof in defs}
+        any_restraint = {node.id for node in am.nodes if np.any(node.restraints)}
+        for members in groups.values():
+            members = sorted(members)
+            master = min(members, key=lambda n: (n not in any_restraint, n not in in_defs, n))
+            xm = am.nodes[master].xyz
+            m6 = 6 * master
+            for nid in members:
+                if nid == master:
+                    continue
+                node = am.nodes[nid]
+                if node.local_axes is not None or am.nodes[master].local_axes is not None:
+                    am.warnings.append(f"Rigid link at node {node.point or nid}: joint local axes - not linked")
+                    continue
+                dx, dy, dz = node.xyz - xm
+                terms = (
+                    [(m6 + 0, 1.0), (m6 + 4, dz), (m6 + 5, -dy)],
+                    [(m6 + 1, 1.0), (m6 + 5, dx), (m6 + 3, -dz)],
+                    [(m6 + 2, 1.0), (m6 + 3, dy), (m6 + 4, -dx)],
+                    [(m6 + 3, 1.0)], [(m6 + 4, 1.0)], [(m6 + 5, 1.0)])
+                skipped = False
+                for k in range(6):
+                    dof = 6 * nid + k
+                    if dof in defs:
+                        continue
+                    if node.restraints[k]:
+                        skipped = True
+                        continue
+                    defs[dof] = [(d, w) for d, w in terms[k] if w != 0.0]
+                if skipped:
+                    am.warnings.append(f"Rigid link: supported node {node.point or nid} keeps its support "
+                                       f"(the link is not rigid in the supported DOFs)")
+
     def _number_dofs(self) -> DofMap:
         am = self.am
         n = am.n_nodes
@@ -202,6 +262,7 @@ class Assembler:
                     if dof in defs or node.restraints[k]:
                         continue
                     defs[dof] = terms
+        self._rigid_link_defs(defs, restrained_nodes)
         memo: Dict[int, Dict[int, float]] = {}
 
         def expand(dof: int, depth: int = 0) -> Dict[int, float]:
@@ -354,12 +415,27 @@ class Assembler:
             return
         dofs = self.dofs
         keep = np.where(dofs.reduced_of_full >= 0)[0]
+        # the out-of-plane DOFs inside a membrane floor have no stiffness by definition
+        # (its loads went to the frames): restrained too, reported once, not per node
+        membrane, other = set(), set()
+        for se in self.shells:
+            (membrane if se.el.model_type == "Membrane" else other).update(se.el.nodes)
+        for fe in self.frames:
+            other.update((fe.el.node_i, fe.el.node_j))
+        quiet = 0
         for i in null:
             full = int(keep[i])
             node, comp = divmod(full, 6)
-            label = self.am.nodes[node].point or f"node {node}"
+            n = self.am.nodes[node]
+            if comp in (2, 3, 4) and node in membrane and node not in other and n.point is None:
+                quiet += 1
+                continue
+            label = n.point or f"node {node}"
             self.am.warnings.append(f"Null DOF {('UX','UY','UZ','RX','RY','RZ')[comp]} at {label} has no stiffness; "
                                     f"automatically restrained")
+        if quiet:
+            self.am.info.append(f"Membrane floors: {quiet} out-of-plane DOF(s) of their inner mesh nodes held "
+                                f"(a membrane has no bending stiffness; its loads go to the supporting frames)")
         null_set = set(null)
         dofs.free = np.array([i for i in dofs.free if i not in null_set], dtype=int)
         dofs.free_of_reduced[:] = -1

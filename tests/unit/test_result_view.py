@@ -14,7 +14,11 @@ from structstudio.app.templates import new_building  # noqa: E402
 def solved():
     m = new_building(x_spacings=(6, 6), y_spacings=(5,), story_heights=(3.5, 3.5), grid_only=False)
     for a in m.areas.values():
-        m.add_area_load(a.name, "Live", 90.0)  # every colour band (RZF 0.5, column rigid zones)
+        # every colour band (RZF 0.5, column rigid zones).  80 (was 90): the beams cut inside
+        # their rigid zones had pieces with a rigid arm longer than the piece (no rigid-body
+        # motion: the columns got ~1 % of their moment on this refined mesh); fixed, the
+        # columns carry their real moments and 90 left no beam under 0.5
+        m.add_area_load(a.name, "Live", 80.0)
     m.options.mesh_refine_check = True  # the converged mesh this load was chosen with
     return m, api.analyze(m)
 

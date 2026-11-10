@@ -466,15 +466,15 @@ class Model:
         pj = self._resolve_point(point_j)
         if pi.name == pj.name:
             raise ModelError("ZERO_LENGTH", "Frame end points coincide")
-        if type == "Null" and section not in self.frame_sections:
-            section = section or "None"  # CSI null line: no section needed
+        if type in ("Null", "Rigid") and section not in self.frame_sections:
+            section = section or "None"  # null lines and rigid links carry no section
         elif section not in self.frame_sections:
             raise ModelError("UNKNOWN_SECTION", f"Frame section {section!r} is not defined")
         if type is None:
             dx, dy, dz = pj.x - pi.x, pj.y - pi.y, pj.z - pi.z
             horiz = (dx * dx + dy * dy) ** 0.5
             type = "Column" if horiz < 1e-9 * max(1.0, abs(dz)) else ("Beam" if abs(dz) < 1e-9 * max(1.0, horiz) else "Brace")
-        name = name or self._next_name("B" if type == "Beam" else "C" if type == "Column" else "D", self.frames)
+        name = name or self._next_name({"Beam": "B", "Column": "C", "Rigid": "RL"}.get(type, "D"), self.frames)
         if name in self.frames:
             raise ModelError("DUPLICATE_NAME", f"Frame {name!r} already exists", f"frames.{name}")
         f = Frame(name=name, point_i=pi.name, point_j=pj.name, section=section, type=type, **kw)
@@ -769,7 +769,7 @@ class Model:
             for p in (f.point_i, f.point_j):
                 if p not in self.points:
                     err("UNKNOWN_POINT", f"Frame {name!r} references unknown point {p!r}", f"frames.{name}")
-            if f.section not in self.frame_sections and f.type != "Null":  # null lines carry no section
+            if f.section not in self.frame_sections and f.type not in ("Null", "Rigid"):  # no section needed
                 err("UNKNOWN_SECTION", f"Frame {name!r} references unknown section {f.section!r}", f"frames.{name}")
             for ld in f.loads:
                 if ld.pattern not in self.load_patterns:

@@ -111,11 +111,13 @@ def pre_checks(model, am) -> List[Issue]:
     issues: List[Issue] = []
     ns, nf = _maps(am)
     connected = set(ns) | set(nf)
-    for link in getattr(am, "links", []) or []:
+    for link in list(getattr(am, "links", []) or []) + list(getattr(am, "rigid_links", []) or []):
         for n in (getattr(link, "node_i", None), getattr(link, "node_j", None)):
             if n is not None:
                 connected.add(n)
     tied = {t.node for t in getattr(am, "ties", [])}
+    for body in getattr(am, "bodies", []) or []:
+        tied.update(body.nodes)
     supported = {nd.id for nd in am.nodes if np.any(nd.restraints) or np.any(nd.springs)}
     in_diaphragm = {n for c in am.constraints for n in c.nodes}
     # 1) loads that reach nothing
@@ -219,10 +221,13 @@ def _floating_parts(model, am, ns, nf, supported) -> List[Issue]:
     for t in getattr(am, "ties", []):
         for m_, _ in t.masters:
             union(t.node, m_)
-    for link in getattr(am, "links", []) or []:
+    for link in list(getattr(am, "links", []) or []) + list(getattr(am, "rigid_links", []) or []):
         a, b = getattr(link, "node_i", None), getattr(link, "node_j", None)
         if a is not None and b is not None:
             union(a, b)
+    for body in getattr(am, "bodies", []) or []:
+        for k in body.nodes:
+            union(body.master, k)
     has_support: Set[int] = set()
     for nid in supported:
         has_support.add(find(nid))

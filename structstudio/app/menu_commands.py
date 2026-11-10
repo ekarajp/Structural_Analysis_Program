@@ -497,7 +497,7 @@ class MenuCommandsMixin:
             return
         cur = self.doc.model.frames[next(iter(self.state.frames))].type
         v = ask(self, "Modify/Show Frame Type", [("type", "Frame type", cur,
-                                                  {"choices": ["Beam", "Column", "Brace", "Null"]})])
+                                                  {"choices": ["Beam", "Column", "Brace", "Null", "Rigid"]})])
         if v:
             C.assign(self.doc, "frame", list(self.state.frames), type=v["type"])
 

@@ -27,10 +27,10 @@ from ..model.objects import Area, Frame, Point
 from ..model.properties import FrameModifiers, FrameSection, ShellModifiers, ShellSection
 from ..units import UnitSystem
 from . import tendons as TD
-from .panel_loads import panel_loads_to_members
-from .analysis_model import (AnalysisModel, Body, Constraint, ElementLoad, FrameElement, Node, ShellElement,
+from .panel_loads import membrane_floors, panel_loads_to_members
+from .analysis_model import (AnalysisModel, Body, Constraint, RigidLink, ElementLoad, FrameElement, Node, ShellElement,
                              ShellLoad, Tie)
-from .geometry import (cross3, frame_axes, joint_axes, point_on_segment, polygon_centroid, polygon_normal, polygon_polar_inertia,
+from .geometry import (beam_axis_shift, cross3, frame_axes, joint_axes, point_on_segment, polygon_centroid, polygon_normal, polygon_polar_inertia,
                        quad_tributary_areas, segment_intersection, shell_axes, transformed_axes, unit)
 
 G_SI = 9.80665
@@ -129,6 +129,14 @@ class Mesher:
         self._apply_mass_source()
         # load panels -> frame / area loads (model units), before any element is built
         self._panel_frame_loads, self._panel_area_loads, am.panel_report = panel_loads_to_members(m)
+        # membrane floors: their self weight and the loads normal to them went to the frames
+        self._membrane_floors = set(membrane_floors(m))
+        for name, rep in am.panel_report.items():
+            for pat, (applied, carried) in rep.items():
+                if abs(applied) > 1e-12 and abs(carried - applied) > 1e-3 * abs(applied):
+                    am.warnings.append(
+                        f"Load {name}, pattern {pat}: {100.0 * (1.0 - carried / applied):.1f}% of the load reaches no "
+                        f"frame (no beam / wall under that part of the panel / membrane floor) and is not applied")
 
         # 1. nodes for point objects.  Points used by frames / areas come first; an
         #    unconnected point that coincides with another point object stays a separate
@@ -174,11 +182,28 @@ class Mesher:
                 node.ground_disp[gd.pattern] = node.ground_disp.get(gd.pattern, np.zeros(6)) + vec
 
         # 2. frame geometry & cuts at points / intersections
+        # a beam whose insertion offsets are in the analysis is meshed on its true axis
+        # (horizontal part of the offsets; floors share its nodes there) and joined to
+        # its joints by rigid links; _frame_line keeps the joint-to-joint line
+        self._frame_line: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+        self._axis_shift: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+        self._joint_cuts: Dict[str, Dict[float, int]] = {}
+        tol_model = self.tol / self.U.factor("length")
         for f in m.frames.values():
             pi = self._xyz(m.points[f.point_i])
             pj = self._xyz(m.points[f.point_j])
+            self._frame_line[f.name] = (pi, pj)
+            sh = beam_axis_shift(m, f, tol_model)
+            if sh is not None:
+                hi, hj = sh[0] * self.U.factor("length"), sh[1] * self.U.factor("length")
+                self._axis_shift[f.name] = (hi, hj)
+                pi, pj = pi + hi, pj + hj
             self._frame_geom[f.name] = (pi, pj)
             self._frame_cuts[f.name] = []
+            self._joint_cuts[f.name] = {}
+        if self._axis_shift:
+            am.info.append(f"{len(self._axis_shift)} beam(s) meshed on their true (offset) axis, "
+                           f"joined to their joints by rigid links")
         self._cut_frames_at_points()
         if self.opts.frame_intersections:
             self._cut_frames_at_intersections()
@@ -366,7 +391,7 @@ class Mesher:
         X = np.array([xyz for _, xyz in pts], float)
         tol = self.tol
         for f in self.model.frames.values():
-            if not (f.auto_mesh and f.mesh_at_intersections):
+            if not (f.auto_mesh and f.mesh_at_intersections) or f.type == "Rigid":
                 continue
             a, b = self._frame_geom[f.name]
             # broad phase: the joints in the frame's box (+tol); the exact test is unchanged
@@ -376,9 +401,21 @@ class Mesher:
                 t = point_on_segment(X[k], a, b, tol)
                 if t is not None:
                     self._frame_cuts[f.name].append(t)
+            if f.name in self._axis_shift:
+                # joints on the joint-to-joint line (a member framing in there): the beam
+                # gets a node on its axis at the same place, rigidly linked to the joint
+                a, b = self._frame_line[f.name]
+                lo, hi = np.minimum(a, b) - tol, np.maximum(a, b) + tol
+                near = np.nonzero(np.all((X >= lo) & (X <= hi), axis=1))[0]
+                for k in near:
+                    t = point_on_segment(X[k], a, b, tol)
+                    if t is not None and 0.0 < t < 1.0:
+                        self._frame_cuts[f.name].append(t)
+                        self._joint_cuts[f.name][round(t, 12)] = pts[int(k)][0]
 
     def _cut_frames_at_intersections(self):
-        names = [f.name for f in self.model.frames.values() if f.auto_mesh and f.mesh_at_intersections]
+        names = [f.name for f in self.model.frames.values() if f.auto_mesh and f.mesh_at_intersections
+                 and f.type != "Rigid"]
         null = {f.name for f in self.model.frames.values() if f.type == "Null"}
         if not names:
             return
@@ -412,7 +449,7 @@ class Mesher:
         idx = getattr(self, "_ffi", None)
         if idx is not None and idx[0] == key:
             return idx[1]
-        names = [f.name for f in self.model.frames.values() if f.auto_mesh and f.mesh_at_floor]
+        names = [f.name for f in self.model.frames.values() if f.auto_mesh and f.mesh_at_floor and f.type != "Rigid"]
         if names:
             A = np.array([self._frame_geom[nm][0] for nm in names], float)
             B = np.array([self._frame_geom[nm][1] for nm in names], float)
@@ -437,6 +474,8 @@ class Mesher:
             t = point_on_segment(x, a, b, self.tol)
             if t is not None:
                 self._frame_cuts[nm].append(t)
+                fc = self.__dict__.setdefault("_floor_cut_count", {}).setdefault(nm, {})
+                fc[round(t, 12)] = fc.get(round(t, 12), 0) + 1
 
     # -------------------------------------------------------- frame elements
     NONPRISMATIC_SUBDIVISIONS = 16  # elements per nonprismatic segment
@@ -576,6 +615,13 @@ class Mesher:
         if f.type == "Null":  # CSI null line: no stiffness, no mass; its loads go to the nodes along it
             self._null_line_loads(f, a, b, L)
             return
+        if f.type == "Rigid":  # rigid link: its two joints move as one rigid body (no element)
+            am.rigid_links.append(RigidLink(am.point_to_node[f.point_i], am.point_to_node[f.point_j], f.name))
+            am.object_to_frames[f.name] = []
+            if f.loads or self._panel_frame_loads.get(f.name):
+                am.warnings.append(f"Rigid link {f.name}: its loads are ignored (a rigid link has no element)")
+            return
+        shift = self._axis_shift.get(f.name)
         props = self._section_props(f)
         nominal = frame_axes(a, b, f.angle)
 
@@ -590,6 +636,11 @@ class Mesher:
         off_j = off_j + cardinal
         if not getattr(f, "offsets_in_analysis", True):  # drawn off the joints only
             off_i = off_j = np.zeros(3)
+        if shift is not None:  # meshed on the true axis: only the rest (vertical) is an element arm
+            off_i = off_i - shift[0]
+            off_j = off_j - shift[1]
+            off_i[np.abs(off_i) < 1e-12] = 0.0
+            off_j[np.abs(off_j) < 1e-12] = 0.0
         axes = transformed_axes(nominal, (b + off_j) - (a + off_i))
 
         # end offsets and rigid zones along the (transformed) axis
@@ -620,10 +671,22 @@ class Mesher:
             for r0, r1, *_ in np_segs:
                 extra += [r0 + (r1 - r0) * k / n for k in range(n + 1)]
         gap0 = self.tol / L  # cuts closer than the merge tolerance are one joint
+        # a floor mesh node inside a rigid zone (the slab inside the column) does not cut
+        # the member there: the piece would be rigid, and the slab there moves with the
+        # column anyway; joints, crossing members and load points still cut it
+        floor_count = self.__dict__.get("_floor_cut_count", {}).get(f.name, {})
+        all_count: Dict[float, int] = {}
+        for t in self._frame_cuts[f.name]:
+            all_count[round(t, 12)] = all_count.get(round(t, 12), 0) + 1
+        zi, zj = rigid_i / L, 1.0 - rigid_j / L
         cuts = []
         for t in sorted(set(round(t, 12) for t in list(self._frame_cuts[f.name]) + extra if 0.0 < t < 1.0)):
             if t <= gap0 or t >= 1.0 - gap0 or (cuts and t - cuts[-1] <= gap0):
                 continue
+            if (t <= zi + gap0 or t >= zj - gap0) and (rigid_i or rigid_j) and \
+                    floor_count.get(t, 0) >= all_count.get(t, 0) and \
+                    ((t <= zi + gap0 and rigid_i) or (t >= zj - gap0 and rigid_j)):
+                continue  # only floor nodes / integration subdivisions there
             cuts.append(t)
         params = [0.0] + cuts + [1.0]
         given_cuts = set(round(t, 12) for t in self._frame_cuts[f.name])
@@ -640,7 +703,18 @@ class Mesher:
                 keep[-1] = 1.0
             params = keep
         node_ids = []
+        joint_cuts = self._joint_cuts.get(f.name, {})
         for k, t in enumerate(params):
+            if shift is not None:
+                # true axis: a node there, rigidly linked to the joint at the ends and to
+                # the joints of members framing in along the joint-to-joint line
+                nid = self._node_at(a + t * (b - a))
+                node_ids.append(nid)
+                joint = am.point_to_node[f.point_i] if k == 0 else am.point_to_node[f.point_j] \
+                    if k == len(params) - 1 else joint_cuts.get(round(t, 12))
+                if joint is not None and joint != nid:
+                    am.rigid_links.append(RigidLink(joint, nid, f.name))
+                continue
             if k == 0:
                 node_ids.append(am.point_to_node[f.point_i])
             elif k == len(params) - 1:
@@ -653,6 +727,36 @@ class Mesher:
                     # it does not join diaphragms (SAP2000 keeps such members as one element)
                     self._internal_nodes.add(node_ids[-1])
 
+        if shift is not None:  # the axis off the column at an end: the automatic end offset is a guess
+            for end_point, h in ((f.point_i, shift[0]), (f.point_j, shift[1])):
+                hn = float(np.linalg.norm(h))
+                if hn <= self.tol:
+                    continue
+                for other in self.model.frames.values():
+                    if other.type != "Column" or end_point not in (other.point_i, other.point_j):
+                        continue
+                    sec = self.model.frame_sections.get(other.section)
+                    if sec is None:
+                        continue
+                    try:
+                        ax = frame_axes(self._xyz(self.model.points[other.point_i]),
+                                        self._xyz(self.model.points[other.point_j]), other.angle)
+                    except ValueError:
+                        continue
+                    hu = h / hn
+                    half = 0.5 * (abs(float(hu @ ax[1])) * (sec.t3 or 0.0) + abs(float(hu @ ax[2])) * (sec.t2 or 0.0)) \
+                        * U.factor("length")
+                    if hn > half + self.tol:
+                        am.warnings.append(
+                            f"Beam {f.name}: its axis is {hn / U.factor('length'):.3f} off joint {end_point}, outside "
+                            f"column {other.name} ({half / U.factor('length'):.3f} to its face) - the rigid arm to the "
+                            f"joint is kept, but check the end offset / draw a rigid link to model the connection")
+        if shift is not None:  # a joint whose cut merged with a nearby one: the nearest axis node
+            used = {round(t, 12) for t in params}
+            for t, joint in joint_cuts.items():
+                if t not in used:
+                    k = int(np.argmin([abs(t - p) for p in params]))
+                    am.rigid_links.append(RigidLink(joint, node_ids[k], f.name))
         fix_i = np.concatenate([np.array(f.fixity_i_trans, float) * U.factor("translational_stiffness"),
                                 np.array(f.fixity_i_rot, float) * U.factor("rotational_stiffness")])
         fix_j = np.concatenate([np.array(f.fixity_j_trans, float) * U.factor("translational_stiffness"),
@@ -665,6 +769,17 @@ class Mesher:
             first, last = k == 0, k == n_seg - 1
             if np_segs:
                 props = self._nonprismatic_props(np_segs, t0, t1, L)
+            # rigid zones by position: the part of this piece inside each zone (a piece
+            # wholly inside one - cut there by a slab mesh node - stays 99% rigid; the
+            # arms and the flexible length always add up to the piece's length, so a
+            # rigid-body motion strains nothing)
+            s0, s1 = t0 * L, t1 * L
+            seg = s1 - s0
+            ri = max(0.0, min(s1, rigid_i) - s0)
+            rj = max(0.0, s1 - max(s0, L - rigid_j))
+            if ri + rj > 0.99 * seg:
+                sc = 0.99 * seg / (ri + rj)
+                ri, rj = ri * sc, rj * sc
             el = FrameElement(
                 id=len(am.frames), object=f.name, node_i=node_ids[k], node_j=node_ids[k + 1],
                 E=props["E"], G=props["G"], A=props["A"], As2=props["As2"], As3=props["As3"], J=props["J"],
@@ -674,7 +789,7 @@ class Mesher:
                 releases_j=np.array(f.releases_j, bool) if last else np.zeros(6, bool),
                 fixity_i=fix_i if first else np.zeros(6), fixity_j=fix_j if last else np.zeros(6),
                 offset_i=off_i.copy(), offset_j=off_j.copy(),
-                rigid_i=rigid_i if first else 0.0, rigid_j=rigid_j if last else 0.0,
+                rigid_i=ri, rigid_j=rj,
                 end_offset_i=end_off_i if first else 0.0, end_offset_j=end_off_j if last else 0.0,
                 rel_start=t0, rel_end=t1,
                 stations=max(2, f.min_stations),
@@ -1023,6 +1138,10 @@ class Mesher:
         md = mat.mass_density * U.factor("mass_per_volume") if mat.mass_density is not None else wd / self.am.gravity
         mass_pa = (md * t + sec.mass_per_area * U.factor("mass_per_area")) * mods.mass + a.mass_per_area * U.factor("mass_per_area")
         weight_pa = (wd * t + sec.weight_per_area * U.factor("force_per_area")) * mods.weight
+        membrane_floor = a.name in getattr(self, "_membrane_floors", ())
+        if membrane_floor:  # carried to the frames as loads (panel_loads.membrane_floors)
+            weight_pa = 0.0
+        own_loads = [] if membrane_floor else list(a.loads)
         modarr = np.array([mods.f11, mods.f22, mods.f12, mods.m11, mods.m22, mods.m12, mods.v13, mods.v23])
 
         # mesh size
@@ -1195,7 +1314,7 @@ class Mesher:
                 thickness=t, bending_thickness=tb, model_type=sec.model_type, mass_per_area=mass_pa,
                 weight_per_area=weight_pa, modifiers=modarr, axes=axes,
             )
-            for ld in list(a.loads) + self._panel_area_loads.get(a.name, []):
+            for ld in own_loads + self._panel_area_loads.get(a.name, []):
                 direction, _ = _parse_direction(ld.direction)
                 value = ld.value * U.factor("force_per_area")
                 if isinstance(direction, int):
@@ -1231,7 +1350,7 @@ class Mesher:
                     trib[nid] = trib.get(nid, 0.0) + float(ta)
         if a.diaphragm:
             gravity_loads = {}
-            for ld in list(a.loads) + self._panel_area_loads.get(a.name, []):
+            for ld in own_loads + self._panel_area_loads.get(a.name, []):
                 direction, _ = _parse_direction(ld.direction)
                 if not isinstance(direction, int):
                     gravity_loads[ld.pattern] = gravity_loads.get(ld.pattern, 0.0) - float(direction[2]) * ld.value * U.factor("force_per_area")
@@ -1332,7 +1451,7 @@ class Mesher:
         m = self.model
         segs, names = [], []
         for f in m.frames.values():
-            if not f.auto_mesh:
+            if not f.auto_mesh or f.type == "Rigid":
                 continue
             a, b = self._frame_geom[f.name]
             segs.append((a, b))
@@ -1405,7 +1524,7 @@ class Mesher:
             return
         self._crossings = []
         for f in m.frames.values():
-            if f.type == "Null" or not f.auto_mesh:
+            if f.type in ("Null", "Rigid") or not f.auto_mesh:
                 continue
             a, b = self._frame_geom[f.name]
             d = b - a

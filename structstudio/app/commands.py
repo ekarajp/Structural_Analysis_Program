@@ -212,7 +212,7 @@ def _missing_definitions(model: Model, clip: Clipboard) -> Tuple[Dict[str, List[
         else:
             lost.append(f"{what} {name!r}")
     for f in clip.frames:
-        if f.type != "Null":
+        if f.type not in ("Null", "Rigid"):
             need("frame_sections", f.section, "frame section")
     for a in clip.areas:
         need("shell_sections", a.section, "shell section")
@@ -836,7 +836,7 @@ def add_grid_lines_at_points(doc: Document, points: Sequence[str]) -> int:
 
 
 # ------------------------------------------------------------ labels (Edit)
-LABEL_PREFIX = {"Beam": "B", "Column": "C", "Brace": "D", "Null": "N", "Floor": "F", "Wall": "W",
+LABEL_PREFIX = {"Beam": "B", "Column": "C", "Brace": "D", "Null": "N", "Rigid": "RL", "Floor": "F", "Wall": "W",
                 "Ramp": "R", "Opening": "O"}
 
 

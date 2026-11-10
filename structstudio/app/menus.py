@@ -273,6 +273,7 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
             ("Quick Draw Walls (Plan, Elev)", "tool.quick_wall"),
             ("Draw Openings (Plan, Elev)", "tool.opening"),
             ("Draw Wall Openings (Elev)", "draw.wall_openings")]),
+        ("Draw Rigid Links", "tool.rigid_link"),
         ("Draw Links", "draw.links"),
         ("Draw Tendons", "draw.tendons"),
         ("Draw Slab Rebar", "draw.slab_rebar"),

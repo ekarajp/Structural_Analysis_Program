@@ -141,6 +141,17 @@ class Body:
 
 
 @dataclass
+class RigidLink:
+    """Rigid link between two nodes (all six DOFs): the nodes move as one rigid
+    body, u_b = u_a + r_a x (x_b - x_a), r_b = r_a.  From Rigid frame objects and
+    from beams meshed on their true (offset) axis, joined to their joints."""
+
+    node_i: int
+    node_j: int
+    object: str = ""
+
+
+@dataclass
 class Constraint:
     """Rigid diaphragm constraint on a set of nodes with a virtual master."""
 
@@ -164,6 +175,7 @@ class AnalysisModel:
     constraints: List[Constraint] = field(default_factory=list)
     ties: List[Tie] = field(default_factory=list)  # auto edge constraints
     bodies: List[Body] = field(default_factory=list)  # slab-column rigid zones
+    rigid_links: List[RigidLink] = field(default_factory=list)  # exact rigid links (6 DOF)
     info: List[str] = field(default_factory=list)  # notes for the analysis log (not warnings)
     active_dofs: np.ndarray = field(default_factory=lambda: np.ones(6, dtype=bool))
     self_weight: Dict[str, float] = field(default_factory=dict)  # pattern -> multiplier

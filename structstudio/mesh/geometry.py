@@ -242,3 +242,51 @@ def joint_axes(a_deg: float = 0.0, b_deg: float = 0.0, c_deg: float = 0.0) -> np
     if c:
         e2, e3 = math.cos(c) * e2 + math.sin(c) * e3, -math.sin(c) * e2 + math.cos(c) * e3
     return np.vstack([e1, e2, e3])
+
+
+# cardinal point -> (factor of the depth t3 along local 2, factor of the width t2 along local 3)
+CARDINAL_FACTORS = {
+    1: (0.5, 0.5), 2: (0.5, 0.0), 3: (0.5, -0.5),
+    4: (0.0, 0.5), 5: (0.0, 0.0), 6: (0.0, -0.5),
+    7: (-0.5, 0.5), 8: (-0.5, 0.0), 9: (-0.5, -0.5),
+    10: (0.0, 0.0), 11: (0.0, 0.0),
+}
+
+
+def frame_insertion_offsets(model, f, t3: Optional[float] = None, t2: Optional[float] = None):
+    """Global vectors (model units) from the joints I, J of frame ``f`` to its
+    element axis: the cardinal point plus the joint offsets (local or global)."""
+    pts = model.points
+    a = np.array(pts[f.point_i].xyz, float)
+    b = np.array(pts[f.point_j].xyz, float)
+    nominal = frame_axes(a, b, f.angle)
+    if t3 is None or t2 is None:
+        sec = model.frame_sections.get(f.section)
+        t3 = float(getattr(sec, "t3", 0.0) or 0.0) if t3 is None else t3
+        t2 = float(getattr(sec, "t2", 0.0) or 0.0) if t2 is None else t2
+    c2, c3 = CARDINAL_FACTORS.get(f.cardinal_point, (0.0, 0.0))
+    cardinal = c2 * t3 * nominal[1] + c3 * t2 * nominal[2]
+    oi = np.array(f.joint_offset_i, float)
+    oj = np.array(f.joint_offset_j, float)
+    if getattr(f, "joint_offset_local", False):
+        oi, oj = nominal.T @ oi, nominal.T @ oj
+    return oi + cardinal, oj + cardinal
+
+
+def beam_axis_shift(model, f, tol: float = 1e-9):
+    """Horizontal shift (model units, global, Z = 0) of the analysis axis of a beam
+    whose insertion offsets are part of the analysis: the beam is meshed (and loaded
+    by load panels) on its true axis, joined to its joints by rigid links; the
+    vertical part of the offset stays a rigid arm of the elements.  None when the
+    beam is not shifted."""
+    if f.type != "Beam" or not getattr(f, "offsets_in_analysis", True):
+        return None
+    try:
+        oi, oj = frame_insertion_offsets(model, f)
+    except (ValueError, KeyError):
+        return None
+    hi = np.array([oi[0], oi[1], 0.0])
+    hj = np.array([oj[0], oj[1], 0.0])
+    if max(np.linalg.norm(hi), np.linalg.norm(hj)) <= tol:
+        return None
+    return hi, hj

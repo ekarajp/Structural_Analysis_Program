@@ -157,7 +157,7 @@ class Frame:
     point_i: str
     point_j: str
     section: str
-    type: str = "Beam"  # Beam | Column | Brace | Null
+    type: str = "Beam"  # Beam | Column | Brace | Null | Rigid (rigid link: no element, its joints move as one body)
     label: Optional[str] = None
     story: Optional[str] = None
     angle: float = 0.0  # local axes rotation (degrees) about local 1

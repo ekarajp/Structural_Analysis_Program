@@ -845,3 +845,28 @@ def test_gui_insertion_shift_and_window_size(window, qapp):
     window.assign_panel.ok_button.click()
     fr = window.doc.model.frames[beam]
     assert not fr.joint_offset_local and fr.joint_offset_j[0] == pytest.approx(0.3) and fr.offsets_in_analysis
+
+
+@gui
+def test_gui_draw_rigid_link(window, qapp):
+    """Draw > Draw Rigid Links: a Rigid line object (no section), drawn in its own
+    colour, listed in the explorer, picked by Select > Rigid links; analysed as an
+    exact rigid link."""
+    from structstudio.app.menus import ETABS_MENUS
+    from structstudio.app.tools import select_by_type
+    labels = [e[0] for e in dict(ETABS_MENUS)["D&raw"] if isinstance(e, tuple)]
+    assert "Draw Rigid Links" in labels
+    st = window.state
+    st.set_tool("rigid_link")
+    t = st.tool
+    t.set_story("Story1")
+    t.click((0, 0, 3))
+    t.click((-1.2, 0, 3))
+    _settle(qapp)
+    f = window.doc.model.frames[t.created[-1]]
+    assert f.type == "Rigid" and f.name.startswith("RL")
+    names, _, _ = select_by_type(window.doc.model, "rigid links")
+    assert names == [f.name]
+    vp = next(v for v in window.views.viewports if v.config.kind == "3d")
+    vp._build_scene()
+    assert any(k.startswith("frames_Rigid") for k in vp._scene_keys), vp._scene_keys

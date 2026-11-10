@@ -11,7 +11,7 @@ from .document import Document
 
 _OBJECT_LIMIT = 3000  # items listed per group (very large models stay responsive)
 
-_FRAME_GROUPS = (("Columns", "Column"), ("Beams", "Beam"), ("Braces", "Brace"), ("Null frames", "Null"))
+_FRAME_GROUPS = (("Columns", "Column"), ("Beams", "Beam"), ("Braces", "Brace"), ("Null frames", "Null"), ("Rigid links", "Rigid"))
 _SHELL_GROUPS = (("Floors", "Floor"), ("Walls", "Wall"), ("Ramps", "Ramp"), ("Openings", "Opening"))
 
 

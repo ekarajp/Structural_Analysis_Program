@@ -39,6 +39,7 @@ COLOR_ITEMS: List[Tuple[str, str, str]] = [
     ("brace", "Braces", "Objects"),
     ("steel", "Structural steel members (beams, columns, braces)", "Objects"),
     ("null_line", "Null lines", "Objects"),
+    ("rigid_link", "Rigid links", "Objects"),
     ("floor", "Floors / slabs", "Objects"),
     ("wall", "Walls", "Objects"),
     ("opening", "Openings / null areas", "Objects"),
@@ -89,6 +90,7 @@ SIZE_ITEMS: List[Tuple[str, str, float, float, float, float, str]] = [
     ("frame_width", "Beam / brace lines", 3.0, 0.5, 12.0, 0.5, " px"),
     ("column_width", "Column lines", 3.6, 0.5, 12.0, 0.5, " px"),
     ("null_width", "Null lines", 1.5, 0.5, 8.0, 0.5, " px"),
+    ("rigid_width", "Rigid links", 4.0, 0.5, 12.0, 0.5, " px"),
     ("area_edge_width", "Area edges", 1.8, 0.5, 8.0, 0.25, " px"),
     ("grid_width", "Grid lines", 1.0, 0.5, 6.0, 0.5, " px"),
     ("deformed_width", "Deformed shape lines", 2.5, 0.5, 10.0, 0.5, " px"),
@@ -145,6 +147,7 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "brace": (0.80, 0.55, 1.00),  # violet
         "steel": (0.42, 0.86, 0.38),  # green: steel members apart from the concrete ones
         "null_line": (0.55, 0.57, 0.62),
+        "rigid_link": (1.00, 0.30, 0.75),  # magenta: apart from every member colour
         "floor": (0.75, 0.80, 0.86),
         "wall": (0.84, 0.52, 0.52),  # brick: apart from every other object colour
         "opening": (0.40, 0.40, 0.40),
@@ -182,6 +185,7 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "brace": (0.50, 0.20, 0.78),  # violet
         "steel": (0.10, 0.58, 0.16),  # green: steel members apart from the concrete ones
         "null_line": (0.50, 0.52, 0.56),
+        "rigid_link": (0.80, 0.05, 0.55),
         "floor": (0.66, 0.76, 0.90),
         "wall": (0.62, 0.32, 0.34),  # brick: apart from every other object colour
         "opening": (0.62, 0.62, 0.62),

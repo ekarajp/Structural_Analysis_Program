@@ -462,8 +462,8 @@ class FrameInfoDialog(ObjectInfoDialog):
         t = fr.type
         w = QtWidgets.QWidget()
         f = QtWidgets.QFormLayout(w)
-        self._row_edit(f, "Object type", "type", fr.type, "choice", ["Beam", "Column", "Brace", "Null"])
-        if t != "Null":
+        self._row_edit(f, "Object type", "type", fr.type, "choice", ["Beam", "Column", "Brace", "Null", "Rigid"])
+        if t not in ("Null", "Rigid"):
             self._row_edit(f, "Section property", "section", fr.section, "choice", list(m.frame_sections))
             self._row_edit(f, "Local axis 2 angle (deg)", "angle", fr.angle)
             self._rel_row(f, "Releases at start (U1 U2 U3 R1 R2 R3)", "releases_i", fr.releases_i)
@@ -490,7 +490,7 @@ class FrameInfoDialog(ObjectInfoDialog):
         sc.setWidgetResizable(True)
         sc.setWidget(w)
         self.tabs.addTab(sc, "Assignments")
-        if t != "Null":
+        if t not in ("Null", "Rigid"):
             adv = QtWidgets.QWidget()
             g = QtWidgets.QFormLayout(adv)
             if t in ("Beam", "Column"):

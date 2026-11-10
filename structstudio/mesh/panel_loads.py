@@ -281,6 +281,28 @@ def distribute(poly: Sequence[XYZ], distribution: str, span_dir: Optional[XYZ], 
                 if -1e-9 <= u <= 1 + 1e-9:
                     sup.append((t, r, min(max(u, 0.0), 1.0)))
             if not sup:
+                # the strip passes beyond the ends of every carrier (a panel edge strip
+                # past the last column line): its load goes to the nearest bar (the
+                # two-way rule) instead of being lost
+                for t0, t1 in inside:
+                    nseg = 8
+                    for i in range(nseg):
+                        ta = t0 + (t1 - t0) * i / nseg
+                        tb = t0 + (t1 - t0) * (i + 1) / nseg
+                        pm = A + d * (0.5 * (ta + tb))
+                        q = _height_value(to3(pm), load) * w * (tb - ta) * np.linalg.norm(d)
+                        if q == 0.0:
+                            continue
+                        best = None
+                        for r in recs:
+                            e = r.b - r.a
+                            L2 = float(e @ e)
+                            u = 0.0 if L2 <= 0 else min(max(float((pm - r.a) @ e) / L2, 0.0), 1.0)
+                            dist = float(np.linalg.norm(pm - (r.a + u * e)))
+                            if best is None or dist < best[0]:
+                                best = (dist, r, u)
+                        if best is not None:
+                            _add(acc, (0.0, best[1], best[2]), q, stations)
                 continue
             sup.sort(key=lambda x: x[0])
             # integrate the strip load (piecewise) and hand it to the supports
@@ -405,25 +427,112 @@ def panel_direction(panel_points, text: str) -> Tuple[np.ndarray, bool]:
     return np.array(dirs[t], float), projected
 
 
+def membrane_floors(model) -> Dict[str, float]:
+    """Floors / ramps whose shell section is a Membrane -> their self weight per area
+    (model units).  A membrane has no bending stiffness: the loads normal to it go
+    to the frames that support it (two-way, ETABS), as does its self weight; the
+    membrane itself keeps its in-plane stiffness (diaphragm) and its mass."""
+    out = {}
+    for a in model.areas.values():
+        if a.type not in ("Floor", "Ramp") or a.is_opening:
+            continue
+        sec = model.shell_sections.get(a.section)
+        if sec is None or sec.model_type != "Membrane":
+            continue
+        mat = model.materials.get(sec.material)
+        mods = sec.modifiers.combined(a.modifiers)
+        wd = float(getattr(mat, "weight_density", 0.0) or 0.0) if mat is not None else 0.0
+        out[a.name] = (wd * float(sec.thickness or 0.0) + float(sec.weight_per_area or 0.0)) * float(mods.weight)
+    return out
+
+
 def panel_loads_to_members(model, strips: int = 60):
     """Convert every load panel of ``model`` into frame loads (model units, object
     relative coordinates) and area loads.  Returns ({frame: [FrameLoad]},
     {area: [AreaLoad]}, report) where report[panel][pattern] = (applied, carried)."""
+    from ..model.area_panels import area_items
     from ..model.objects import AreaLoad, FrameLoad
 
     frame_loads: Dict[str, List] = {}
     area_loads: Dict[str, List] = {}
     report: Dict[str, Dict[str, Tuple[float, float]]] = {}
-    if not getattr(model, "panel_loads", None):
+    membranes = membrane_floors(model)
+    if not getattr(model, "panel_loads", None) and not membranes:
         return frame_loads, area_loads, report
     pts = model.points
-    frame_ends = {f.name: (np.asarray(pts[f.point_i].xyz, float), np.asarray(pts[f.point_j].xyz, float))
-                  for f in model.frames.values()}
+    from .geometry import beam_axis_shift
+    tol_model = max(getattr(model.options, "merge_tolerance", 1e-3), 1e-9)
+    frame_ends, shifted_ends = {}, {}
+    for f in model.frames.values():
+        if f.type == "Rigid":
+            continue  # a rigid link carries no load
+        a, b = np.asarray(pts[f.point_i].xyz, float), np.asarray(pts[f.point_j].xyz, float)
+        frame_ends[f.name] = (a, b)
+        sh = beam_axis_shift(model, f, tol_model)  # beams meshed on their true axis are loaded there
+        if sh is not None:
+            shifted_ends[f.name] = (a + sh[0], b + sh[1])
+
+    def ends_for(P):
+        """The beams on their true axis where that axis is on the panel (else - a panel
+        drawn only to the grid line - the joint-to-joint line, as before)."""
+        if not shifted_ends:
+            return frame_ends
+        try:
+            o, e1, e2, n = polygon_frame(P)
+        except ValueError:
+            return frame_ends
+        poly2 = np.array([[(q - o) @ e1, (q - o) @ e2] for q in P])
+        out = dict(frame_ends)
+        for name, (a, b) in shifted_ends.items():
+            if abs(float((a - o) @ n)) > tol or abs(float((b - o) @ n)) > tol:
+                continue
+            if clip_segment_to_polygon(np.array([(a - o) @ e1, (a - o) @ e2]),
+                                       np.array([(b - o) @ e1, (b - o) @ e2]), poly2):
+                out[name] = (a, b)
+        return out
     area_polys = {a.name: np.array([pts[p].xyz for p in a.points], float) for a in model.areas.values()}
     tol = max(getattr(model.options, "merge_tolerance", 1e-3), 1e-6) * 2.0
+    def to_frames(res, pattern, dvec):
+        for bl in res.bar_loads:
+            f = model.frames[bl.frame]
+            for ra, rb, va, vb in simplify(bl.values, bl.stations):
+                frame_loads.setdefault(f.name, []).append(
+                    FrameLoad(pattern, "distributed", _direction_text(dvec), "Force", ra, rb, False, va, vb))
+
+    def membrane_load(aname, pattern, value, direction, rep):
+        """A load on a membrane floor: its part normal to the floor goes two-way to
+        the frames (the membrane cannot carry it); a load in its plane stays on it."""
+        A = area_polys[aname]
+        dvec, _ = panel_direction(A, "Normal" if str(direction).strip() == "3" else direction)
+        _, _, _, n = polygon_frame(A)
+        if abs(float(n @ dvec)) <= 1e-9:
+            area_loads.setdefault(aname, []).append(AreaLoad(pattern, value, direction))
+            return
+        res = distribute(A, "two_way", None, {"value": value}, tuple(dvec), ends_for(A), None, strips, tol,
+                         area_polys)
+        to_frames(res, pattern, dvec)
+        old = rep.get(pattern, (0.0, 0.0))
+        rep[pattern] = (old[0] + res.applied_total, old[1] + res.carried_total)
+
+    for aname, w in membranes.items():  # self weight of the membrane floors
+        rep = {}
+        for pat in model.load_patterns.values():
+            mult = float(getattr(pat, "self_weight_multiplier", 0.0) or 0.0)
+            if mult and w:
+                membrane_load(aname, pat.name, w * mult, "Gravity", rep)
+        for ld in getattr(model.areas[aname], "loads", []) or []:  # loads kept on the area object
+            membrane_load(aname, ld.pattern, ld.value, ld.direction, rep)
+        if rep:
+            report[f"{aname} (membrane: self weight and area loads to the frames)"] = rep
+
     for panel in model.panel_loads.values():
         rep: Dict[str, Tuple[float, float]] = {}
         bound = model.areas.get(panel.area) if getattr(panel, "area", None) else None
+        if bound is not None and panel.distribution == "shells" and bound.name in membranes:
+            for ld in area_items(panel):
+                membrane_load(bound.name, ld.pattern, ld.value, ld.direction, rep)
+            report[panel.name] = rep
+            continue
         if bound is not None and panel.distribution == "shells":
             # an area load on its own area (exactly the ETABS / SAP area load, local axes kept)
             from ..model.area_panels import area_items
@@ -446,6 +555,7 @@ def panel_loads_to_members(model, strips: int = 60):
             continue
         zs = P[:, 2]
         allowed = set(panel.receivers) if panel.receivers is not None else None
+        panel_ends = ends_for(P)
         for case in panel.loads:
             dvec, projected = panel_direction(P, case.direction)
             load = {"value": case.value}
@@ -459,17 +569,18 @@ def panel_loads_to_members(model, strips: int = 60):
                     load = dict(load, value_lower=load["value_lower"] * cosang, value_upper=load["value_upper"] * cosang)
                 else:
                     load = {"value": case.value * cosang}
-            res = distribute(P, panel.distribution, panel.span_dir, load, tuple(dvec), frame_ends, allowed, strips,
+            res = distribute(P, panel.distribution, panel.span_dir, load, tuple(dvec), panel_ends, allowed, strips,
                              tol, area_polys)
-            for bl in res.bar_loads:
-                f = model.frames[bl.frame]
-                for ra, rb, va, vb in simplify(bl.values, bl.stations):
-                    frame_loads.setdefault(f.name, []).append(
-                        FrameLoad(case.pattern, "distributed", _direction_text(dvec), "Force", ra, rb, False, va, vb))
+            to_frames(res, case.pattern, dvec)
+            sub: Dict[str, Tuple[float, float]] = {}
             for aname, pressure in res.shell_pressures.items():
-                area_loads.setdefault(aname, []).append(AreaLoad(case.pattern, pressure, _direction_text(dvec)))
+                if aname in membranes:  # a drawn panel over a membrane floor: on to its frames
+                    membrane_load(aname, case.pattern, pressure, _direction_text(dvec), sub)
+                else:
+                    area_loads.setdefault(aname, []).append(AreaLoad(case.pattern, pressure, _direction_text(dvec)))
+            lost = sum(a_ - c_ for a_, c_ in sub.values())
             old = rep.get(case.pattern, (0.0, 0.0))
-            rep[case.pattern] = (old[0] + res.applied_total, old[1] + res.carried_total)
+            rep[case.pattern] = (old[0] + res.applied_total, old[1] + res.carried_total - lost)
         report[panel.name] = rep
     return frame_loads, area_loads, report
 
