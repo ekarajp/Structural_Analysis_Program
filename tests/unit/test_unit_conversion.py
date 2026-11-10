@@ -34,7 +34,8 @@ from structstudio.units import PRESETS, UnitSystem
 DIMENSIONLESS = {
     "AnalysisOptions": {"floor_mesh_max_size", "wall_mesh_max_size", "merge_tolerance", "gravity",  # Model.convert_units
                         "rigid_zone_factor_concrete", "rigid_zone_factor_steel", "rigid_zone_factor_other",
-                        "mesh_refine_tolerance", "active_dofs", "fine_mesh_factor"},
+                        "mesh_refine_tolerance", "active_dofs", "fine_mesh_factor",
+                        "fine_mesh_size_min", "fine_mesh_size_max"},  # (sizes: Model.convert_units)
     "Area": {"angle", "mesh_divisions", "edge_releases"},
     "ComboItem": {"scale"},
     "Frame": {"angle", "rigid_factor", "auto_end_offsets", "display_cardinal"},

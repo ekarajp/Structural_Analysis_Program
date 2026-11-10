@@ -277,7 +277,8 @@ def test_gui_defaults_and_saved_model(app, settings, tmp_path):
     w.save_defaults.setChecked(True)
     w._alt()  # Blank model
     assert w.model().units.force == "tonf" and "C30/37" in w.model().materials
-    assert json.loads(settings.value("new_model/defaults")) == {"units": "tonf m C", "region": "europe"}
+    assert json.loads(settings.value("new_model/defaults")) == {"units": "tonf m C", "region": "europe",
+                                                                "steel_db": "europe", "rebar_db": "europe"}
     w2 = _wizard(settings)
     assert w2.src_defaults.isEnabled()
     w2.src_defaults.setChecked(True)
