@@ -6,6 +6,7 @@ import pickle
 from typing import Callable, List, Optional, Tuple
 
 from ..model import Model
+from ..model.model import nonfinite_points
 from ..model.base import ModelError
 from ..results import Results
 
@@ -150,6 +151,12 @@ class Document:
         self.begin_edit()
         try:
             func(self.model)
+            bad = nonfinite_points(self.model)
+            if bad:  # never commit a model with inf / NaN coordinates (refused, never clamped)
+                p = self.model.points[bad[0]]
+                raise ModelError("NONFINITE_COORDINATE",
+                                 f"The command would put point {bad[0]} at ({p.x!r}, {p.y!r}, {p.z!r}) - a coordinate "
+                                 f"is not a finite number; nothing was changed")
         except BaseException:
             self.model = self._restore(self._undo.pop())
             self._redo = redo

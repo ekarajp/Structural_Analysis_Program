@@ -9,6 +9,8 @@ the wizard would build on that grid.
 """
 from __future__ import annotations
 
+import time
+
 import json
 from typing import Dict, List, Optional, Tuple
 
@@ -27,6 +29,8 @@ STEP_TITLES = (("Model settings", "Units, materials and section lists for the ne
                ("Starting structure", "Members are placed on the grid you set. Everything can be edited or deleted "
                                       "afterwards."))
 PREVIEW_STORIES = 3  # the structure cards draw the lowest stories only (a tall model is unreadable that small)
+PREVIEW_LINES = 12  # ... and the first grid lines each way: a 30 x 30 grid is unreadable at card size and slow to build
+PREVIEW_BUDGET = 0.15  # s of card drawing done at once; the rest is drawn in later event-loop turns
 
 
 def _muted(w: QtWidgets.QWidget) -> QtWidgets.QWidget:
@@ -78,7 +82,22 @@ class StepBar(QtWidgets.QWidget):
         super().__init__(parent)
         self.step = 0
         self.setMinimumHeight(26)
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(3 * 30 + 8)  # narrow: numbers only, the current step keeps its label
+
+    def _width(self, labels) -> int:
+        fm = self.fontMetrics()
+        return sum((22 + fm.horizontalAdvance(lab) + 22 if lab else 30) + 4 for lab in labels)
+
+    def _labels(self):
+        """Every step's label if they fit, else the current one's only, else none."""
+        full = list(self.LABELS)
+        if self._width(full) <= self.width():
+            return full
+        cur = [lab if i == self.step else "" for i, lab in enumerate(full)]
+        return cur if self._width(cur) <= self.width() else ["" for _ in full]
+
+    def sizeHint(self):
+        return QtCore.QSize(self._width(self.LABELS), 26)
 
     def set_step(self, i: int):
         self.step = i
@@ -91,8 +110,8 @@ class StepBar(QtWidgets.QWidget):
         fm = self.fontMetrics()
         x = self.width()
         items = []
-        for i, lab in reversed(list(enumerate(self.LABELS))):
-            w = 22 + fm.horizontalAdvance(lab) + 22
+        for i, lab in reversed(list(enumerate(self._labels()))):
+            w = 22 + fm.horizontalAdvance(lab) + 22 if lab else 30
             x -= w + 4
             items.append((i, lab, QtCore.QRectF(x, (self.height() - 24) / 2, w, 24)))
         for i, lab, r in items:
@@ -115,6 +134,53 @@ class StepBar(QtWidgets.QWidget):
             p.drawText(QtCore.QRectF(c.right() + 6, r.top(), r.right() - c.right() - 6, r.height()),
                        QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft, lab)
         p.end()
+
+
+class CardGrid(QtWidgets.QWidget):
+    """The structure cards in 4 columns, or 3 / 2 when the window is narrow (a small or
+    scaled screen) - the cards reflow instead of widening the window."""
+
+    MAX_COLS, MIN_COLS, SPACING = 4, 2, 10
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.grid = QtWidgets.QGridLayout(self)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setSpacing(self.SPACING)
+        self.items: List[QtWidgets.QWidget] = []
+        self.cols = self.MAX_COLS
+
+    def add(self, w: QtWidgets.QWidget):
+        self.items.append(w)
+        self._place()
+
+    def _card_min(self) -> int:
+        return max((w.minimumSizeHint().expandedTo(w.minimumSize()).width() for w in self.items), default=180)
+
+    def _cols_for(self, width: int) -> int:
+        c, sp = self._card_min(), self.SPACING
+        return max(self.MIN_COLS, min(self.MAX_COLS, (width + sp) // (c + sp)))
+
+    def _place(self):
+        for w in self.items:
+            self.grid.removeWidget(w)
+        for i, w in enumerate(self.items):
+            self.grid.addWidget(w, i // self.cols, i % self.cols)
+        for k in range(self.MAX_COLS):
+            self.grid.setColumnStretch(k, 1 if k < self.cols else 0)
+
+    def minimumSizeHint(self):
+        c = self._card_min()
+        rows = -(-len(self.items) // self.MIN_COLS)
+        h = max((w.minimumSizeHint().height() for w in self.items), default=100)
+        return QtCore.QSize(self.MIN_COLS * c + (self.MIN_COLS - 1) * self.SPACING, rows * h + (rows - 1) * self.SPACING)
+
+    def resizeEvent(self, ev):
+        cols = self._cols_for(ev.size().width())
+        if cols != self.cols:
+            self.cols = cols
+            self._place()
+        super().resizeEvent(ev)
 
 
 # =============================================================================
@@ -405,9 +471,11 @@ class NewModelWizard(QtWidgets.QDialog):
         lay.addWidget(sep)
 
         self.pages = QtWidgets.QStackedWidget()
-        self.pages.addWidget(self._page_settings())
-        self.pages.addWidget(self._page_grid())
-        self.pages.addWidget(self._page_structure())
+        # each page scrolls when the window is smaller than it (a small or scaled screen);
+        # the step bar and the Back / Next / Create buttons stay outside, always visible
+        from .fit import scroll_page
+        for make in (self._page_settings, self._page_grid, self._page_structure):
+            self.pages.addWidget(scroll_page(make()))
         lay.addWidget(self.pages, 1)
 
         foot = QtWidgets.QHBoxLayout()
@@ -432,6 +500,8 @@ class NewModelWizard(QtWidgets.QDialog):
         self._load_defaults_flag()
         self._source_changed()
         self.go(0)
+        from .fit import install
+        install(self)  # no larger than the screen it opens on
 
     # ================================================================ step 1
     def _page_settings(self) -> QtWidgets.QWidget:
@@ -440,7 +510,8 @@ class NewModelWizard(QtWidgets.QDialog):
         h.setContentsMargins(18, 14, 18, 8)
         h.setSpacing(12)
         g, gl = _group("Start from")
-        g.setFixedWidth(330)
+        g.setMinimumWidth(230)
+        g.setMaximumWidth(330)
         self.src_buttons = QtWidgets.QButtonGroup(self)
         self.src_builtin = self._source_option(gl, "Built-in settings",
                                                "Choose units and a region. Materials and steel sections follow the region.")
@@ -487,7 +558,7 @@ class NewModelWizard(QtWidgets.QDialog):
             w.setEnabled(False)
             w.setToolTip("Design is planned: the code chosen here will be used when design is available")
         for w in (self.units, self.region, self.steel_db, self.rebar_db, self.code_concrete, self.code_steel):
-            w.setMinimumWidth(300)
+            w.setMinimumWidth(180)
         form.addRow("Display units", self.units)
         form.addRow("Region (materials)", self.region)
         form.addRow("Steel section database", self.steel_db)
@@ -1207,15 +1278,14 @@ class NewModelWizard(QtWidgets.QDialog):
         left.addWidget(Legend())
         self.preview_note = _muted(QtWidgets.QLabel())
         left.addWidget(self.preview_note)
-        grid = QtWidgets.QGridLayout()
-        grid.setSpacing(10)
+        self.card_grid = CardGrid()
         self.cards: Dict[str, StructureCard] = {}
         for i, (key, title, desc) in enumerate(STRUCTURES):
             c = StructureCard(key, title, desc)
             c.toggled.connect(lambda on, k=key: on and self._structure_changed(k))
-            grid.addWidget(c, i // 4, i % 4)
+            self.card_grid.add(c)
             self.cards[key] = c
-        left.addLayout(grid, 1)
+        left.addWidget(self.card_grid, 1)
         h.addLayout(left, 1)
         right = QtWidgets.QVBoxLayout()
         self.opt_group, gl = _group("")
@@ -1312,25 +1382,66 @@ class NewModelWizard(QtWidgets.QDialog):
         self.summary.setText(text)
 
     def _refresh_cards(self):
-        """Draw every card from the model the wizard would build (lowest stories)."""
+        """Draw every card from the model the wizard would build, bounded to the lowest
+        stories and the first grid lines (said in the note above the cards).  Cards are
+        cached; what does not fit in a short time budget is drawn in later event-loop turns
+        (a generation number drops work for a grid that has changed since), so the page
+        opens and the window answers at once whatever the grid size."""
         if not hasattr(self, "cards"):
             return
         xs, ys, st = self.grid_data()
         low = st[:PREVIEW_STORIES]
+        px, py = xs[:PREVIEW_LINES], ys[:PREVIEW_LINES]
         n = len(st)
+        cut = len(px) < len(xs) or len(py) < len(ys)
         self.preview_note.setText(
             f"Previews follow your grid: {len(xs)} × {len(ys)} lines." +
-            (f"  The lowest {len(low)} of {n} stories are drawn." if n > len(low) else ""))
+            (f"  The first {len(px)} × {len(py)} lines" if cut else "") +
+            ((" and the lowest" if cut else "  The lowest") + f" {len(low)} of {n} stories" if n > len(low) else "") +
+            (" are drawn." if cut or n > len(low) else "") +
+            ("  The model gets them all." if cut or n > len(low) else ""))
         base = self.settings_model()
+        self._card_gen = getattr(self, "_card_gen", 0) + 1
+        gen = self._card_gen
+        sig = (_utext(base.units), id(base), tuple(r[1] for r in px), tuple(r[1] for r in py),
+               tuple((s[0], s[1]) for s in low))
+        cache = self.__dict__.setdefault("_card_cache", {})
+        todo = []
         for key, card in self.cards.items():
+            hit = cache.get((key,) + sig)
+            if hit is not None:
+                card.set_sketch(*hit)
+            else:
+                card.set_sketch(None, "Drawing preview...")
+                todo.append(key)
+
+        def build(key):
             try:
-                m = build_model(units=_utext(base.units), x_ordinates=[r[1] for r in xs], y_ordinates=[r[1] for r in ys],
-                                stories=[(s[0], s[1]) for s in low], structure=key, settings_from=base, properties=False)
-                card.set_sketch(model_sketch(m), "Empty model" if key == "blank" else "")
+                m = build_model(units=sig[0], x_ordinates=list(sig[2]), y_ordinates=list(sig[3]),
+                                stories=list(sig[4]), structure=key, settings_from=base, properties=False)
+                out = (model_sketch(m), "Empty model" if key == "blank" else "")
             except Exception:
-                card.set_sketch(None, "No preview")
+                out = (None, "No preview")
+            if len(cache) > 64:
+                cache.clear()
+            cache[(key,) + sig] = out
+            self.cards[key].set_sketch(*out)
+
+        def work(budget=PREVIEW_BUDGET):
+            if gen != self._card_gen:
+                return  # the grid / settings changed: a newer refresh owns the cards
+            t0 = time.perf_counter()
+            while todo and (time.perf_counter() - t0 < budget):
+                build(todo.pop(0))
+            if todo:
+                QtCore.QTimer.singleShot(0, work)
+
+        work()
         self._fill_options()
         self._update_summary()
+
+    def previews_pending(self) -> bool:
+        return any(c.sketch is None and c.empty_text == "Drawing preview..." for c in self.cards.values())
 
     # ================================================================ flow
     def go(self, i: int):

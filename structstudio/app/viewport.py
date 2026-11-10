@@ -30,6 +30,67 @@ CUSTOM = "__custom__"  # where-box entry: a plan / elevation at a typed coordina
 
 
 
+class ElidedLabel(QtWidgets.QLabel):
+    """A one-line label that shortens its text with "..." instead of setting a minimum
+    width: a narrow window header (6 or 9 windows) must not widen the program.
+    ``text()`` stays the full text; the tooltip shows it when it is cut."""
+
+    def minimumSizeHint(self):
+        return QtCore.QSize(0, super().minimumSizeHint().height())
+
+    def setText(self, text):
+        super().setText(text)
+        self.setToolTip(text)
+
+    def paintEvent(self, ev):
+        p = QtGui.QPainter(self)
+        r = self.contentsRect()
+        text = self.fontMetrics().elidedText(self.text(), QtCore.Qt.ElideRight, r.width())
+        p.setPen(self.palette().color(self.foregroundRole()))
+        p.drawText(r, int(self.alignment() | QtCore.Qt.AlignVCenter), text)
+        p.end()
+
+
+class _ShrinkCombo(QtWidgets.QComboBox):
+    """A header combo: as wide as its text when there is room, down to the icon and a
+    few characters when the header is narrow (the full text is in the drop-down)."""
+
+    CHARS = 3
+
+    def minimumSizeHint(self):
+        full = super().sizeHint()
+        icon = self.iconSize().width() + 4 if any(not self.itemIcon(i).isNull() for i in range(self.count())) else 0
+        chars = 0 if icon else self.CHARS  # an icon says which kind it is; text needs a few letters
+        w = icon + self.fontMetrics().averageCharWidth() * chars + 30  # text + arrow + frame
+        return QtCore.QSize(min(full.width(), w), full.height())
+
+
+class _ShrinkCheck(QtWidgets.QCheckBox):
+    """A header check box that drops its label (kept in the tooltip) when the header is narrow."""
+
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self._full = text
+        self.setToolTip(text)
+
+    def sizeHint(self):
+        fm = self.fontMetrics()
+        h = super().sizeHint()
+        return QtCore.QSize(self._box() + 6 + fm.horizontalAdvance(self._full), h.height())
+
+    def minimumSizeHint(self):
+        return QtCore.QSize(self._box() + 4, super().minimumSizeHint().height())
+
+    def _box(self):
+        return self.style().pixelMetric(QtWidgets.QStyle.PM_IndicatorWidth, None, self)
+
+    def resizeEvent(self, ev):
+        want = self._full if self.width() >= self.sizeHint().width() else ""
+        if self.text() != want:
+            self.setText(want)
+        super().resizeEvent(ev)
+
+
 class _SharpVTKWidget(QVTKRenderWindowInteractor):
     """The VTK view rendered at the real pixel density of the screen the window is on.
 
@@ -276,14 +337,17 @@ class ModelViewport(QtWidgets.QWidget):
         hl = QtWidgets.QHBoxLayout(self.header)
         hl.setContentsMargins(4, 1, 4, 1)
         hl.setSpacing(4)
-        self.kind_box = QtWidgets.QComboBox()
+        self.kind_box = _ShrinkCombo()
         for key, label in VIEW_KINDS:
             self.kind_box.addItem(icon("view_" + key), label, key)
-        self.where_box = QtWidgets.QComboBox()
-        self.where_box.setMinimumWidth(110)
-        self.where_box.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
-        self.title = QtWidgets.QLabel("")
-        self.results_box = QtWidgets.QCheckBox("Results")
+        self.where_box = _ShrinkCombo()
+        # the combos shrink to a few characters in a narrow header (the full text is in the list)
+        for box in (self.kind_box, self.where_box):
+            box.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
+            box.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+        self.title = ElidedLabel("")
+        self.title.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
+        self.results_box = _ShrinkCheck("Results")
         self.results_box.setChecked(self.config.results)
         fit = QtWidgets.QToolButton()
         fit.setText("Fit")

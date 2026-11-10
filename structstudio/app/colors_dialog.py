@@ -180,7 +180,8 @@ class GraphicsColorsDialog(QtWidgets.QDialog):
             scroll.setWidgetResizable(True)
             scroll.setWidget(page)
             self.tabs.addTab(scroll, tab_name)
-        self.tabs.addTab(self._sizes_page(), "Sizes")
+        from .fit import install, scroll_page
+        self.tabs.addTab(scroll_page(self._sizes_page()), "Sizes")  # scrolls on a short screen, as the others
         if model is not None:
             self.tabs.addTab(self._objects_page(model), "Sections && Materials")
 
@@ -203,6 +204,7 @@ class GraphicsColorsDialog(QtWidgets.QDialog):
         bb.button(QtWidgets.QDialogButtonBox.Apply).clicked.connect(self._apply)
         lay.addWidget(bb)
         self._fill()
+        install(self)  # no larger than the screen it opens on; OK / Cancel / Apply stay on it
 
     # ------------------------------------------------------------ sizes
     def _sizes_page(self) -> QtWidgets.QWidget:

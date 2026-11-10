@@ -203,7 +203,12 @@ class PaletteGrid(QtWidgets.QWidget):
         self.bw, self.bh = hint.width(), hint.height()
         self._avail = 10 ** 6
         self._cols = 1
-        self.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        self.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Preferred)
+
+    def minimumSizeHint(self):
+        if not hasattr(self, "_size"):
+            self._relayout()
+        return QtCore.QSize(self._size.width(), self.bh * 3)
 
     def set_available_height(self, h: int):
         """Height the palette may use (the window's left dock area)."""
@@ -249,7 +254,14 @@ class PaletteGrid(QtWidgets.QWidget):
         self._cols = cols
         self._size = QtCore.QSize(cols * self.bw + (cols - 1) * self.COLGAP, maxy)
         self._vlines = [(k * (self.bw + self.COLGAP) - self.COLGAP / 2.0, maxy) for k in range(1, cols)]
-        self.setFixedSize(self._size)
+        # The width follows the columns; the height is only *preferred*.  A fixed height would
+        # become the window's minimum height, so the window could not get shorter and the palette
+        # would never reflow into more columns (a feedback loop).  The minimum is three rows: the
+        # window decides the height and the palette reflows into it (MainWindow._fit_palette).
+        self.setFixedWidth(self._size.width())
+        self.setMinimumHeight(self.bh * 3)
+        self.setMaximumHeight(max(maxy, self.bh * 3))
+        self.resize(self._size)
         self.updateGeometry()
 
     def columns(self) -> int:

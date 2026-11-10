@@ -336,7 +336,8 @@ def build_model(name: str = "Untitled", units: str = "kN m C", region: str = "th
         m.set_grid_mode("xyz")
     if structure in ("blank", "grid"):
         return m
-    _place_structure(m, structure, xs, ys, column, beam, slab, wall, infill, support)
+    with m.point_index():  # thousands of members: find the shared joints by a hash, not by a scan
+        _place_structure(m, structure, xs, ys, column, beam, slab, wall, infill, support)
     return m
 
 

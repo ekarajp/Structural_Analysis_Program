@@ -104,6 +104,39 @@ class ProjectInfo:
     notes: str = ""
 
 
+
+def finite_xyz(xyz, what: str = "point"):
+    """``xyz`` as three finite floats, or ModelError NONFINITE_COORDINATE (never clamped or zeroed)."""
+    try:
+        vals = tuple(float(v) for v in xyz)
+    except (TypeError, ValueError):
+        raise ModelError("NONFINITE_COORDINATE", f"The {what} coordinates {xyz!r} are not numbers") from None
+    bad = [a for a, v in zip("xyz", vals) if not math.isfinite(v)]
+    if len(vals) != 3 or bad:
+        raise ModelError("NONFINITE_COORDINATE",
+                         f"The {what} {'/'.join(bad) or 'xyz'} coordinate is not a finite number "
+                         f"({', '.join(repr(v) for v in vals)}) - the value is too large or not a number")
+    return vals
+
+
+def nonfinite_values(data, path: str = ""):
+    """Paths (a.b.0.c) of every float in a to_dict() tree that is infinite or NaN."""
+    if isinstance(data, float):
+        if not math.isfinite(data):
+            yield path
+    elif isinstance(data, dict):
+        for k, v in data.items():
+            yield from nonfinite_values(v, f"{path}.{k}" if path else str(k))
+    elif isinstance(data, (list, tuple)):
+        for i, v in enumerate(data):
+            yield from nonfinite_values(v, f"{path}.{i}" if path else str(i))
+
+
+def nonfinite_points(model) -> List[str]:
+    """Names of points with an infinite or NaN coordinate."""
+    fin = math.isfinite
+    return [n for n, p in model.points.items() if not (fin(p.x) and fin(p.y) and fin(p.z))]
+
 class Model:
     """Object-based structural model.
 
@@ -147,6 +180,7 @@ class Model:
         # item -> unit label, missing = the consistent units above.  Display only.
         self.display_units: Dict[str, str] = {}
         self._counters: Dict[str, int] = {}
+        self._pindex: Optional[dict] = None  # while building: cell -> point names (see point_index)
 
     # ------------------------------------------------------------------ names
     def _next_name(self, prefix: str, table: dict) -> str:
@@ -337,22 +371,77 @@ class Model:
                 for k, v in kw.items():
                     setattr(existing, k, v)
                 return existing
+        x, y, z = finite_xyz((x, y, z), "point")
         name = name or self._next_name("P", self.points)
         if name in self.points:
             raise ModelError("DUPLICATE_NAME", f"Point {name!r} already exists", f"points.{name}")
-        p = Point(name=name, x=float(x), y=float(y), z=float(z), **kw)
+        p = Point(name=name, x=x, y=y, z=z, **kw)
         if p.story is None:
             s = self.story_at(z, self.options.merge_tolerance)
             p.story = s.name if s else None
         self.points[name] = p
+        if self._pindex is not None:
+            self._pindex_add(p)
         return p
 
     def find_point(self, x: float, y: float, z: float, tol: Optional[float] = None) -> Optional[Point]:
         tol = self.options.merge_tolerance if tol is None else tol
+        idx = self._pindex
+        if idx is not None and tol <= idx["cell"]:
+            return self._pindex_find(x, y, z, tol)
         for p in self.points.values():
             if abs(p.x - x) <= tol and abs(p.y - y) <= tol and abs(p.z - z) <= tol:
                 return p
         return None
+
+    # A spatial hash of the points, used while a generator adds thousands of points and
+    # members (New Model, its previews): find_point is then O(1) instead of a scan of every
+    # point.  Only valid while nothing else moves points, so it is a context manager.
+    class _PointIndex:
+        def __init__(self, model: "Model"):
+            self.model = model
+
+        def __enter__(self):
+            m = self.model
+            cell = max(m.options.merge_tolerance, 1e-9) * 4
+            m._pindex = {"cell": cell, "cells": {}, "order": {}}
+            for p in m.points.values():
+                m._pindex_add(p)
+            return m
+
+        def __exit__(self, *exc):
+            self.model._pindex = None
+            return False
+
+    def point_index(self) -> "Model._PointIndex":
+        """``with model.point_index(): ...`` - fast find_point / add_point(merge=True) while generating."""
+        return Model._PointIndex(self)
+
+    def _pindex_key(self, x, y, z):
+        c = self._pindex["cell"]
+        return (math.floor(x / c), math.floor(y / c), math.floor(z / c))
+
+    def _pindex_add(self, p: Point):
+        idx = self._pindex
+        idx["order"].setdefault(p.name, len(idx["order"]))
+        idx["cells"].setdefault(self._pindex_key(p.x, p.y, p.z), []).append(p.name)
+
+    def _pindex_find(self, x, y, z, tol) -> Optional[Point]:
+        idx = self._pindex
+        if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
+            return None
+        i, j, k = self._pindex_key(x, y, z)
+        best = None
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                for dk in (-1, 0, 1):
+                    for n in idx["cells"].get((i + di, j + dj, k + dk), ()):
+                        p = self.points.get(n)
+                        if p is None or abs(p.x - x) > tol or abs(p.y - y) > tol or abs(p.z - z) > tol:
+                            continue
+                        if best is None or idx["order"][n] < idx["order"][best.name]:
+                            best = p  # the first point added wins, as in the plain scan
+        return best
 
     def add_frame(self, point_i, point_j, section: str, name: Optional[str] = None, type: Optional[str] = None,
                   **kw) -> Frame:
@@ -634,6 +723,15 @@ class Model:
         def err(code, msg, path=None):
             errors.append(ModelError(code, msg, path))
 
+        for name in nonfinite_points(self):
+            p = self.points[name]
+            err("NONFINITE_COORDINATE", f"Point {name!r} has a coordinate that is not a finite number "
+                f"({p.x!r}, {p.y!r}, {p.z!r})", f"points.{name}")
+        other = [q for q in nonfinite_values(self.to_dict()) if not q.startswith("points.")]
+        for q in other[:20]:
+            err("NONFINITE_VALUE", f"{q} is not a finite number (infinite or NaN)", q)
+        if len(other) > 20:
+            err("NONFINITE_VALUE", f"... and {len(other) - 20} more values that are not finite numbers")
         used_frame_sections = {f.section for f in self.frames.values()}
         for name, s in self.frame_sections.items():
             if s.material not in self.materials and name in used_frame_sections:
@@ -868,6 +966,12 @@ class Model:
         if _version_tuple(data.get("schema_version", "1.0")) < (2, 2):
             m.options.mesh_refine_check = False  # was saved on by default: the analysis took minutes
             m.options.mesh_refine_tolerance = max(m.options.mesh_refine_tolerance, 0.02)
+        bad = nonfinite_points(m)
+        if bad:  # a file with Infinity / NaN coordinates cannot be drawn or analysed: refuse it, say where
+            raise ModelError("NONFINITE_COORDINATE",
+                             f"{len(bad)} point(s) in the file have a coordinate that is not a finite number "
+                             f"(first: {bad[0]} at {m.points[bad[0]].xyz!r}); the file was not opened",
+                             f"points.{bad[0]}")
         return m
 
     @classmethod

@@ -794,7 +794,11 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         if grid is None:
             return
         cw = self.centralWidget()
-        h = (cw.height() if cw is not None and cw.height() > 50 else self.height() - 120) - 12
+        # the room the toolbar gives the grid: the dock area's height less the grid's own offset in
+        # the toolbar (handle, margins).  The palette no longer sets the window's minimum height,
+        # so this is the window's real height, not one the palette pushed up (no feedback loop).
+        h = (cw.height() if cw is not None and cw.height() > 50 else self.height() - 120)
+        h -= max(grid.y(), 0) + 6
         grid.set_available_height(h)
         self.draw_toolbar.updateGeometry()
 

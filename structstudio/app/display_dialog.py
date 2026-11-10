@@ -15,7 +15,9 @@ class DisplayOptionsDialog(QtWidgets.QDialog):
         self.options = options.copy()
         self.boxes: Dict[str, QtWidgets.QCheckBox] = {}
         lay = QtWidgets.QVBoxLayout(self)
-        grid = QtWidgets.QGridLayout()
+        body = QtWidgets.QWidget()
+        grid = QtWidgets.QGridLayout(body)
+        grid.setContentsMargins(0, 0, 0, 0)
         for k, (title, items) in enumerate(GROUPS):
             gb = QtWidgets.QGroupBox(title)
             v = QtWidgets.QVBoxLayout(gb)
@@ -35,7 +37,8 @@ class DisplayOptionsDialog(QtWidgets.QDialog):
                 v.addLayout(row)
             v.addStretch(1)
             grid.addWidget(gb, k // 2, k % 2)
-        lay.addLayout(grid)
+        from .fit import install, scroll_page
+        lay.addWidget(scroll_page(body), 1)  # the check boxes scroll on a short screen; the buttons below stay
         quick = QtWidgets.QHBoxLayout()
         for text, slot in (("Show all objects", self._all_objects), ("Defaults", self._defaults)):
             b = QtWidgets.QPushButton(text)
@@ -49,6 +52,7 @@ class DisplayOptionsDialog(QtWidgets.QDialog):
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
+        install(self)
 
     def _all_objects(self):
         for f in ("beams", "columns", "braces", "null_lines", "floors", "walls", "ramps", "openings"):

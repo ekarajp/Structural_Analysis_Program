@@ -431,7 +431,27 @@ def offset_frame(doc: Document, frame: str, plane: Plane, distance: float, side:
 _NUM = r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?"
 
 
+def _f(text: str, what: str = "value") -> float:
+    """A typed number; a value that overflows (1e309) or is not a number is refused, never clamped."""
+    v = float(text)
+    if not math.isfinite(v):
+        raise ValueError(f"The {what} {text!r} is too large (it overflows to infinity) or not a number - type a finite number")
+    return v
+
+
+def _finite_point(xyz, text: str) -> XYZ:
+    xyz = tuple(float(c) for c in xyz)
+    if not all(math.isfinite(c) for c in xyz):
+        raise ValueError(f"{text!r} gives a point outside the range of numbers {xyz!r} - type smaller values")
+    return xyz
+
+
 def parse_typed(text: str, base: XYZ, toward: Optional[XYZ], plane: Plane) -> XYZ:
+    with np.errstate(over="ignore", invalid="ignore"):  # an overflow is refused below, not warned about
+        return _parse_typed(text, base, toward, plane)
+
+
+def _parse_typed(text: str, base: XYZ, toward: Optional[XYZ], plane: Plane) -> XYZ:
     """A point typed relative to ``base`` (CAD dynamic input):
 
     * ``6``      - distance 6 in the direction of the cursor (direct distance entry);
@@ -444,7 +464,7 @@ def parse_typed(text: str, base: XYZ, toward: Optional[XYZ], plane: Plane) -> XY
         raise ValueError("Type a distance, distance<angle or dx,dy")
     b = np.array(base, float)
     if re.fullmatch(_NUM, t):
-        L = float(t)
+        L = _f(t, "distance")
         if toward is None or np.linalg.norm(np.asarray(toward, float) - b) < 1e-12:
             if plane.kind == "3d":
                 raise ValueError("In 3D a typed length needs a direction: point the cursor where the line goes, then type "
@@ -452,24 +472,24 @@ def parse_typed(text: str, base: XYZ, toward: Optional[XYZ], plane: Plane) -> XY
             d = np.array(plane.to3((1.0, 0.0)), float) - np.array(plane.to3((0.0, 0.0)), float)
         else:
             d = np.asarray(toward, float) - b
-        return tuple(b + d / np.linalg.norm(d) * L)
+        return _finite_point(b + d / np.linalg.norm(d) * L, text)
     m = re.fullmatch(rf"({_NUM})<({_NUM})", t)
     if m:
         if plane.kind == "3d":
             raise ValueError("Distance<angle works in plan and elevation windows")
-        L, ang = float(m.group(1)), math.radians(float(m.group(2)))
+        L, ang = _f(m.group(1), "distance"), math.radians(_f(m.group(2), "angle"))
         u, v = plane.to2(tuple(b))
-        return plane.to3((u + L * math.cos(ang), v + L * math.sin(ang)))
+        return _finite_point(plane.to3((u + L * math.cos(ang), v + L * math.sin(ang))), text)
     parts = t.split(",")
     if all(re.fullmatch(_NUM, p) for p in parts):
-        vals = [float(p) for p in parts]
+        vals = [_f(p, "coordinate") for p in parts]
         if len(vals) == 3:
-            return tuple(b + np.array(vals))
+            return _finite_point(b + np.array(vals), text)
         if len(vals) == 2:
             if plane.kind == "3d":
-                return tuple(b + np.array([vals[0], vals[1], 0.0]))
+                return _finite_point(b + np.array([vals[0], vals[1], 0.0]), text)
             u, v = plane.to2(tuple(b))
-            return plane.to3((u + vals[0], v + vals[1]))
+            return _finite_point(plane.to3((u + vals[0], v + vals[1])), text)
     raise ValueError(f"Cannot read {text!r}: type 6, 6<30, 3,4 or 3,4,1")
 
 
@@ -479,13 +499,13 @@ def parse_absolute(text: str, plane: Plane) -> XYZ:
     t = text.strip().replace(" ", "")
     parts = t.split(",") if t else []
     if parts and all(re.fullmatch(_NUM, p) for p in parts):
-        vals = [float(p) for p in parts]
+        vals = [_f(p, "coordinate") for p in parts]
         if len(vals) == 3:
             return (vals[0], vals[1], vals[2])
         if len(vals) == 2:
             if plane.kind == "3d":
                 raise ValueError("In 3D type all three coordinates: x,y,z (for example 6,0,3) and press Enter")
-            return tuple(float(c) for c in plane.to3((vals[0], vals[1])))
+            return _finite_point(plane.to3((vals[0], vals[1])), text)
     raise ValueError(f"Type the point as x,y,z{'' if plane.kind == '3d' else ' (or u,v in this window)'}"
                      f" - not {text!r}")
 
