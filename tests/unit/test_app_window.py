@@ -723,14 +723,13 @@ def test_load_menu_and_click_tools(window, app):
     assert labels[:4] == ["Area Load (Floors / Walls)", "Load Panel (drawn load area)", "Frame Load", "Joint Load"]
     assert not any("Selected" in t or "Click" in t for t in labels)  # no duplicate entries
     assert window.menu_actions["load.report"].isEnabled() and window.menu_actions["load.delete"].isEnabled()
-    show = next(a.menu() for a in load.actions() if a.text() == "Show Loads")
-    show.aboutToShow.emit()
-    assert len(show.actions()) >= 5
+    # Load > Show Loads...: one form (load types, patterns / case / combination), no sub-menu
+    show = next(a for a in load.actions() if a.text() == "Show Loads...")
+    assert show.menu() is None and show is window.menu_actions["load.show"]
     assign = next(a.menu() for a in bar.actions() if a.text().replace("&", "") == "Assign")
     assert not any("Load" in a.text() for a in assign.actions())  # loads live in the Load menu only
-    window.set_palette_mode("compact")
-    assert window.palette_buttons["Loads"].menu_actions()[0].text().startswith("Area Load")
-    window.set_palette_mode("full")
+    loads_bar = window.findChild(QtWidgets.QToolBar, "loads")  # load tools: the top Loads toolbar
+    assert loads_bar.actions()[0].text().startswith("Area Load")
     pat = next(iter(m.load_patterns))
     vp, z = _plan(window, "Story1")
     vp.fit()
