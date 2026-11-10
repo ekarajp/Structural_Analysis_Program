@@ -352,11 +352,12 @@ class NonlinearDomain:
         if inertia_full is not None:
             res = res + inertia_full
         out: Dict[int, np.ndarray] = {}
+        support_res = self.asm.support_residual(res)
         for node in am.nodes:
             if np.any(node.restraints) or np.any(node.springs):
                 Tn = node_transform(node)
                 sl = slice(6 * node.id, 6 * node.id + 6)
-                r_l = Tn @ res[sl]
+                r_l = support_res(node, Tn)  # with the constrained nodes hanging on it
                 u_l = Tn @ u_full[sl]
                 r = np.zeros(6)
                 sel = node.restraints.astype(bool)

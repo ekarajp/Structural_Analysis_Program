@@ -187,7 +187,8 @@ def _height_value(p3: np.ndarray, load) -> float:
 def distribute(poly: Sequence[XYZ], distribution: str, span_dir: Optional[XYZ], load: dict,
                direction: XYZ, frame_ends: Dict[str, Tuple[np.ndarray, np.ndarray]],
                receivers_allowed: Optional[set] = None, strips: int = 60, plane_tol: float = 1e-3,
-               areas: Optional[Dict[str, np.ndarray]] = None, n_stations: int = 11) -> PanelResult:
+               areas: Optional[Dict[str, np.ndarray]] = None, n_stations: int = 11,
+               within: Optional[Sequence[XYZ]] = None) -> PanelResult:
     """Distribute one load (``load``: {"value"} or {"varying": True, "value_lower",
     "value_upper", "z0", "z1"}) of a panel.  ``direction``: global unit vector of
     the load (e.g. (0, 0, -1) for gravity, the panel normal for wind)."""
@@ -232,7 +233,10 @@ def distribute(poly: Sequence[XYZ], distribution: str, span_dir: Optional[XYZ], 
         carried = sum(pressures.get(n, 0.0) * polygon_area(np.array([to2(p) for p in areas[n]]))
                       for n in pressures) if areas else 0.0
         return PanelResult([], pressures, applied, carried)
-    recs = receivers_in_panel(poly2, frame_ends, to2, plane_tol, normal, origin)
+    # ``within``: a host polygon (two-way only) - the receivers are the host's and only the
+    # part of the panel inside the host counts (an opening taken out of a membrane floor)
+    host2 = None if within is None else np.array([to2(p) for p in within])
+    recs = receivers_in_panel(poly2 if host2 is None else host2, frame_ends, to2, plane_tol, normal, origin)
     if receivers_allowed is not None:
         recs = [r for r in recs if r.name in receivers_allowed]
     if not recs:
@@ -352,6 +356,8 @@ def distribute(poly: Sequence[XYZ], distribution: str, span_dir: Optional[XYZ], 
                     if frac == 0.0:
                         continue
                 q2 = lo + (hi - lo) * ((i + 0.5) / g, (j + 0.5) / g)
+                if host2 is not None and not point_in_poly2(q2, host2):
+                    continue
                 force = _height_value(to3(q2), load) * cell * frac
                 best = None
                 for r in recs:
@@ -379,6 +385,8 @@ def distribute(poly: Sequence[XYZ], distribution: str, span_dir: Optional[XYZ], 
         values = forces / widths
         out.append(BarLoad(r.name, stations.copy(), values, dvec, float(forces.sum())))
         carried += float(forces.sum())
+    if host2 is not None:
+        applied = carried  # the part inside the host
     return PanelResult(out, {}, applied, carried)
 
 
@@ -425,6 +433,14 @@ def panel_direction(panel_points, text: str) -> Tuple[np.ndarray, bool]:
     if t not in dirs:
         raise ValueError(f"Unknown panel load direction {text!r}")
     return np.array(dirs[t], float), projected
+
+
+def _poly3_area(P) -> float:
+    P = np.asarray(P, float)
+    n = np.zeros(3)
+    for i in range(len(P)):
+        n += np.cross(P[i], P[(i + 1) % len(P)])
+    return 0.5 * float(np.linalg.norm(n))
 
 
 def membrane_floors(model) -> Dict[str, float]:
@@ -499,6 +515,30 @@ def panel_loads_to_members(model, strips: int = 60):
                 frame_loads.setdefault(f.name, []).append(
                     FrameLoad(pattern, "distributed", _direction_text(dvec), "Force", ra, rb, False, va, vb))
 
+    hole_cache: Dict[str, list] = {}
+
+    def holes_of(aname):
+        """Openings in the plane of area ``aname`` with their centre inside it."""
+        if aname not in hole_cache:
+            A = area_polys[aname]
+            out = []
+            try:
+                o, e1, e2, n = polygon_frame(A)
+                A2 = np.array([[(q - o) @ e1, (q - o) @ e2] for q in A])
+                for op in model.areas.values():
+                    if not op.is_opening or op.name == aname or len(op.points) < 3:
+                        continue
+                    H = area_polys[op.name]
+                    if np.max(np.abs((H - o) @ n)) > tol:
+                        continue
+                    c = H.mean(axis=0) - o
+                    if point_in_poly2(np.array([c @ e1, c @ e2]), A2):
+                        out.append(H)
+            except ValueError:
+                pass
+            hole_cache[aname] = out
+        return hole_cache[aname]
+
     def membrane_load(aname, pattern, value, direction, rep):
         """A load on a membrane floor: its part normal to the floor goes two-way to
         the frames (the membrane cannot carry it); a load in its plane stays on it."""
@@ -508,11 +548,19 @@ def panel_loads_to_members(model, strips: int = 60):
         if abs(float(n @ dvec)) <= 1e-9:
             area_loads.setdefault(aname, []).append(AreaLoad(pattern, value, direction))
             return
-        res = distribute(A, "two_way", None, {"value": value}, tuple(dvec), ends_for(A), None, strips, tol,
-                         area_polys)
+        ends = ends_for(A)
+        res = distribute(A, "two_way", None, {"value": value}, tuple(dvec), ends, None, strips, tol, area_polys)
         to_frames(res, pattern, dvec)
+        applied, carried = res.applied_total, res.carried_total
+        if res.carried_total:
+            for H in holes_of(aname):  # openings carry nothing: their share is taken back
+                cut = distribute(H, "two_way", None, {"value": -value}, tuple(dvec), ends, None, strips, tol,
+                                 area_polys, within=A)
+                to_frames(cut, pattern, dvec)
+                applied += cut.applied_total
+                carried += cut.carried_total
         old = rep.get(pattern, (0.0, 0.0))
-        rep[pattern] = (old[0] + res.applied_total, old[1] + res.carried_total)
+        rep[pattern] = (old[0] + applied, old[1] + carried)
 
     for aname, w in membranes.items():  # self weight of the membrane floors
         rep = {}
@@ -572,15 +620,23 @@ def panel_loads_to_members(model, strips: int = 60):
             res = distribute(P, panel.distribution, panel.span_dir, load, tuple(dvec), panel_ends, allowed, strips,
                              tol, area_polys)
             to_frames(res, case.pattern, dvec)
-            sub: Dict[str, Tuple[float, float]] = {}
-            for aname, pressure in res.shell_pressures.items():
-                if aname in membranes:  # a drawn panel over a membrane floor: on to its frames
-                    membrane_load(aname, case.pattern, pressure, _direction_text(dvec), sub)
-                else:
+            carried = res.carried_total
+            if panel.distribution == "shells":
+                # what really lands: the floors / walls under the panel less their openings
+                # (an opening is no receiver; a membrane floor passes its share to its frames)
+                carried = 0.0
+                for aname, pressure in res.shell_pressures.items():
+                    if model.areas[aname].is_opening:
+                        continue
+                    if aname in membranes:
+                        sub: Dict[str, Tuple[float, float]] = {}
+                        membrane_load(aname, case.pattern, pressure, _direction_text(dvec), sub)
+                        carried += sum(c_ for _, c_ in sub.values())
+                        continue
                     area_loads.setdefault(aname, []).append(AreaLoad(case.pattern, pressure, _direction_text(dvec)))
-            lost = sum(a_ - c_ for a_, c_ in sub.values())
+                    carried += pressure * (_poly3_area(area_polys[aname]) - sum(_poly3_area(H) for H in holes_of(aname)))
             old = rep.get(case.pattern, (0.0, 0.0))
-            rep[case.pattern] = (old[0] + res.applied_total, old[1] + res.carried_total - lost)
+            rep[case.pattern] = (old[0] + res.applied_total, old[1] + carried)
         report[panel.name] = rep
     return frame_loads, area_loads, report
 

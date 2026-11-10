@@ -127,6 +127,7 @@ class Tie:
     node: int
     masters: List[Tuple[int, float]]
     object: str = ""  # the area object of the element
+    dofs: Optional[Tuple[int, ...]] = None  # the tied DOFs (None = all six)
 
 
 @dataclass

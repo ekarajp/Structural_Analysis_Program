@@ -144,6 +144,25 @@ class Assembler:
         return F
 
     # -------------------------------------------------------------- numbering
+    def support_residual(self, residual: np.ndarray):
+        """``f(node, Tn)`` -> the residual force (6,) on a node in its joint local
+        axes, with what the constrained nodes hanging on it pass to it (nodes tied
+        into a shell at a support, the slab rigid zone of a supported column, a
+        rigid link to a support): the reaction of a supported DOF is the residual of
+        its *reduced* equation, T^T (K u - F), not of the node's own row alone."""
+        dofs = self.dofs
+        rho = dofs.T.T @ residual
+        red = dofs.reduced_of_full
+
+        def at(node, Tn):
+            sl = slice(6 * node.id, 6 * node.id + 6)
+            out = Tn @ residual[sl]
+            idx = red[sl]
+            keep = idx >= 0
+            out[keep] = rho[idx[keep]]
+            return out
+        return at
+
     def _rigid_link_defs(self, defs: Dict[int, List], restrained_nodes) -> None:
         """Rigid links: every group of nodes joined by links moves as one rigid body
         (exact, no stiffness).  One master per group - a supported node, else a
@@ -171,11 +190,32 @@ class Assembler:
         groups: Dict[int, List[int]] = {}
         for x in list(parent):
             groups.setdefault(find(x), []).append(x)
-        in_defs = {dof // 6 for dof in defs}
         any_restraint = {node.id for node in am.nodes if np.any(node.restraints)}
         for members in groups.values():
             members = sorted(members)
-            master = min(members, key=lambda n: (n not in any_restraint, n not in in_defs, n))
+            gset = set(members)
+            # a constraint between two members of the group (the slab rigid zone of the
+            # column a linked node lies in, a tie into an element of linked nodes) says
+            # nothing the link does not: dropped, or the two would define each other
+            for nid in members:
+                for k in range(6):
+                    terms = defs.get(6 * nid + k)
+                    if terms and all(md // 6 in gset for md, _ in terms):
+                        del defs[6 * nid + k]
+
+            def refers_to_group(n):
+                return any(md // 6 in gset for k in range(6) for md, _ in defs.get(6 * n + k, ()))
+
+            def constrained(n):
+                return any(6 * n + k in defs for k in range(6))
+            # master: a supported node, else one whose own constraints (a diaphragm) do not
+            # lead back into the group, else any - its constraints into the group then go
+            master = min(members, key=lambda n: (n not in any_restraint, refers_to_group(n), not constrained(n), n))
+            if refers_to_group(master):
+                for k in range(6):
+                    terms = defs.get(6 * master + k)
+                    if terms and any(md // 6 in gset for md, _ in terms):
+                        del defs[6 * master + k]
             xm = am.nodes[master].xyz
             m6 = 6 * master
             for nid in members:
@@ -245,7 +285,7 @@ class Assembler:
             if node.local_axes is not None or any(am.nodes[m].local_axes is not None for m, _ in tie.masters):
                 am.warnings.append(f"Tie of node {node.point or node.id}: joint local axes - not tied")
                 continue
-            for k in range(6):
+            for k in (getattr(tie, "dofs", None) or range(6)):
                 dof = 6 * tie.node + k
                 if dof in defs or node.restraints[k]:
                     continue  # already constrained (diaphragm) / a support wins

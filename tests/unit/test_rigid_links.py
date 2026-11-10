@@ -248,3 +248,109 @@ def test_column_moments_do_not_depend_on_the_mesh_inside_the_rigid_zones():
         r = analyze(m)
         out.append(np.abs(r.frame_forces("C1", "Live").forces[:, 4:6]).max())
     assert out[0] > 100.0 and abs(out[1] - out[0]) < 0.05 * out[0]
+
+
+def test_offset_beam_nodes_inside_a_column_rigid_zone_without_a_diaphragm():
+    """The beam's axis nodes lie in the slab rigid zone of the column they are linked
+    to: the zone and the link must not define each other (was CONSTRAINT_LOOP when no
+    diaphragm made the joint the master)."""
+    m = _bay()
+    for a in m.areas.values():
+        a.diaphragm = None
+    for p in m.points.values():
+        p.diaphragm = None
+    assert m.options.slab_column_rigid_zone
+    m.add_area_load("F1", "Live", 3.0)
+    r = analyze(m)
+    assert r.am.bodies and r.am.rigid_links
+    assert abs(r.base_reactions("Live")[2] - 3.0 * _area(m, "F1")) < 1e-6
+    assert np.allclose(_base_moment(m, r, "Live") + np.cross([3.0, 2.5, 3.0], [0, 0, -3.0 * _area(m, "F1")]),
+                       0.0, atol=1e-5)
+
+
+def test_membrane_floor_with_an_opening_carries_no_load_on_the_opening():
+    for mt in ("ShellThick", "Membrane"):
+        m = _bay(model_type=mt, ext=0.0, off=0.0)
+        op = [m.add_point(x, y, 3.0).name for x, y in ((1, 1), (3, 1), (3, 2.5), (1, 2.5))]
+        m.add_area(op, None, type="Opening", story="Story1")
+        m.add_area_load("F1", "Live", 3.0)
+        r = analyze(m)
+        net = _area(m, "F1") - 3.0
+        assert abs(r.base_reactions("Live")[2] - 3.0 * net) < 1e-3 * 3.0 * net, mt
+        frames = sum(24.0 * m.frame_sections[f.section].A *
+                     np.linalg.norm(np.subtract(m.points[f.point_j].xyz, m.points[f.point_i].xyz))
+                     for f in m.frames.values())
+        assert abs(r.base_reactions("Dead")[2] - (frames + 24.0 * 0.15 * net)) < 1e-3 * 24.0 * 0.15 * net, mt
+
+
+def test_reactions_include_the_constrained_nodes_hanging_on_a_support():
+    """The reaction of a support is the residual of its reduced equation: what tied
+    nodes, a slab rigid zone or a rigid link pass to it was left out (the reported
+    reactions did not balance the loads)."""
+    from structstudio import Model
+    from structstudio.model import FIXED, PINNED, ShellSection
+    from structstudio.mesh import MeshOptions
+    # 1. a finer floor tied along the edge of a coarser one, at point supports
+    m = Model("p", "kN m")
+    m.add_material("C", E=30e6, nu=0.2)
+    m.add_shell_section(ShellSection("S", "C", type="Slab", model_type="ShellThick", thickness=0.25))
+    m.set_stories([("L1", 3.0)])
+    P = {(x, y): m.add_point(x, y, 3.0, restraints=PINNED).name for x in (0, 6, 12) for y in (0, 6)}
+    m.add_area([P[(0, 0)], P[(6, 0)], P[(6, 6)], P[(0, 6)]], "S", name="F1", max_mesh_size=0.75)
+    m.add_area([P[(6, 0)], P[(12, 0)], P[(12, 6)], P[(6, 6)]], "S", name="F2", max_mesh_size=0.5)
+    m.add_load_pattern("Q")
+    m.add_linear_static_case("Q")
+    m.add_area_load("F1", "Q", 10.0)
+    m.add_area_load("F2", "Q", 10.0)
+    r = analyze(m, mesh_options=MeshOptions(refine_check=False))
+    assert r.am.ties
+    assert abs(r.base_reactions("Q")[2] - 720.0) < 1e-6
+    assert np.allclose(_base_moment(m, r, "Q") + np.cross([6.0, 3.0, 3.0], [0, 0, -720.0]), 0.0, atol=1e-6)
+    # 2. a member hanging on a rigid link to a support
+    m = Model("b", "kN m")
+    m.add_material("S", E=200e6, nu=0.3, type="Steel")
+    m.add_frame_section(FrameSection.general("B", "S", A=0.01, I33=1e-4, I22=5e-5, J=1e-6))
+    m.add_load_pattern("P")
+    m.add_linear_static_case("P")
+    a = m.add_point(0, 0, 0, restraints=FIXED)
+    b = m.add_point(1.5, 0, 0)
+    c = m.add_point(1.5, 0, 3)
+    m.add_frame(a, b, "", type="Rigid")
+    m.add_frame(b, c, "B", name="C")
+    m.add_point_load(c, "P", force=(10, 0, -50))
+    r = analyze(m)
+    assert np.allclose(r.joint_reaction(a.name, "P"), [-10, 0, 50, 0, -105, 0], atol=1e-8)
+    # 3. a slab at the level of the restrained column bases (their slab rigid zones)
+    m = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
+    base = {(p.x, p.y): p.name for p in m.points.values() if abs(p.z) < 1e-9}
+    m.add_area([base[(0, 0)], base[(6, 0)], base[(6, 5)], base[(0, 5)]], "S20", name="G", type="Floor", story="Base")
+    m.add_area_load("G", "Live", 10.0)
+    r = analyze(m)
+    assert r.am.bodies
+    assert abs(r.base_reactions("Live")[2] - 300.0) < 1e-6
+
+
+def test_membrane_floor_beside_a_shell_floor_with_the_beam_offset_between_them():
+    """The beam between a membrane floor and a shell floor is meshed on its offset
+    axis (inside the shell floor): the membrane's edge nodes then have nothing out
+    of their plane, and the shell floor's edge nodes tied into the membrane must not
+    hang on them vertically (was 'Unstable ...' naming unrelated joints)."""
+    import copy as _copy
+    from structstudio.mesh import MeshOptions
+    m = new_building(x_spacings=(6,), y_spacings=(3, 3), story_heights=(3.0,), grid_only=False)
+    floors = sorted(m.areas.values(), key=lambda a: np.mean([m.points[p].y for p in a.points]))
+    sec = _copy.deepcopy(m.shell_sections[floors[0].section])
+    sec.name, sec.model_type = "MEM", "Membrane"
+    m.add_shell_section(sec)
+    floors[0].section = "MEM"
+    floors[0].max_mesh_size = 0.8
+    mid = next(f for f in m.frames.values() if f.type == "Beam"
+               and abs(m.points[f.point_i].y - 3) < 1e-9 and abs(m.points[f.point_j].y - 3) < 1e-9)
+    mid.joint_offset_i = mid.joint_offset_j = (0.0, 0.15, 0.0)
+    mid.offsets_in_analysis = True
+    for a in floors:
+        m.add_area_load(a.name, "Live", 4.0)
+    r = analyze(m, mesh_options=MeshOptions(refine_check=False))
+    assert any(t.dofs == (0, 1, 5) for t in r.am.ties) or not r.am.ties
+    assert abs(r.base_reactions("Live")[2] - 4.0 * 36.0) < 1e-6
+    assert abs(r.base_reactions("Dead")[2] - _self_weight(m)) < 1e-6

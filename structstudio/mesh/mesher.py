@@ -135,8 +135,8 @@ class Mesher:
             for pat, (applied, carried) in rep.items():
                 if abs(applied) > 1e-12 and abs(carried - applied) > 1e-3 * abs(applied):
                     am.warnings.append(
-                        f"Load {name}, pattern {pat}: {100.0 * (1.0 - carried / applied):.1f}% of the load reaches no "
-                        f"frame (no beam / wall under that part of the panel / membrane floor) and is not applied")
+                        f"Load {name}, pattern {pat}: {100.0 * (1.0 - carried / applied):.1f}% of the load is not applied "
+                        f"(no floor / beam under that part of the panel, or an opening there)")
 
         # 1. nodes for point objects.  Points used by frames / areas come first; an
         #    unconnected point that coincides with another point object stays a separate
@@ -1435,8 +1435,11 @@ class Mesher:
                 nd = am.nodes[n]
                 if np.any(nd.restraints[:3]):
                     continue  # a support stays a support
+                # a horizontal membrane holds nothing out of its plane: a node tied into it
+                # follows it in its plane only (its own floor / beam carries it vertically)
+                in_plane = (0, 1, 5) if sh.model_type == "Membrane" and abs(nrm[2]) > 1.0 - 1e-9 else None
                 am.ties.append(Tie(n, [(int(sh.nodes[i]), float(w[i])) for i in range(4) if abs(w[i]) > 1e-12],
-                                   sh.object))
+                                   sh.object, in_plane))
                 tied.add(n)
         if tied:
             pts = [am.nodes[n].point for n in tied if am.nodes[n].point]

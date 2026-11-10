@@ -154,12 +154,13 @@ class Engine:
         am = self.am
         K_full = self.asm.stiffness_full() if K_full is None else K_full
         residual = K_full @ u_full - F_full
+        support_res = self.asm.support_residual(residual)
         reactions: Dict[int, np.ndarray] = {}
         for node in am.nodes:
             if np.any(node.restraints) or np.any(node.springs):
                 Tn = node_transform(node)
                 sl = slice(6 * node.id, 6 * node.id + 6)
-                res_l = Tn @ residual[sl]  # joint local axes
+                res_l = support_res(node, Tn)  # joint local axes, with the constrained nodes on it
                 u_l = Tn @ u_full[sl]
                 dg = np.zeros(6)
                 for pat, sf in pattern_loads.items():
