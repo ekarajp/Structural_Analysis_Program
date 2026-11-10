@@ -694,3 +694,38 @@ def test_gui_load_panel_commands(window, qapp):
     assert vp._panel_actors
     window.assign_panel.cancel_button.click()
     assert not vp._panel_actors
+
+
+@gui
+def test_gui_capture_pictures_have_the_drawings(window, qapp, tmp_path, monkeypatch):
+    """Capture Picture: the model views are not black (native OpenGL windows painted in);
+    Selected Region crops; no Entire Screen / Create Video / Print Graphics in File."""
+    from structstudio.app import capture
+    from structstudio.app.menus import ETABS_MENUS
+    file_menu = dict(ETABS_MENUS)["&File"]
+    labels = [e[0] for e in file_menu if isinstance(e, tuple)]
+    assert "Create Video" not in labels and "Print Graphics..." not in labels
+    cap = dict((e[0], e[1]) for e in file_menu if isinstance(e, tuple))["Capture Picture"]
+    assert [e[0] for e in cap] == ["Main Window", "Current Window", "Selected Region (drag a rectangle)..."]
+    window.resize(1400, 900)
+    _settle(qapp, 10, 20)
+    vp = window.views.visible_viewports()[0]
+    pm = capture.compose(window, window.views.viewports)
+    img = pm.toImage()
+    c = vp.vtk_widget.mapTo(window, vp.vtk_widget.rect().center())
+    k = pm.devicePixelRatio()
+    col = img.pixelColor(int(c.x() * k), int(c.y() * k))
+    bg = [int(255 * v) for v in __import__("structstudio.app.scene", fromlist=["COLORS"]).COLORS["background_top"]]
+    assert (col.red(), col.green(), col.blue()) != (0, 0, 0) and max(col.red(), col.green(), col.blue()) > 40
+    saved = []
+    monkeypatch.setattr(capture, "save_picture", lambda parent, p, title, name: saved.append((title, p.size())) or "x")
+
+    def fake_exec(self):
+        self.rect_logical = QtCore.QRect(10, 10, 200, 100)
+        return 1
+    monkeypatch.setattr(capture.RegionPicker, "exec", fake_exec)
+    window.menu_actions["file.capture_region"].trigger()
+    window.menu_actions["file.capture_window"].trigger()
+    assert saved[0][0] == "Capture Selected Region" and saved[0][1].width() >= 200
+    assert saved[1][0] == "Capture Current Window"
+    del bg

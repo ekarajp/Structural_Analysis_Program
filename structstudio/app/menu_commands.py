@@ -37,7 +37,8 @@ class MenuCommandsMixin:
             "file.close": self.close_model,
             "file.import_tables": self.import_csi,
             "file.export_results": self.export_results,
-            "file.capture_window": self.screenshot,
+            "file.capture_window": lambda: self.capture_picture("window"),
+            "file.capture_region": lambda: self.capture_picture("region"),
             "file.capture_main": self.capture_main,
             "file.project_info": self.project_info,
             "file.comments": self.show_log,
@@ -327,10 +328,31 @@ class MenuCommandsMixin:
         u = self.doc.model.units
         self.doc.new(f"{u.force} {u.length}")
 
+    def capture_picture(self, what: str = "main"):
+        """File > Capture Picture: the program window / the active model window (with its
+        drawing - the native OpenGL views are painted in from their render windows) or a
+        region dragged over the program window."""
+        from . import capture
+        vps = list(self.views.viewports)
+        if what == "window":
+            vp = self.views.active
+            pm = capture.compose(vp, [vp])
+            return capture.save_picture(self, pm, "Capture Current Window", "view.png")
+        pm = capture.compose(self, vps)
+        if what == "region":
+            g = self.geometry()
+            top_left = self.mapToGlobal(QtCore.QPoint(0, 0))
+            d = capture.RegionPicker(pm, QtCore.QRect(top_left, g.size()), self)
+            if not d.exec():
+                return None
+            part = d.region()
+            if part is None:
+                return None
+            return capture.save_picture(self, part, "Capture Selected Region", "region.png")
+        return capture.save_picture(self, pm, "Capture Main Window", "main.png")
+
     def capture_main(self):
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Capture main window", "main.png", "PNG (*.png)")
-        if path:
-            self.grab().save(path)
+        return self.capture_picture("main")
 
     def project_info(self):
         """File > Project Information (reports, drawing title blocks)."""
