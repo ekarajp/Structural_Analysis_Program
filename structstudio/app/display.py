@@ -111,7 +111,7 @@ GROUPS: List[Tuple[str, List[Tuple[str, str]]]] = [
                ("grid_vertical", "Vertical grid lines in 3D (column lines)"),
                ("story_plane", "Show the plane of the active plan / elevation window (blue) in 3D"),
                ("analysis_mesh", "Analysis mesh of floors / walls (after an analysis)")]),
-    ("Reference lines (CYPE 3D)", [("reference_lines", "Reference lines through joints"),
+    ("Reference lines", [("reference_lines", "Reference lines through joints"),
                                    ("reference_x", "   parallel to X"), ("reference_y", "   parallel to Y"),
                                    ("reference_z", "   parallel to Z")]),
 ]

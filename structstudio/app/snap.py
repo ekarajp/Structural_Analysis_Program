@@ -65,7 +65,7 @@ SNAP_ITEMS: List[Tuple[str, str, str]] = [
     ("extensions", "Extensions", "Points on the extension of a frame or edge beyond its ends"),
     ("parallels", "Parallels", "Next point parallel to a frame or edge near the cursor"),
     ("fine_grid", "Fine grid", "An invisible grid with the fine grid spacing (plan views)"),
-    ("reference", "Reference lines", "Reference lines through joints (CYPE 3D style)"),
+    ("reference", "Reference lines", "Reference lines through joints"),
     ("ortho", "Orthogonal tracking", "Next point along the plane axes through the previous point"),
     ("polar", "Polar tracking", "Next point at multiples of the polar angle from the previous point"),
     ("alignment", "Alignment lines (object snap tracking)",

@@ -729,3 +729,53 @@ def test_gui_capture_pictures_have_the_drawings(window, qapp, tmp_path, monkeypa
     assert saved[0][0] == "Capture Selected Region" and saved[0][1].width() >= 200
     assert saved[1][0] == "Capture Current Window"
     del bg
+
+
+@gui
+def test_gui_insertion_point(window, qapp, monkeypatch):
+    """Cardinal point: a named drop-down + ... (picture of the section); the offset goes
+    into the analysis or only into the drawing; Assign > Frame > Insertion Point."""
+    from structstudio.app import insertion_dialog as ins
+    from structstudio.app.tools import _cardinal_fields
+    from structstudio.app.templates import new_building
+    from structstudio.app.menus import ETABS_MENUS
+    labels = [e[0] for e in dict(ETABS_MENUS)["&File"] if isinstance(e, tuple)]
+    assert "Comments and Log..." not in labels and "Show Input/Output Text Files..." not in labels
+    window.doc.model = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
+    m = window.doc.model
+    st = window.state
+    st.set_tool("beam")
+    ed = window.object_props.editors["cardinal_point"]
+    assert ed.box.currentText() == "10 Centroid" and ed.more.text() == "..."
+
+    def fake_exec(self):
+        self.form.picture.picked.emit(8)  # a click on point 8
+        self.form.transform.setChecked(False)
+        return 1
+    monkeypatch.setattr(ins.InsertionPointDialog, "exec", fake_exec)
+    ed.more.click()
+    assert st.settings.cardinal_point == 8 and st.settings.cardinal_transform is False
+    assert _cardinal_fields(st.settings) == {"cardinal_point": 10, "display_cardinal": 8}
+    st.settings.cardinal_transform = True
+    assert _cardinal_fields(st.settings) == {"cardinal_point": 8, "display_cardinal": 8}
+    st.settings.cardinal_point = 10
+    assert _cardinal_fields(st.settings) == {"cardinal_point": 10}
+    st.set_tool("select")
+    # the picture follows the choice
+    w = ins.InsertionPointWidget(m, next(iter(m.frame_sections)), 3, True)
+    assert w.picture.cardinal == 3
+    w.cardinal.setCurrentIndex(6)
+    assert w.picture.cardinal == 7
+    # Assign > Frame > Insertion Point (in the Assign window)
+    beam = next(n for n, f in m.frames.items() if f.type == "Beam")
+    st.set_selection([beam])
+    window.assign_insertion_point()
+    f = window.assign_panel._form
+    assert isinstance(f, ins.InsertionPointWidget) and f.values()["cp"] == 8  # beams are drawn at the top
+    assert f.values()["transform"] is False  # ... without the eccentric stiffness (as before)
+    f.cardinal.setCurrentIndex(1)
+    f.transform.setChecked(True)
+    f.offset_boxes[("End-I", 2)].setValue(0.1)
+    window.assign_panel.ok_button.click()
+    fr = window.doc.model.frames[beam]
+    assert fr.cardinal_point == 2 and fr.display_cardinal == 2 and fr.joint_offset_i[2] == pytest.approx(0.1)

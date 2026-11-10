@@ -41,7 +41,6 @@ class MenuCommandsMixin:
             "file.capture_region": lambda: self.capture_picture("region"),
             "file.capture_main": self.capture_main,
             "file.project_info": self.project_info,
-            "file.comments": self.show_log,
             "file.exit": self.close,
             # Edit
             "edit.cut": self.edit_cut,
@@ -1003,21 +1002,21 @@ class MenuCommandsMixin:
         self.doc.edit(apply)
 
     def assign_insertion_point(self):
-        def fields(f):
-            cur = CARDINAL_POINTS[max(1, min(11, int(f.cardinal_point))) - 1]
-            return [("cp", "Cardinal point", cur, {"choices": CARDINAL_POINTS}),
-                    ("ix", "Joint offset End-I  X", float(f.joint_offset_i[0]), {"item": "coordinates"}),
-                    ("iy", "Y", float(f.joint_offset_i[1]), {"item": "coordinates"}),
-                    ("iz", "Z", float(f.joint_offset_i[2]), {"item": "coordinates"}),
-                    ("jx", "Joint offset End-J  X", float(f.joint_offset_j[0]), {"item": "coordinates"}),
-                    ("jy", "Y", float(f.joint_offset_j[1]), {"item": "coordinates"}),
-                    ("jz", "Z", float(f.joint_offset_j[2]), {"item": "coordinates"})]
+        """Assign > Frame > Insertion Point: the cardinal point on a picture of the section,
+        whether its offset goes into the analysis, and the joint offsets."""
+        from .insertion_dialog import InsertionPointWidget, frame_fields, frame_state
+        m = self.doc.model
+
+        def widget(f):
+            sec = f.section if f.section in m.frame_sections else next(iter(m.frame_sections), None)
+            cp, transform = frame_state(f, m) if f.name else (10, True)
+            w = InsertionPointWidget(m, sec, cp, transform, tuple(f.joint_offset_i), tuple(f.joint_offset_j))
+            return w, w.values
 
         def apply(names, v):
-            cp = int(v["cp"].split()[0])
-            C.assign(self.doc, "frame", names, cardinal_point=cp, display_cardinal=cp,
-                     joint_offset_i=(v["ix"], v["iy"], v["iz"]), joint_offset_j=(v["jx"], v["jy"], v["jz"]))
-        self.assign_form("frame.insertion", "Frame Insertion Point", ("frame",), apply, fields=fields)
+            C.assign(self.doc, "frame", names, joint_offset_i=v["ioff"], joint_offset_j=v["joff"],
+                     **frame_fields(v["cp"], v["transform"]))
+        self.assign_form("frame.insertion", "Frame Insertion Point", ("frame",), apply, widget=widget)
 
     def assign_output_stations(self):
         self.assign_form("frame.stations", "Frame Output Stations", ("frame",),

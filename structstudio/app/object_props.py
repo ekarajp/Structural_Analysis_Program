@@ -537,7 +537,38 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
             self.editors[key] = w
         self.table.resizeRowsToContents()
 
+    def _cardinal_editor(self, key, s, m) -> QtWidgets.QWidget:
+        """Cardinal point: a drop-down with the names, and ... = the Insertion Point form
+        (picture of the section, include the offset in the analysis or not)."""
+        from .insertion_dialog import CARDINAL_NAMES, InsertionPointDialog
+        w = QtWidgets.QWidget()
+        h = QtWidgets.QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(2)
+        box = QtWidgets.QComboBox()
+        box.addItems(CARDINAL_NAMES)
+        box.setCurrentIndex(max(1, min(11, int(getattr(s, key) or 10))) - 1)
+        box.currentIndexChanged.connect(lambda i: setattr(s, key, i + 1))
+        more = QtWidgets.QToolButton()
+        more.setText("...")
+        more.setToolTip("Insertion Point: the section with its points; include the offset in the analysis or not")
+
+        def open_form():
+            d = InsertionPointDialog(m, s.frame_section, int(getattr(s, key) or 10),
+                                     bool(getattr(s, "cardinal_transform", True)), self.window())
+            if d.exec():
+                v = d.form.values()
+                s.cardinal_transform = v["transform"]
+                box.setCurrentIndex(v["cp"] - 1)
+        more.clicked.connect(open_form)
+        h.addWidget(box, 1)
+        h.addWidget(more)
+        w.box, w.more = box, more
+        return w
+
     def _editor(self, key, kind, extra, s, m) -> QtWidgets.QWidget:
+        if kind == "cardinal":
+            return self._cardinal_editor(key, s, m)
         val = getattr(s, key)
         if kind in ("section_frame", "section_shell", "diaphragm", "choice", "pattern"):
             box = QtWidgets.QComboBox()

@@ -453,7 +453,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
                                           checked=True)
         self.act_reference = self._make("Show Reference Lines (through joints)",
                                         lambda c: self.views.set_option_all("reference_lines", c), checkable=True,
-                                        checked=False, tip="CYPE 3D style reference lines through every joint, "
+                                        checked=False, tip="Reference lines through every joint, "
                                                            "parallel to the global axes (own colour)")
         self.reference_menu = QtWidgets.QMenu("Reference Lines", self)
         self.reference_menu.addAction(self.act_reference)

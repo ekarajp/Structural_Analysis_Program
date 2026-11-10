@@ -119,8 +119,6 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
                              ("Selected Region (drag a rectangle)...", "file.capture_region", "Ctrl+Shift+5")]),
         "-",
         ("Project Information...", "file.project_info"),
-        ("Comments and Log...", "file.comments", "Ctrl+Shift+C"),
-        ("Show Input/Output Text Files...", "file.text_files", "Ctrl+Shift+F"),
         "-",
         ("Exit", "file.exit", "Alt+F4"),
     ]),

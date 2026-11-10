@@ -271,6 +271,7 @@ class DrawSettings:
     arc_radius: float = 0.0  # "Arc: start, end, radius" (model length units; sign: side of the bulge)
     frame_angle: float = 0.0  # local axis 2 angle of drawn beams / braces
     cardinal_point: int = 10  # insertion point (CSI numbering, 10 = centroid)
+    cardinal_transform: bool = True  # the offset from the centroid goes into the analysis
     offset_x: float = 0.0  # plan offsets of the clicked locations (ETABS joints / columns)
     offset_y: float = 0.0
     offset_z: float = 0.0  # offset normal to the drawing plane (SAP2000 "XY Plane Offset Normal")
@@ -343,7 +344,7 @@ TOOL_PROPERTIES: Dict[str, List[tuple]] = {
              ("moment_releases", "Moment releases", "choice",
               ["Continuous", "Pinned", "Pinned at start", "Pinned at end"]),
              ("frame_angle", "Local axis 2 angle", "float", "degrees"),
-             ("cardinal_point", "Cardinal point", "int", "1-11, 10 = centroid"),
+             ("cardinal_point", "Cardinal point", "cardinal", "the point of the section on the drawn line; ... = picture"),
              *_OFFSETS,
              ("drawing_control", "Drawing control", "choice",
               ["None", "Parallel to X", "Parallel to Y", "Parallel to Z", "Fixed length", "Fixed angle"]),
@@ -357,7 +358,7 @@ TOOL_PROPERTIES: Dict[str, List[tuple]] = {
               _WORK_PLANE_ITEM],
     "column": [("frame_section", "Section", "section_frame", ""), ("column_angle", "Angle (deg)", "float", ""),
                *_OFFSETS,
-               ("cardinal_point", "Cardinal point", "int", ""), ("all_stories", "All stories", "bool", "")],
+               ("cardinal_point", "Cardinal point", "cardinal", ""), ("all_stories", "All stories", "bool", "")],
     "quick_column": [("frame_section", "Section", "section_frame", ""), ("column_angle", "Angle (deg)", "float", ""),
                      ("offset_x", "Offset X", "float", _OFFSET_HINT), ("offset_y", "Offset Y", "float", _OFFSET_HINT),
                      ("all_stories", "All stories", "bool", "")],
@@ -542,6 +543,9 @@ class Preview:
 
 class Tool:
     """Base class.  ``click`` receives the (snapped) point on the plane."""
+
+    def _cardinal_extra(self) -> dict:
+        return _cardinal_fields(self.settings)
 
     name = "tool"
     prompt = ""
@@ -910,7 +914,7 @@ class BeamTool(Tool):
                                                         self.plane) or "These points do not define an arc")
             sec = self._frame_section()
             rel_i, rel_j = self._beam_releases()
-            extra = dict(angle=self.settings.frame_angle, cardinal_point=int(self.settings.cardinal_point or 10))
+            extra = dict(angle=self.settings.frame_angle, **self._cardinal_extra())
 
             def mutate_arc(model: Model):
                 prev = model.add_point(*chain[0])
@@ -934,7 +938,7 @@ class BeamTool(Tool):
         sec = self._section_for(a, b)
         rel_i, rel_j = self._releases_for(a, b)
         horizontal = abs(a[2] - b[2]) <= self.tol
-        extra = dict(angle=self.settings.frame_angle, cardinal_point=int(self.settings.cardinal_point or 10))
+        extra = dict(angle=self.settings.frame_angle, **self._cardinal_extra())
         if self.plane.kind == "plan" and horizontal and not self.settings.offset_z and self.story:
             stories = self.story_names_to_draw()
             ftype = self._type_for(a, b) or "Beam"
@@ -994,6 +998,16 @@ class BeamTool(Tool):
         return False
 
 
+def _cardinal_fields(settings) -> dict:
+    """Frame attributes of the cardinal point chosen in Properties of Object."""
+    cp = int(settings.cardinal_point or 10)
+    if cp == 10:
+        return {"cardinal_point": 10}  # (the default: beams still drawn at the top in story models)
+    if getattr(settings, "cardinal_transform", True):
+        return {"cardinal_point": cp, "display_cardinal": cp}
+    return {"cardinal_point": 10, "display_cardinal": cp}
+
+
 class BraceTool(BeamTool):
     """Draw braces between two points (elevation / 3D views)."""
 
@@ -1028,7 +1042,7 @@ class ColumnTool(Tool):
         p = (q[0], q[1], raw[2])
         sec = self._frame_section()
         angle = self.settings.column_angle
-        cardinal = int(self.settings.cardinal_point or 10)
+        cardinal = self._cardinal_extra()
         if self.plane.kind == "plan" and self.story is None:
             # free plan (any Z): the column runs from the level below the plane up to it
             top = p[2]
@@ -1039,7 +1053,7 @@ class ColumnTool(Tool):
 
             def mutate_free(model: Model):
                 f = model.add_frame(model.add_point(p[0], p[1], bot + dz), model.add_point(p[0], p[1], top + dz), sec,
-                                    type="Column", angle=angle, cardinal_point=cardinal)
+                                    type="Column", angle=angle, **cardinal)
                 self.created.append(f.name)
             self.doc.edit(mutate_free)
             return True
@@ -1056,7 +1070,7 @@ class ColumnTool(Tool):
                     continue
                 f = model.add_frame(model.add_point(p[0], p[1], bot + dz), model.add_point(p[0], p[1], top + dz), sec,
                                     type="Column", story=st if not dz else None, angle=angle,
-                                    cardinal_point=cardinal)
+                                    **cardinal)
                 self.created.append(f.name)
 
         self.doc.edit(mutate)
