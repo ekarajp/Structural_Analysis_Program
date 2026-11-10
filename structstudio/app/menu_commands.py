@@ -257,13 +257,17 @@ class MenuCommandsMixin:
             fill()
             menu.aboutToShow.connect(fill)
 
+        def toolbars(menu):
+            self.fill_toolbars_menu(menu)
+            menu.aboutToShow.connect(lambda: self.fill_toolbars_menu(menu))
+
         def recent(menu):
             self._fill_recent_menu(menu)
             menu.aboutToShow.connect(lambda: self._fill_recent_menu(menu))
 
         return {"file.recent_menu": recent, "options.palette_menu": palette, "edit.grid_mode_menu": grid_mode, "view.grid_menu": grid, "draw.snap_menu": snaps,
                 "load.show_menu": load_kinds,
-                "options.windows_menu": windows, "options.move_window_menu": move_window, "options.panels_menu": panels, "options.theme_menu": themes, "options.color_by_menu": color_by}
+                "options.windows_menu": windows, "options.move_window_menu": move_window, "options.toolbars_menu": toolbars, "options.panels_menu": panels, "options.theme_menu": themes, "options.color_by_menu": color_by}
 
     # -------------------------------------------------------------- utils
     def _info(self, text: str):
@@ -291,10 +295,9 @@ class MenuCommandsMixin:
         return select_by_type(self.doc.model, t)
 
     def _need_any(self) -> bool:
-        if not any(self._sel()):
-            QtWidgets.QMessageBox.information(self, "Nothing selected", "Select objects first.")
-            return False
-        return True
+        if any(self._sel()):
+            return True
+        return self._wait_for("any", 2)
 
     def _try(self, title: str, fn):
         try:
@@ -1021,23 +1024,37 @@ class MenuCommandsMixin:
             C.assign(self.doc, "area", self._names("area"), type="Opening", section=None)
 
     def assign_area_mesh(self, kind: str):
-        """Assign > Floor / Wall Auto Mesh Options: auto mesh / no mesh of the selected areas,
-        and the fine mesh of the whole model (found once, then ticked)."""
+        """Assign > Floor / Wall Auto Mesh Options: one choice for the selected areas - auto
+        mesh, manual maximum mesh size, fine mesh (once found) or no mesh - and the allowed
+        error of Find Fine Mesh."""
         if not self._need("area"):
             return
-        from .mesh_dialog import AreaMeshDialog
+        from .mesh_dialog import AreaMeshDialog, area_mode
+        m = self.doc.model
         a = self._first("area")
-        dlg = AreaMeshDialog(kind, self.doc.model, bool(a.auto_mesh), a.max_mesh_size, self.check_mesh, self)
+        mode = area_mode(a)
+        if mode == "auto" and m.options.use_fine_mesh and m.options.fine_mesh_factor:
+            mode = "fine"  # (models saved with the earlier whole-model fine mesh)
+        dlg = AreaMeshDialog(kind, m, mode, a.max_mesh_size, self.check_mesh, self)
         self._mesh_dialog = dlg
         try:
             if not dlg.exec():
                 return
             v = dlg.values()
+            if dlg.apply_tolerance():
+                self.doc.dirty = True
         finally:
             self._mesh_dialog = None
-        names = [n for n in self._names("area") if (self.doc.model.areas[n].type == "Wall") == (kind == "Wall")]
-        C.assign(self.doc, "area", names or self._names("area"), auto_mesh=v["auto"], max_mesh_size=v["size"])
-        self.set_fine_mesh(v["use_fine"])
+        if m.options.use_fine_mesh:
+            # the earlier whole-model fine mesh becomes the fine mesh of each auto-meshed area
+            rest = [n for n, ar in m.areas.items() if ar.auto_mesh and not ar.max_mesh_size and not ar.fine_mesh]
+            if rest:
+                C.assign(self.doc, "area", rest, fine_mesh=True)
+            self.set_fine_mesh(False)
+        names = [n for n in self._names("area") if (m.areas[n].type == "Wall") == (kind == "Wall")]
+        C.assign(self.doc, "area", names or self._names("area"), auto_mesh=v["auto"],
+                 max_mesh_size=v["size"], fine_mesh=v["fine"])
+        self._sync_fine_mesh()
 
     def assign_frame_point_load(self):
         if not self._need("frame"):
@@ -1094,7 +1111,7 @@ class MenuCommandsMixin:
             return QtWidgets.QMessageBox.information(self, "Paste Assigns", "Use Assign > Copy Assigns first.")
         names = self._names(clip.kind)
         if not names:
-            return QtWidgets.QMessageBox.information(self, "Paste Assigns", f"Select {clip.kind} objects first.")
+            return self._need(clip.kind)
         v = ask(self, "Paste Assigns", [("loads", "Include loads", True)])
         if v:
             C.paste_assigns(self.doc, clip, names, loads=v["loads"])
@@ -1240,8 +1257,7 @@ class MenuCommandsMixin:
         d.exec()
 
     def reset_toolbars(self):
-        for tb in self.findChildren(QtWidgets.QToolBar):
-            tb.show()
+        self.show_all_toolbars()
 
     def show_shortcuts(self):
         rows = []

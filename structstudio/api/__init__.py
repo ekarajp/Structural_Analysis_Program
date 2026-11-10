@@ -32,7 +32,7 @@ def analyze(model: Model, cases: Optional[Iterable[str]] = None, kernel: Optiona
     o = model.options
     if mesh_options is None and getattr(o, "use_fine_mesh", False) and getattr(o, "fine_mesh_factor", None):
         f = min(1.0, float(o.fine_mesh_factor))  # never coarser than the automatic mesh
-        mesh_options = MeshOptions(size_factor=f, refine_check=False)
+        mesh_options = MeshOptions(size_factor=f, refine_check=False, area_fine=False)
         fine_note = (f"Fine mesh from Analyze > Check Mesh: automatic element size x {f:g}"
                      + ("" if o.fine_mesh_signature == mesh_signature(model) else
                         " - the model has changed since the check: run Check Mesh again to confirm it"))
@@ -118,7 +118,7 @@ def check_mesh(model: Model, kernel: Optional[Kernel] = None, progress=None) -> 
         if progress is not None:
             progress(float(min(max(pct, 0.0), 100.0)), msg)
     o = model.options
-    opts = MeshOptions(refine_check=True, refine_tolerance=float(getattr(o, "mesh_refine_tolerance", 0.02)))
+    opts = MeshOptions(refine_check=True, area_fine=False, refine_tolerance=float(getattr(o, "mesh_refine_tolerance", 0.02)))
     report(0, "Preparing the analysis model")
     am = build_analysis_model(model, opts, progress=lambda f, msg: report(2 + 20 * f, msg))
     if not am.auto_sizes or not am.shells:

@@ -179,6 +179,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             vp.object_info_requested.connect(self.show_object_info)
             vp.background_menu_requested.connect(self.show_background_menu)
             vp.panel_requested.connect(self.add_panel_load)
+            vp.intercept_right_click = self._pending_right_click
         self._build_docks()
         self._build_actions()
         self._build_menus()
@@ -572,12 +573,13 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
                        ("define.slab_sections", "slab_sections", "Slab Sections"),
                        ("define.wall_sections", "wall_sections", "Wall Sections")))
         loads = bar("Loads", "loads")
-        for k in LOAD_PALETTE:  # drawing / assigning loads (area, panel, frame, joint)
-            loads.addAction(self.tool_actions[k])
-        loads.addSeparator()
+        # workflow order: define the load patterns / cases / combinations, then assign loads
         add_cmds(loads, (("define.load_patterns", "load_patterns", "Load Patterns"),
                          ("define.load_cases", "load_cases", "Load Cases"),
                          ("define.combos", "combos", "Load Combinations")))
+        loads.addSeparator()
+        for k in LOAD_PALETTE:  # drawing / assigning loads (area, panel, frame, joint)
+            loads.addAction(self.tool_actions[k])
         ana = bar("Analyze", "analyze")
         # Check Model before Run: duplicates, overlaps, zero-length / zero-area objects ...
         a = self._menu_tool("analyze.check", "check_model", "Check Model: duplicate or overlapping members, "
@@ -724,6 +726,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             a.setChecked(k == self.palette_mode)
         self.addToolBar(QtCore.Qt.LeftToolBarArea, left)
         self._build_snap_bar()
+        self._restore_toolbars()
         self.coord_label = QtWidgets.QLabel("")
         self.lock_label = QtWidgets.QToolButton()
         self.lock_label.setDefaultAction(self.act_lock)
@@ -883,6 +886,46 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         if self.qsettings is not None:
             self.qsettings.setValue("ui/palette", self.palette_mode)
         self._fill_palette()
+
+    # ---- Window > Toolbars: which top toolbars are shown (kept in the settings)
+    def top_toolbars(self):
+        return [tb for tb in self.findChildren(QtWidgets.QToolBar)
+                if tb.parent() is self and self.toolBarArea(tb) == QtCore.Qt.TopToolBarArea]
+
+    def set_toolbar_visible(self, name: str, on: bool):
+        for tb in self.top_toolbars():
+            if tb.objectName() == name:
+                tb.setVisible(bool(on))
+        self._save_toolbars()
+
+    def show_all_toolbars(self):
+        for tb in self.findChildren(QtWidgets.QToolBar):
+            if tb.parent() is self:
+                tb.show()
+        self._save_toolbars()
+
+    def _save_toolbars(self):
+        if self.qsettings is not None:
+            hidden = [tb.objectName() for tb in self.top_toolbars() if tb.isHidden()]
+            self.qsettings.setValue("ui/hidden_toolbars", ",".join(hidden))
+
+    def _restore_toolbars(self):
+        raw = self.qsettings.value("ui/hidden_toolbars", "") if self.qsettings is not None else ""
+        hidden = {n for n in str(raw or "").split(",") if n}
+        for tb in self.top_toolbars():
+            if tb.objectName() in hidden:
+                tb.hide()
+
+    def fill_toolbars_menu(self, menu: QtWidgets.QMenu):
+        menu.clear()
+        for tb in self.top_toolbars():
+            a = menu.addAction(tb.windowTitle())
+            a.setCheckable(True)
+            a.setChecked(not tb.isHidden())
+            a.setObjectName("toolbar:" + tb.objectName())
+            a.toggled.connect(lambda on, n=tb.objectName(): self.set_toolbar_visible(n, on))
+        menu.addSeparator()
+        menu.addAction("Show All Toolbars", self.show_all_toolbars)
 
     def toggle_palette_mode(self, checked: bool):
         self.set_palette_mode("full" if checked else "compact")
@@ -1296,6 +1339,26 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         # (Model tree, the section list of Properties of Object ...), not the model window
         QtWidgets.QApplication.instance().installEventFilter(self)
 
+    def _own_popup(self, w: QtWidgets.QWidget):
+        """Menus, drop-down lists, tooltips and forms opened from a model window belong to
+        this window.  Qt gives them the nearest native widget as owner - the model windows'
+        area, which is native for the VTK drawings and not a top-level window ("must be a
+        top level window"), so they were left without an owner: on Windows such a form can
+        open behind the program, which then looks hung (a modal form waits unseen)."""
+        if w is self:
+            return
+        h = w.windowHandle()
+        mine = self.windowHandle()
+        if h is None or mine is None or h.transientParent() is not None:
+            return
+        p = w.parentWidget()
+        if p is None or p.window() is not self:
+            return
+        try:
+            h.setTransientParent(mine)
+        except RuntimeError:
+            pass
+
     _TEXT_INPUTS = (QtWidgets.QLineEdit, QtWidgets.QAbstractSpinBox, QtWidgets.QTextEdit,
                     QtWidgets.QPlainTextEdit)
 
@@ -1304,6 +1367,9 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         the active model window handles them, as if it had the focus.  Text fields, open
         drop-down lists, menus and dialogs keep their own Esc / Enter."""
         try:
+            if ev.type() == QtCore.QEvent.Show and isinstance(obj, QtWidgets.QWidget) and obj.isWindow():
+                self._own_popup(obj)
+                return False
             if ev.type() != QtCore.QEvent.KeyPress or ev.key() not in (
                     QtCore.Qt.Key_Escape, QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):
                 return False
@@ -1427,8 +1493,8 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
 
     def _set_hint(self, text: str):
         p = getattr(self, "_pending_assign", None)
-        if p is not None and not text.startswith("Assign "):
-            text = (f"Assign {p[2]}: select the {self._KIND_WORDS.get(p[0], p[0])}, then press Enter or "
+        if p is not None and not text.startswith(p[2] + ":"):
+            text = (f"{p[2]}: select the {self._KIND_WORDS.get(p[0], p[0])}, then press Enter or "
                     f"right-click  -  Esc cancels")
         self.hint_label.setText(text)
         empty = not (text or "").strip()
@@ -1622,6 +1688,9 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         except Exception:
             pass
         self.views.finalize()
+        app = QtWidgets.QApplication.instance()
+        if app is not None:
+            app.removeEventFilter(self)  # (it saw every event of the program)
         super().closeEvent(event)
 
     def _ask_merge_choices(self, items):
@@ -1649,10 +1718,9 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         return self.state.selected()
 
     def _has_selection(self) -> bool:
-        if not any(self._sel()) and not self.state.panels:
-            QtWidgets.QMessageBox.information(self, "Nothing selected", "Select objects first.")
-            return False
-        return True
+        if self._have("any"):
+            return True
+        return self._wait_for("any", 2)
 
     def edit_divide(self):
         if not self.state.frames:
@@ -1691,25 +1759,38 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             self.state.set_selection([f.name for f in self.doc.model.frames.values() if f.section == sec])
 
     # ------------------------------------------------------------- assign
-    _KIND_WORDS = {"point": "joints", "frame": "frames", "area": "floors / walls (shells)"}
+    _KIND_WORDS = {"point": "joints", "frame": "frames", "area": "floors / walls (shells)",
+                   "any": "objects", "point_area": "joints or floors"}
+
+    def _have(self, kind: str) -> bool:
+        st = self.state
+        return bool({"point": st.points, "frame": st.frames, "area": st.areas,
+                     "point_area": st.points or st.areas,
+                     "any": any(self._sel()) or st.panels}.get(kind, any(self._sel())))
 
     def _need(self, kind: str) -> bool:
-        """An Assign command needs objects of ``kind``.  Selected already: go on.  Nothing
-        selected: the command waits - select the objects, then press Enter or right-click
-        to open its form (ETABS works both ways: select then command, or command then select)."""
-        have = {"point": self.state.points, "frame": self.state.frames, "area": self.state.areas}[kind]
-        if have:
+        """A command needs objects of ``kind``.  Selected already: go on.  Nothing selected:
+        the command waits - select the objects, then press Enter or right-click to run it
+        (both orders work for every command that works on a selection)."""
+        if self._have(kind):
             return True
+        return self._wait_for(kind, 2)
+
+    def _wait_for(self, kind: str, depth: int) -> bool:
         import sys
-        fr = sys._getframe(1)
+        fr = sys._getframe(depth)
         name = fr.f_code.co_name
         meth = getattr(self, name, None)
         if meth is None or not callable(meth) or getattr(self, "_running_pending", False):
-            QtWidgets.QMessageBox.information(self, "Nothing selected", f"Select one or more {kind} objects first.")
+            QtWidgets.QMessageBox.information(self, "Nothing selected",
+                                              f"Select one or more {self._KIND_WORDS.get(kind, kind)} first.")
             return False
         code = fr.f_code
         args = [fr.f_locals[a] for a in code.co_varnames[1:code.co_argcount] if a in fr.f_locals]
-        label = name.replace("assign_", "").replace("_", " ").strip().title() or name
+        label = name
+        for pre in ("assign_", "edit_", "select_", "display_"):
+            label = label[len(pre):] if label.startswith(pre) else label
+        label = label.replace("_", " ").strip().title() or name
         self.begin_pick_for(kind, lambda: meth(*args), label)
         return False
 
@@ -1725,7 +1806,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
     def _show_pending_hint(self):
         p = getattr(self, "_pending_assign", None)
         if p is not None:
-            self._set_hint(f"Assign {p[2]}: select the {self._KIND_WORDS.get(p[0], p[0])}, then press Enter "
+            self._set_hint(f"{p[2]}: select the {self._KIND_WORDS.get(p[0], p[0])}, then press Enter "
                            f"or right-click  -  Esc cancels")
 
     def cancel_pending_assign(self):
@@ -1733,15 +1814,28 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             self._pending_assign = None
             self.state.update_hint()
 
+    def _pending_right_click(self, hit=None) -> bool:
+        """A model window was right-clicked.  While a command waits for its objects the click
+        runs the command (an object under the cursor joins the selection if it fits) - not
+        the object's own right-click menu, which is for when no command waits."""
+        p = getattr(self, "_pending_assign", None)
+        if p is None:
+            return False
+        if hit and not self._have(p[0]):
+            kind, name = hit[0], hit[1]
+            if p[0] in (kind, "any") or (p[0] == "point_area" and kind in ("point", "area")):
+                self.state.toggle(kind, name, True)
+        self.run_pending_assign()
+        return True
+
     def run_pending_assign(self) -> bool:
         """Enter / right-click while an Assign command waits: its form for the selection."""
         p = getattr(self, "_pending_assign", None)
         if p is None:
             return False
         kind, run, label = p
-        have = {"point": self.state.points, "frame": self.state.frames, "area": self.state.areas}[kind]
-        if not have:
-            self.statusBar().showMessage(f"Assign {label}: no {self._KIND_WORDS.get(kind, kind)} selected yet", 5000)
+        if not self._have(kind):
+            self.statusBar().showMessage(f"{label}: no {self._KIND_WORDS.get(kind, kind)} selected yet", 5000)
             self._show_pending_hint()
             return True
         self._pending_assign = None
@@ -1767,7 +1861,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
 
     def assign_diaphragm(self):
         if not self.state.points and not self.state.areas:
-            return self._need("point")
+            return self._need("point_area")
         d = dialogs.ChoiceDialog("Assign diaphragm", "Diaphragm", ["(none)"] + list(self.doc.model.diaphragms), self)
         if d.exec():
             val = None if d.value() == "(none)" else d.value()
@@ -1823,7 +1917,9 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         """The program settings (a scratch file when the window was made without any)."""
         if self.qsettings is None:
             import tempfile
-            self.qsettings = QtCore.QSettings(os.path.join(tempfile.gettempdir(), "structstudio-session.ini"),
+            # (one per process: a window made without settings never reads another run's choices)
+            self.qsettings = QtCore.QSettings(os.path.join(tempfile.gettempdir(),
+                                                           f"structstudio-session-{os.getpid()}.ini"),
                                               QtCore.QSettings.IniFormat)
         return self.qsettings
 

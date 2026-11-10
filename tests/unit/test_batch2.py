@@ -163,8 +163,8 @@ def test_gui_window_header_has_no_display_button_and_lists_open_under_the_box(wi
 
 @gui
 def test_gui_windows_move_left_right_above_below_without_tabs(window, qapp):
+    """Side moves never make tabs (tabs only by the title bar or "As a Tab with")."""
     V = window.views
-    assert not (V.host.dockOptions() & QtWidgets.QMainWindow.AllowTabbedDocks)
     V.set_layout("3")
     _settle(qapp)
     a, _b, c = V.visible_viewports()
@@ -308,64 +308,207 @@ def test_gui_show_loads_dialog_and_toolbar_box(window, qapp):
 
 @gui
 def test_gui_fine_mesh_lives_in_floor_auto_mesh(window, qapp):
+    """Floor Auto Mesh Options: one of auto (read-only default max) / manual maximum /
+    fine (only once found) / no mesh, and the allowed error of Find Fine Mesh."""
     from structstudio.app.mesh_dialog import AreaMeshDialog
     assert not hasattr(window, "fine_mesh_box")  # not on the toolbar
     asked = []
     m = window.doc.model
-    d = AreaMeshDialog("Floor", m, True, None, lambda: asked.append(1), window)
-    assert not d.use_fine.isEnabled() and "Not found yet" in d.found.text()
-    d.find.click()
-    assert asked == [1]
+    d = AreaMeshDialog("Floor", m, "auto", None, lambda: asked.append(1), window)
+    assert d.auto.isChecked() and d.default.isReadOnly() and d.default.text() == "Default = max 1.2 m"
+    assert not d.fine.isEnabled() and "not found yet" in d.found.text()
+    assert not d.size.isEnabled()
+    d.manual.setChecked(True)
+    assert d.size.isEnabled() and not d.auto.isChecked()  # exclusive
+    d.size.setText("0.5")
+    assert d.values()["mode"] == "manual" and d.values()["size"] == 0.5
+    d.size.setText("-1")
+    with pytest.raises(ValueError):
+        d.values()
+    d.tol.setValue(1.0)
+    d.find.click()  # Find uses the allowed error shown
+    assert asked == [1] and m.options.mesh_refine_tolerance == 0.01
     o = m.options
     o.fine_mesh_factor, o.fine_mesh_size_min, o.fine_mesh_size_max = 0.5, 0.25, 0.25
     d.refresh()
-    assert d.use_fine.isEnabled() and d.use_fine.text() == "Use fine mesh (0.25 m)"
+    assert d.fine.isEnabled() and d.fine.text() == "Fine mesh (0.25 m)"
+    d.fine.setChecked(True)
+    v = d.values()
+    assert v["mode"] == "fine" and v["fine"] and v["auto"] and v["size"] is None
     d.none.setChecked(True)
-    d.use_fine.setChecked(True)
-    assert d.values() == {"auto": False, "size": None, "use_fine": True}
+    assert d.values()["mode"] == "none" and not d.values()["auto"]
     assert not hasattr(d, "type")  # no mesh type choice
     d.deleteLater()
-    window._sync_fine_mesh()
-    assert window.act_use_fine.text() == "Use Fine Mesh (0.25 m)"
 
 
 @gui
-def test_gui_start_page_can_be_turned_on_again(window, qapp, monkeypatch):
-    from structstudio.app.start_page import KEY_SHOW, StartDialog
-    st = window.settings_store()
-
-    def exec_unticked(self):  # the user unticks "Show this window at startup" and closes it
-        self.show_check.setChecked(False)
-        assert self.show_note.isVisibleTo(self) and "Options" in self.show_note.text()
-        return 0
-    monkeypatch.setattr(StartDialog, "exec", exec_unticked)
-    window.show_start_page()
-    assert not StartDialog.show_at_startup(st) and not window.act_start_page.isChecked()
-    window.act_start_page.trigger()  # Options > Show Start Page at Startup
-    assert StartDialog.show_at_startup(st) and st.value(KEY_SHOW) in (True, "true")
-
-
-@gui
-def test_gui_new_model_defaults_and_databases(qapp, tmp_path):
-    from structstudio.app.new_model import NewModelWizard
-    w = NewModelWizard(None, QtCore.QSettings(str(tmp_path / "s.ini"), QtCore.QSettings.IniFormat))
-    try:
-        assert w.structure == "grid" and w.cards["grid"].isChecked()
-        assert w.steel_db.count() == 4 and w.rebar_db.count() == 4
-        w.region.setCurrentIndex(w.region.findData("europe"))
-        assert w.steel_db.currentData() == "europe" and w.rebar_db.currentData() == "europe"
-        w.steel_db.setCurrentIndex(w.steel_db.findData("china"))
-        m = w.build()
-        assert any(n.startswith("HW") for n in m.frame_sections)
-    finally:
-        w.deleteLater()
-        _settle(qapp)
+def test_gui_assign_area_mesh_sets_the_mode(window, qapp, monkeypatch):
+    from structstudio.app import mesh_dialog
+    from structstudio.app.templates import new_building
+    m = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
+    window.doc.model = m
+    floor = next(a for a in m.areas.values() if a.type == "Floor")
+    m.options.fine_mesh_factor = 0.5
+    monkeypatch.setattr(window, "_names", lambda kind: [floor.name] if kind == "area" else [])
+    monkeypatch.setattr(window, "_first", lambda kind: floor)
+    monkeypatch.setattr(window, "_need", lambda kind: True)
+    for mode, check in (("manual", lambda: floor.max_mesh_size == 0.4 and not floor.fine_mesh),
+                        ("fine", lambda: floor.fine_mesh and floor.max_mesh_size is None),
+                        ("none", lambda: not floor.auto_mesh and not floor.fine_mesh),
+                        ("auto", lambda: floor.auto_mesh and not floor.fine_mesh and floor.max_mesh_size is None)):
+        def run(self, mode=mode):
+            getattr(self, mode).setChecked(True)
+            if mode == "manual":
+                self.size.setText("0.4")
+            return 1
+        monkeypatch.setattr(mesh_dialog.AreaMeshDialog, "exec", run)
+        window.assign_area_mesh("Floor")
+        assert check(), mode
 
 
 @gui
-def test_gui_nothing_is_drawn_after_finalize(window, qapp):
+def test_gui_analyze_menu_has_no_fine_mesh_items_and_loads_define_first(window, qapp):
+    from structstudio.app.menus import ETABS_MENUS as MENUS
+    labels = {}
+
+    def walk(items, path):
+        for it in items:
+            if isinstance(it, tuple):
+                if isinstance(it[1], list):
+                    walk(it[1], path + (it[0],))
+                else:
+                    labels.setdefault(path, []).append(it[1])
+    walk(MENUS, ())
+    ana = labels[("A&nalyze",)]
+    assert "analyze.check_mesh" not in ana and "analyze.use_fine_mesh" not in ana
+    load = labels[("&Load",)]
+    assert load.index("define.load_patterns") < load.index("tool.area_load")
+    tb = window.findChild(QtWidgets.QToolBar, "loads")
+    acts = [a for a in tb.actions() if not a.isSeparator()]
+    first_tool = min(i for i, a in enumerate(acts) if a in window.tool_actions.values())
+    assert all(a not in window.tool_actions.values() for a in acts[:first_tool]) and first_tool >= 3
+
+
+@gui
+def test_gui_window_toolbars_menu_shows_and_hides(window, qapp):
+    names = [tb.objectName() for tb in window.top_toolbars()]
+    assert {"main", "edit", "define", "loads", "analyze", "navigation", "display"} <= set(names)
+    menu = QtWidgets.QMenu()
+    window.fill_toolbars_menu(menu)
+    a = next(x for x in menu.actions() if x.objectName() == "toolbar:loads")
+    assert a.isChecked()
+    a.setChecked(False)
+    tb = window.findChild(QtWidgets.QToolBar, "loads")
+    assert tb.isHidden() and "loads" in str(window.qsettings.value("ui/hidden_toolbars"))
+    window._restore_toolbars()
+    assert tb.isHidden()
+    window.show_all_toolbars()
+    assert not tb.isHidden() and "loads" not in str(window.qsettings.value("ui/hidden_toolbars"))
+
+
+@gui
+def test_gui_show_loads_applied_has_help(window, qapp):
+    from structstudio.app.load_display import ShowLoadsDialog
+    d = ShowLoadsDialog(window.doc.model, ["joint"], parent=window)
+    assert d.applied_help.text() == "?"
+    d.deleteLater()
+
+
+@gui
+def test_gui_move_window_as_a_tab_and_by_title(window, qapp):
+    V = window.views
+    V.set_layout("3")
+    _settle(qapp)
+    a, b, _c = V.visible_viewports()
+    menu = QtWidgets.QMenu()
+    V.fill_move_menu(menu, a)
+    tab = next(x for x in menu.actions() if x.text() == "As a Tab with").menu()
+    tab.actions()[0].trigger()
+    _settle(qapp)
+    assert V.docks[V.viewports.index(b)] in V.host.tabifiedDockWidgets(V.docks[V.viewports.index(a)])
+
+
+@gui
+def test_gui_right_click_runs_a_waiting_assign(window, qapp, monkeypatch):
+    """Command first: a right click on an object runs the waiting command, not the
+    object's properties."""
+    from structstudio.app.templates import new_building
+    window.doc.model = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
+    m = window.doc.model
+    floor = next(a for a in m.areas.values() if a.type == "Floor")
+    window.state.clear_selection()
+    asked = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question",
+                        lambda *a, **k: (asked.append(1), QtWidgets.QMessageBox.No)[1])
+    window.assign_openings()  # nothing selected: the command waits
+    assert window._pending_assign is not None and not asked
+    assert window._pending_right_click(("area", floor.name)) is True
+    assert asked == [1] and window._pending_assign is None and window._have("area")
+    # no command waiting: the right click is the normal one
+    assert window._pending_right_click(("area", floor.name)) is False
+
+
+@gui
+def test_gui_drawing_preview_is_shared_and_esc_clears_every_window(window, qapp):
+    from structstudio.app.tools import Preview
+    V = window.views
+    V.set_layout("2")
+    _settle(qapp)
+    a, b = V.visible_viewports()[:2]
+    pv = Preview(lines=[((0, 0, 0), (3, 0, 0))])
+    window.state.preview_shown.emit(a, pv)
+    assert b._mirror_actors and not a._mirror_actors
+    b._preview_actors.append(b._lines_actor([((0, 0, 0), (1, 0, 0))], (1, 0, 0), 2.0))  # stale own preview
+    window.state.preview_shown.emit(a, pv)
+    assert not b._preview_actors and b._mirror_actors
+    a.escape()  # Esc in the first window: the second one drops the drawing too
+    assert not b._mirror_actors and not b._preview_actors
+
+
+@gui
+def test_gui_no_qt_window_menu_on_right_click_and_header_click_activates(window, qapp):
+    V = window.views
+    V.set_layout("2")
+    _settle(qapp)
+    a, b = V.visible_viewports()[:2]
+    assert V.host.contextMenuPolicy() == QtCore.Qt.PreventContextMenu
+    assert a.vtk_widget.contextMenuPolicy() == QtCore.Qt.PreventContextMenu
+    V.set_active(a)
+    from PySide6.QtTest import QTest
+    QTest.mouseClick(b.header, QtCore.Qt.LeftButton, pos=QtCore.QPoint(5, 5))
+    assert V.active is b
+    t = V.docks[V.viewports.index(a)].titleBarWidget()
+    QTest.mousePress(t, QtCore.Qt.LeftButton, pos=QtCore.QPoint(5, 5))
+    QTest.mouseRelease(t, QtCore.Qt.LeftButton, pos=QtCore.QPoint(5, 5))
+    assert V.active is a
+
+
+@gui
+def test_gui_popups_from_a_model_window_belong_to_the_program_window(window, qapp):
+    """Menus / forms opened from inside the (native) model windows area get the program
+    window as their owner (else on Windows a form can open behind it: looks hung)."""
     vp = window.views.visible_viewports()[0]
-    vp.finalize()
-    vp.render()  # a late timer: no drawing into a released context
-    window.views.render_all()
-    assert vp._finalized
+    window.show()
+    _settle(qapp)
+    d = QtWidgets.QDialog(vp.header)
+    d.show()
+    _settle(qapp)
+    assert d.windowHandle().transientParent() is window.windowHandle()
+    d.close()
+    d.deleteLater()
+
+
+@gui
+def test_gui_hang_watchdog_writes_the_stacks(qapp, tmp_path, monkeypatch):
+    import time
+    from structstudio.app import main as app_main
+    app = qapp
+    monkeypatch.setattr(app_main, "log_path", lambda: str(tmp_path / "structstudio.log"))
+    monkeypatch.setattr(app_main, "HANG_SECONDS", 1.5)
+    stop = app_main._start_hang_watchdog(app)
+    try:
+        time.sleep(3.5)  # the event loop does not run: a "hang"
+    finally:
+        stop.set()
+    files = list(tmp_path.glob("hang-*.txt"))
+    assert files and "Thread" in files[0].read_text(encoding="utf-8")

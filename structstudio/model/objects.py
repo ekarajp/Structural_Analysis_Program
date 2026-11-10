@@ -227,7 +227,9 @@ class Area:
     mass_per_area: float = q("mass_per_area", 0.0)
     auto_mesh: bool = True
     mesh_type: str = "Rectangular"  # Rectangular | General | None
-    max_mesh_size: Optional[float] = q("length", None)
+    max_mesh_size: Optional[float] = q("length", None)  # manual maximum mesh size
+    # use the fine mesh found by Analyze > Find Fine Mesh (model.options.fine_mesh_factor)
+    fine_mesh: bool = False
     mesh_divisions: Optional[Tuple[int, int]] = None  # explicit n1 x n2 for quads
     edge_releases: Optional[List[bool]] = None
     # area spring (e.g. soil subgrade modulus, SAFE / ETABS "area springs") normal to the

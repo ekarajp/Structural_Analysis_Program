@@ -21,6 +21,8 @@ class ViewState(QtCore.QObject):
     error = QtCore.Signal(str)
     cursor_moved = QtCore.Signal(str)
     snap_options_changed = QtCore.Signal()
+    # (source model window, tool Preview | None): the drawing preview, shared by the windows
+    preview_shown = QtCore.Signal(object, object)
     hint_changed = QtCore.Signal(str)  # what to do next (status bar, bottom left)
 
     def __init__(self, doc: Document, parent=None):

@@ -899,7 +899,7 @@ ASSIGN_FIELDS = {
               "tension_limit", "compression_limit", "auto_mesh", "mesh_at_intersections", "mesh_at_floor",
               "max_station_spacing", "min_stations", "pier", "spandrel"),
     "area": ("section", "diaphragm", "angle", "modifiers", "mass_per_area", "auto_mesh", "mesh_type",
-             "max_mesh_size", "mesh_divisions", "edge_releases", "spring", "pier", "spandrel"),
+             "max_mesh_size", "fine_mesh", "mesh_divisions", "edge_releases", "spring", "pier", "spandrel"),
 }
 
 

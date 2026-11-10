@@ -22,6 +22,20 @@ KIND_ROWS = (
     ("panel", "Load panels (drawn load areas)"),
     ("applied", "Panel and area loads as they reach the members"),
 )
+APPLIED_HELP = (
+    "<b>Panel and area loads as they reach the members</b><br><br>"
+    "A load panel or a floor / wall area load is drawn as you assigned it: a load per area over "
+    "the panel.  The analysis does not use it like that - it hands the load on to the structure "
+    "that carries it:<br>"
+    "&bull; a load panel goes to the beams, walls and columns around it as <b>line loads and point "
+    "loads</b> (one-way or two-way distribution by tributary areas), or - distribution 'shells' - "
+    "as a pressure on the shells under it;<br>"
+    "&bull; an area load on a floor / wall goes to its shell elements and from them to the mesh "
+    "joints.<br><br>"
+    "Tick this to see those loads on the members - the loads the analysis actually applies - "
+    "instead of the panels themselves (both at once would show the same load twice).  Use it to "
+    "check which beams a panel loads and how much.  Load &gt; Load Panel / Area Load Report lists "
+    "the same values.")
 GENERATED_LABEL = "Generated lateral loads (seismic / wind at the diaphragm centres)"
 
 
@@ -68,10 +82,20 @@ class ShowLoadsDialog(QtWidgets.QDialog):
         gl = QtWidgets.QVBoxLayout(g)
         self.kind_boxes: Dict[str, QtWidgets.QCheckBox] = {}
         kinds = set(kinds)
+        from .mesh_dialog import help_button
         for key, label in KIND_ROWS:
             cb = QtWidgets.QCheckBox(label)
             cb.setChecked(key in kinds)
-            gl.addWidget(cb)
+            if key == "applied":  # "?" - what it is
+                hl = QtWidgets.QHBoxLayout()
+                hl.setContentsMargins(0, 0, 0, 0)
+                hl.addWidget(cb)
+                self.applied_help = help_button(APPLIED_HELP, "Loads as they reach the members", self)
+                hl.addWidget(self.applied_help)
+                hl.addStretch(1)
+                gl.addLayout(hl)
+            else:
+                gl.addWidget(cb)
             self.kind_boxes[key] = cb
         self.kind_boxes["applied"].toggled.connect(self._applied_toggled)
         for k in ("area", "panel"):

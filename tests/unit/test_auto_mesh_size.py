@@ -111,3 +111,31 @@ def test_no_refinement_check_by_default_is_fast():
     r = analyze(m)
     assert r.am.mesh_check is None or not r.am.mesh_check.get("levels")
     assert time.time() - t < 30
+
+
+def _floor_spacing(m, opts=None):
+    am = build_analysis_model(m, opts)
+    X = am.coords()
+    floor = [s for s in am.shells if m.areas[s.object].type == "Floor"]
+    xs = sorted({round(float(X[n][0]), 6) for s in floor for n in s.nodes})
+    return round(float(np.max(np.diff(xs))), 6), am
+
+
+def test_per_area_manual_maximum_and_fine_mesh():
+    """Assign > Floor Auto Mesh Options: a manual maximum size and the fine mesh found by
+    Find Fine Mesh are used for the areas they are assigned to."""
+    from structstudio.app.templates import new_building
+    m = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
+    m.options.slab_column_rigid_zone = False
+    floor = next(a for a in m.areas.values() if a.type == "Floor")
+    assert _floor_spacing(m)[0] == 1.2
+    floor.max_mesh_size = 0.5  # manual maximum mesh size (model units: m)
+    assert _floor_spacing(m)[0] <= 0.5 + 1e-9
+    floor.max_mesh_size = None
+    floor.fine_mesh = True  # fine mesh not found yet: the automatic mesh
+    assert _floor_spacing(m)[0] == 1.2
+    m.options.fine_mesh_factor = 0.5
+    h, am = _floor_spacing(m)
+    assert h == 0.6 and am.auto_sizes[floor.name] == 0.6
+    # the mesh check looks for the fine mesh itself: the area's fine flag is not applied
+    assert _floor_spacing(m, MeshOptions(area_fine=False))[0] == 1.2

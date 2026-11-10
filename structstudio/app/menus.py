@@ -363,7 +363,12 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
     ("&Load", [
         # one command per load kind.  Command first: set the load in Properties of
         # Object, pick the objects, Enter / right-click.  Objects first: select them,
-        # then the command - the form shows their load to edit.
+        # then the command - the form shows their load to edit.  Workflow order: define
+        # the patterns / cases / combinations first, then assign the loads.
+        ("Load Patterns...", "define.load_patterns"),
+        ("Load Cases...", "define.load_cases"),
+        ("Load Combinations...", "define.combos"),
+        "-",
         ("Area Load (Floors / Walls)", "tool.area_load"),
         ("Load Panel (drawn load area)", "tool.panel_load"),
         ("Frame Load", "tool.frame_load"),
@@ -385,8 +390,6 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
         ("Automatic Mesh Settings for Walls...", "analyze.wall_mesh"),
         ("Cracking Analysis Options...", "analyze.cracking"),
         "-",
-        ("Check Mesh (find the fine mesh)...", "analyze.check_mesh"),
-        ("Use Fine Mesh", "analyze.use_fine_mesh"),
         ("Run Analysis", "analyze.run", "F5"),
         ("Model Alive", "analyze.alive"),
         ("Modify Undeformed Geometry...", "analyze.modify_geometry"),
@@ -470,16 +473,15 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
     ]),
     ("&Window", [
         ("Panels (show / hide)", "options.panels_menu"),
+        ("Toolbars (show / hide)", "options.toolbars_menu"),
         ("Show Model Explorer", "options.model_explorer"),
         ("Draw Toolbar (left palette)", "options.palette_menu"),
         ("Reset Default Layout", "options.reset_toolbars"),
         "-",
         ("Window Layout (1 - 4 model windows)", "options.windows_menu"),
-        ("Arrange Windows...", "options.arrange"),
         ("Move Active Window", "options.move_window_menu"),
         "-",
         ("Dark / Light Mode", "window.theme"),
-        ("Customize Toolbars...", "options.toolbars"),
         ("Graphics", [
             ("Color Objects By", "options.color_by_menu"),
             ("Graphics Colors", [("Display Colors...", "options.colors_display"),

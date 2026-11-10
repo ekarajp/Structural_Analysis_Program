@@ -720,7 +720,9 @@ def test_load_menu_and_click_tools(window, app):
     bar = window.menuBar()
     load = next(a.menu() for a in bar.actions() if a.text().replace("&", "") == "Load")
     labels = [a.text() for a in load.actions() if not a.isSeparator()]
-    assert labels[:4] == ["Area Load (Floors / Walls)", "Load Panel (drawn load area)", "Frame Load", "Joint Load"]
+    # workflow order: define the patterns / cases / combinations, then assign the loads
+    assert labels[:3] == ["Load Patterns...", "Load Cases...", "Load Combinations..."]
+    assert labels[3:7] == ["Area Load (Floors / Walls)", "Load Panel (drawn load area)", "Frame Load", "Joint Load"]
     assert not any("Selected" in t or "Click" in t for t in labels)  # no duplicate entries
     assert window.menu_actions["load.report"].isEnabled() and window.menu_actions["load.delete"].isEnabled()
     # Load > Show Loads...: one form (load types, patterns / case / combination), no sub-menu
@@ -729,7 +731,9 @@ def test_load_menu_and_click_tools(window, app):
     assign = next(a.menu() for a in bar.actions() if a.text().replace("&", "") == "Assign")
     assert not any("Load" in a.text() for a in assign.actions())  # loads live in the Load menu only
     loads_bar = window.findChild(QtWidgets.QToolBar, "loads")  # load tools: the top Loads toolbar
-    assert loads_bar.actions()[0].text().startswith("Area Load")
+    # workflow order: define the patterns / cases / combinations, then the load tools
+    acts = [a for a in loads_bar.actions() if not a.isSeparator()]
+    assert acts[0].text().startswith("Load Patterns") and acts[3].text().startswith("Area Load")
     pat = next(iter(m.load_patterns))
     vp, z = _plan(window, "Story1")
     vp.fit()

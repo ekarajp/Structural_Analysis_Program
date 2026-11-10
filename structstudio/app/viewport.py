@@ -403,6 +403,11 @@ class ModelViewport(QtWidgets.QWidget):
         # anti-aliased lines and edges (multisampling); set before the first render
         self.vtk_widget.GetRenderWindow().SetMultiSamples(8)
         layout.addWidget(self.vtk_widget, 1)
+        # right clicks are handled by the drawing (end a chain, run a command, the object /
+        # background menus): never Qt's own context menu of the window host (the dock /
+        # window arrangement list), which used to open in the middle of a draw command
+        self.setContextMenuPolicy(QtCore.Qt.PreventContextMenu)
+        self.vtk_widget.setContextMenuPolicy(QtCore.Qt.PreventContextMenu)
         self.renderer = vtk.vtkRenderer()
         self.renderer.AddObserver("StartEvent", lambda *_a: self._screen_dashes())
         self.renderer.GradientBackgroundOn()
@@ -473,6 +478,17 @@ class ModelViewport(QtWidgets.QWidget):
         self._ref_timer.setSingleShot(True)
         self._ref_timer.timeout.connect(self._acquire_ref)
         self.state.tool_changed.connect(lambda _n: self.drop_reference())
+        # the drawing preview of the window under the cursor is shown in the other model
+        # windows too, and an Esc / a finished chain in one clears it in all of them
+        self._mirror_actors: List[vtk.vtkProp] = []
+        self._mirror_timer = QtCore.QTimer(self)
+        self._mirror_timer.setSingleShot(True)
+        self._mirror_timer.setInterval(30)
+        self._mirror_timer.timeout.connect(self.render)
+        if hasattr(self.state, "preview_shown"):
+            self.state.preview_shown.connect(self._on_shared_preview)
+        self.state.tool_changed.connect(lambda _n: self._on_shared_preview(None, None))
+        self._watch_header()
         self._last_cursor = None  # last snapped cursor point (typed distances follow its direction)
         self._last_xy = (0, 0)
         self._drag = None  # select tool: {"mode": "move" | "grip", ...} while dragging objects / a grip
@@ -857,6 +873,21 @@ class ModelViewport(QtWidgets.QWidget):
         tp.SetBackgroundColor(*((0.20, 0.22, 0.26) if dark else (1.0, 1.0, 0.94)))
         tp.SetFrameColor(*scene.COLORS["snap"])
 
+    def _watch_header(self):
+        """A click anywhere on the window's header (its bar or the controls on it) makes
+        the window the active one, like a click in the drawing."""
+        self.header.installEventFilter(self)
+        for w in self.header.findChildren(QtWidgets.QWidget):
+            w.installEventFilter(self)
+
+    def eventFilter(self, obj, ev):  # noqa: N802 (Qt name)
+        if ev.type() == QtCore.QEvent.MouseButtonPress and not getattr(self, "_active", False):
+            try:
+                self.activate(focus=obj is self.header)
+            except RuntimeError:
+                pass
+        return False
+
     def activate(self, focus: bool = True):
         self.activated.emit(self)
         if focus and not self.vtk_widget.hasFocus():
@@ -954,7 +985,8 @@ class ModelViewport(QtWidgets.QWidget):
         """Right-click on an object: Information (ETABS), and what to show."""
         st = self.state
         what = {"frame": "Frame", "area": "Shell", "point": "Joint", "panel": "Load panel"}.get(kind, kind)
-        menu = QtWidgets.QMenu(self.vtk_widget)
+        menu = QtWidgets.QMenu(self.window())  # (owned by the program window, not the native drawing)
+        menu.setAttribute(QtCore.Qt.WA_DeleteOnClose)
         info = menu.addAction(f"{what} {name} - Show Information and Properties...")
         f = menu.font()
         f.setBold(True)
@@ -2115,6 +2147,12 @@ class ModelViewport(QtWidgets.QWidget):
                 self.snap_menu(x, y)  # CAD: Shift / Ctrl + right-click = object snap menu
                 return
             if st.tool.name in ("select", "select_line") and not getattr(st.tool, "points", None):
+                # a command waits for its objects (command first, then select): the right
+                # click runs it, instead of the object's / window's own right-click menu
+                hook = getattr(self, "intercept_right_click", None)
+                if hook is not None and hook(self.pick(x, y)):
+                    self._right_press = None
+                    return
                 # ETABS: right click on an object opens its Information form, on the
                 # background the window context menu; Shift lists the objects under the cursor
                 if self.interactor.GetShiftKey():
@@ -2143,12 +2181,14 @@ class ModelViewport(QtWidgets.QWidget):
                     st.report(exc)
                 st.update_hint()
                 self._clear_preview()
+                self._share_clear()
                 self.render()
                 self._check_pending_panel()
             else:
                 # right click without drag ends the current chain (ETABS behaviour)
                 st.tool.cancel()
                 self._clear_preview()
+                self._share_clear()
                 self.render()
         self._right_press = None
 
@@ -2163,7 +2203,8 @@ class ModelViewport(QtWidgets.QWidget):
         """AutoCAD Object Snap shortcut menu: the chosen snap is used for the next point only."""
         from .snap_icons import OVERRIDE_MENU, qicon
         st = self.state
-        menu = QtWidgets.QMenu(self.vtk_widget)
+        menu = QtWidgets.QMenu(self.window())  # (owned by the program window, not the native drawing)
+        menu.setAttribute(QtCore.Qt.WA_DeleteOnClose)
         menu.setToolTipsVisible(True)
         title = menu.addAction("Snap for the next point")
         title.setEnabled(False)
@@ -2488,6 +2529,7 @@ class ModelViewport(QtWidgets.QWidget):
                 return
             st.cancel_tool()
             self._clear_preview()
+            self._share_clear()
             self.render()
 
     def enter(self):
@@ -2508,6 +2550,7 @@ class ModelViewport(QtWidgets.QWidget):
             except Exception as exc:
                 st.report(exc)
             self._clear_preview()
+            self._share_clear()
             self.render()
             self._check_pending_panel()
 
@@ -2658,6 +2701,48 @@ class ModelViewport(QtWidgets.QWidget):
             self.render()
 
     # ------------------------------------------------------------- preview
+    def _on_shared_preview(self, src, pv):
+        """Another model window drew (``pv``) or cleared (None) the drawing preview: show
+        the same rubber lines / outline here, and drop this window's own, now stale one."""
+        if src is self:
+            if self._mirror_actors:
+                self._clear_mirror()
+            return
+        if getattr(self, "_finalized", False):
+            return
+        had = bool(self._mirror_actors or self._preview_actors)
+        self._clear_mirror()
+        if self._preview_actors:
+            self._clear_preview()
+        if pv is not None and self.isVisible():
+            color = scene.COLORS["preview"]
+            try:
+                if pv.lines:
+                    self._mirror_actors.append(self._lines_actor(pv.lines, color, 3.0))
+                if len(pv.polygon) >= 2:
+                    n = len(pv.polygon)
+                    coords = [tuple(p) for p in pv.polygon]
+                    segs = [(coords[k], coords[(k + 1) % n]) for k in range(n if n > 2 else 1)]
+                    self._mirror_actors.append(self._lines_actor(segs, color, 3.0))
+                if pv.marker is not None:
+                    self._mirror_actors.append(self._snap_marker(pv.marker, "free", False))
+            except Exception:
+                self._mirror_actors = []
+            for a in self._mirror_actors:
+                self.renderer.AddActor(a)
+        if (had or self._mirror_actors) and not self._mirror_timer.isActive():
+            self._mirror_timer.start()  # (at most one redraw per 30 ms while the cursor moves)
+
+    def _clear_mirror(self):
+        for a in self._mirror_actors:
+            self.renderer.RemoveActor(a)
+        self._mirror_actors = []
+
+    def _share_clear(self):
+        """This window ended / cancelled the drawing: the other windows drop it too."""
+        if hasattr(self.state, "preview_shown"):
+            self.state.preview_shown.emit(self, None)
+
     def _clear_preview(self):
         for a in self._preview_actors:
             self.renderer.RemoveActor(a)
@@ -2743,6 +2828,8 @@ class ModelViewport(QtWidgets.QWidget):
                 fill.SetPoints(scene._points(np.array(coords, float)))
                 fill.SetPolys(polys)
                 self._preview_actors.append(scene._actor_from_polydata(fill, color, opacity=0.25))
+        if hasattr(self.state, "preview_shown"):
+            self.state.preview_shown.emit(self, pv)
         snapped = snap is not None and snap.kind != "free"
         if pv.marker is not None or snapped:
             self._preview_actors.append(self._snap_marker(pv.marker if pv.marker is not None else snap.xyz,

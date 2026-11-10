@@ -590,6 +590,7 @@ class AreaInfoDialog(ObjectInfoDialog):
                        ar.mass_per_area)
         self._row_edit(f, "Auto mesh", "auto_mesh", ar.auto_mesh, "bool")
         self._row_edit(f, "Max mesh size", "max_mesh_size", ar.max_mesh_size, item="coordinates")
+        self._row_edit(f, "Fine mesh", "fine_mesh", bool(getattr(ar, "fine_mesh", False)), "bool")
         self._row_edit(f, f"Area spring ({m.units.shown('weight_per_volume')})", "spring", ar.spring)
         self._row_edit(f, "Pier", "pier", ar.pier, "text")
         self._row_edit(f, "Spandrel", "spandrel", ar.spandrel, "text")

@@ -93,6 +93,9 @@ class MeshOptions:
     refine_tolerance: float = 0.02
     refine_levels: int = 2  # at most this many halvings
     refine_max_shells: int = 12000  # never refine past this many shell elements (time)
+    # areas assigned the fine mesh (Assign > Floor / Wall Auto Mesh) use it; off for the
+    # mesh refinement check (it looks for the fine mesh) and the legacy global fine mesh
+    area_fine: bool = True
 
 
 class Mesher:
@@ -1021,7 +1024,9 @@ class Mesher:
         modarr = np.array([mods.f11, mods.f22, mods.f12, mods.m11, mods.m22, mods.m12, mods.v13, mods.v23])
 
         # mesh size
-        if a.type == "Wall":
+        if a.auto_mesh and a.max_mesh_size:
+            size = a.max_mesh_size * U.factor("length")  # manual maximum mesh size
+        elif a.type == "Wall":
             size = self.opts.wall_max_size or (m.options.wall_mesh_max_size and m.options.wall_mesh_max_size * U.factor("length"))
         else:
             size = self.opts.floor_max_size or (m.options.floor_mesh_max_size and m.options.floor_mesh_max_size * U.factor("length"))
@@ -1794,6 +1799,13 @@ class Mesher:
         # beams are lines and the refinement check covers them
         return out
 
+    def _fine_factor(self, ar) -> float:
+        """Size factor of an area assigned the fine mesh (1 when none was found)."""
+        if not (self.opts.area_fine and getattr(ar, "fine_mesh", False)):
+            return 1.0
+        f = getattr(self.model.options, "fine_mesh_factor", None)
+        return float(f) if f and 0 < f <= 1 else 1.0
+
     def _auto_area_size(self, name: str, gkey=None) -> float:
         """Automatic mesh size of an area (SI); the smallest of its plane group so
         that shells of one plane share their mesh lines."""
@@ -1811,7 +1823,7 @@ class Mesher:
                     fr = pg.plane_frame(P)
                     Q = pg.to_2d(P, fr)
                     h = am_.auto_size(Q, self._support_features(P, fr, Q), self.tol,
-                                      factor=self.opts.size_factor)
+                                      factor=self.opts.size_factor * self._fine_factor(ar))
                     # fine enough for the columns' rigid zones to have their real size
                     if (ar.type == "Floor" and abs(fr[3][2]) > 1 - 1e-6
                             and self.model.options.slab_column_rigid_zone):

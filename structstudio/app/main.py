@@ -41,6 +41,72 @@ def _vtk_messages_to_file() -> None:
         pass
 
 
+HANG_SECONDS = 15.0
+
+
+def _start_hang_watchdog(app):
+    """When the program stops answering (the event loop has not run for HANG_SECONDS),
+    write where every thread is - the Python stacks - to ``hang-<time>.txt`` next to
+    structstudio.log and to the error output (the launcher's app-stderr.log), once per
+    hang.  Long analyses run in their own thread and do not count; dialogs keep the loop
+    running."""
+    import faulthandler
+    import threading
+    import time
+    from PySide6 import QtCore
+
+    beat = [time.monotonic()]
+    timer = QtCore.QTimer(app)
+    timer.timeout.connect(lambda: beat.__setitem__(0, time.monotonic()))
+    timer.start(500)
+    app._hang_timer = timer  # (kept alive)
+
+    def dump(stale: float):
+        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        head = f"[{stamp}] Structural Studio has not answered for {stale:.0f} s - thread stacks:\n"
+        targets = []
+        try:
+            targets.append(open(os.path.join(os.path.dirname(log_path()), f"hang-{stamp}.txt"), "w",
+                                encoding="utf-8"))
+        except OSError:
+            pass
+        err = sys.__stderr__
+        try:
+            if err is not None and err.fileno() >= 0:
+                targets.append(err)
+        except (OSError, ValueError, AttributeError):
+            pass
+        for fh in targets:
+            try:
+                fh.write(head)
+                fh.flush()
+                faulthandler.dump_traceback(fh, all_threads=True)
+                fh.flush()
+            except Exception:
+                pass
+        for fh in targets[:1]:
+            try:
+                fh.close()
+            except Exception:
+                pass
+        _log(f"not answering for {stale:.0f} s: stacks in hang-{stamp}.txt")
+
+    stop = threading.Event()
+
+    def watch():
+        dumped = False
+        while not stop.wait(1.0):
+            stale = time.monotonic() - beat[0]
+            if stale >= HANG_SECONDS and not dumped:
+                dump(stale)
+                dumped = True
+            elif stale < 2.0:
+                dumped = False
+
+    threading.Thread(target=watch, name="hang-watchdog", daemon=True).start()
+    return stop  # .set() ends the watchdog
+
+
 def _install_excepthook():
     def hook(exc_type, exc, tb):
         text = "".join(traceback.format_exception(exc_type, exc, tb))
@@ -75,6 +141,7 @@ def main(argv=None) -> int:
     app.setApplicationName("Structural Studio")
     app.setStyle("Fusion")
     _log(f"start {' '.join(argv)}")
+    _start_hang_watchdog(app)
     doc = Document()
     settings = QtCore.QSettings("StructuralStudio", "StructuralStudio")
     win = MainWindow(doc, settings)
