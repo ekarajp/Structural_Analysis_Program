@@ -257,3 +257,22 @@ def test_grid_names_go_with_the_grid_lines():
         off = scene.build_model_actors(m, options=DisplayOptions(grid_lines=False), **kw).actors
         assert any("bubble" in k or k.startswith("elev_grid_") for k in on)
         assert not any("bubble" in k or k.startswith("elev_grid_") or k.startswith("grid") for k in off), kw
+
+
+def test_steel_members_have_their_own_default_colour():
+    """Colour by object type: structural steel members green, concrete ones keep the
+    beam / column colours."""
+    from structstudio.app import scene
+    from structstudio.app.templates import new_building
+    m = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
+    from structstudio.model.properties import FrameSection, Material
+    m.materials["S275"] = Material("S275", type="Steel", E=2.0e8)
+    m.frame_sections["W1"] = FrameSection("W1", "S275")
+    steel = "W1"
+    beam = next(f for f in m.frames.values() if f.type == "Beam")
+    assert scene._group_color(m, beam, "frame", "beam")[0] == "beam"
+    if steel is not None:
+        beam.section = steel
+        key, col = scene._group_color(m, beam, "frame", "beam")
+        assert key == "steel" and col == scene.COLORS["steel"]
+    assert scene.COLORS["steel"] != scene.COLORS["beam"] != scene.COLORS["column"]

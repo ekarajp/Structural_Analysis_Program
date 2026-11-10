@@ -37,6 +37,7 @@ COLOR_ITEMS: List[Tuple[str, str, str]] = [
     ("beam", "Beams", "Objects"),
     ("column", "Columns", "Objects"),
     ("brace", "Braces", "Objects"),
+    ("steel", "Structural steel members (beams, columns, braces)", "Objects"),
     ("null_line", "Null lines", "Objects"),
     ("floor", "Floors / slabs", "Objects"),
     ("wall", "Walls", "Objects"),
@@ -142,6 +143,7 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "beam": (0.36, 0.68, 1.00),
         "column": (1.00, 0.62, 0.18),  # orange
         "brace": (0.80, 0.55, 1.00),  # violet
+        "steel": (0.42, 0.86, 0.38),  # green: steel members apart from the concrete ones
         "null_line": (0.55, 0.57, 0.62),
         "floor": (0.75, 0.80, 0.86),
         "wall": (0.84, 0.52, 0.52),  # brick: apart from every other object colour
@@ -178,6 +180,7 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "beam": (0.02, 0.30, 0.80),
         "column": (0.88, 0.30, 0.00),  # orange
         "brace": (0.50, 0.20, 0.78),  # violet
+        "steel": (0.10, 0.58, 0.16),  # green: steel members apart from the concrete ones
         "null_line": (0.50, 0.52, 0.56),
         "floor": (0.66, 0.76, 0.90),
         "wall": (0.62, 0.32, 0.34),  # brick: apart from every other object colour

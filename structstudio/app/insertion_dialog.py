@@ -138,7 +138,7 @@ class InsertionPointWidget(QtWidgets.QWidget):
     """The form: picture + cardinal point list + 'include in the analysis' + (optional)
     joint offsets End-I / End-J (global X Y Z, model length units)."""
 
-    def __init__(self, model, section: Optional[str], cardinal: int = 10, transform: bool = True,
+    def __init__(self, model, section: Optional[str], cardinal: int = 10, transform: bool = False,
                  offset_i=(0.0, 0.0, 0.0), offset_j=(0.0, 0.0, 0.0), offsets: bool = True, parent=None):
         super().__init__(parent)
         lay = QtWidgets.QHBoxLayout(self)
@@ -213,12 +213,15 @@ def frame_state(frame, model) -> tuple:
     cp = frame.display_cardinal
     if cp is None:
         cp = 8 if (frame.type == "Beam" and model.grid_mode == "story") else frame.cardinal_point
-    transform = int(frame.cardinal_point or 10) == int(cp) or int(cp) in (10,)
+    transform = int(frame.cardinal_point or 10) != 10 and int(frame.cardinal_point) == int(cp)
     return int(cp), bool(transform)
 
 
+AUTO_TEXT = "Auto (beams 8 Top center, columns / braces 10)"
+
+
 class InsertionPointDialog(QtWidgets.QDialog):
-    def __init__(self, model, section, cardinal=10, transform=True, parent=None):
+    def __init__(self, model, section, cardinal=10, transform=False, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Insertion Point")
         lay = QtWidgets.QVBoxLayout(self)

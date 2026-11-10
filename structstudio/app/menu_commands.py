@@ -1009,7 +1009,7 @@ class MenuCommandsMixin:
 
         def widget(f):
             sec = f.section if f.section in m.frame_sections else next(iter(m.frame_sections), None)
-            cp, transform = frame_state(f, m) if f.name else (10, True)
+            cp, transform = frame_state(f, m) if f.name else (10, False)
             w = InsertionPointWidget(m, sec, cp, transform, tuple(f.joint_offset_i), tuple(f.joint_offset_j))
             return w, w.values
 

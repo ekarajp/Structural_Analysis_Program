@@ -173,6 +173,11 @@ def _group_color(model: Model, obj, kind: str, default_key: str):
 
     by = DISPLAY.get("color_by", "object")
     if by == "object":
+        if kind == "frame" and default_key in ("beam", "column", "brace") and "steel" in COLORS:
+            sec = model.frame_sections.get(obj.section or "")
+            mat = model.materials.get(sec.material) if sec is not None else None
+            if mat is not None and str(getattr(mat, "type", "")).lower().startswith("steel"):
+                return "steel", COLORS["steel"]  # structural steel: green, concrete keeps its colours
         return default_key, COLORS[default_key]
     table = model.frame_sections if kind == "frame" else model.shell_sections
     sec = table.get(obj.section or "")

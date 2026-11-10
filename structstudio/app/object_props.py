@@ -538,28 +538,35 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
         self.table.resizeRowsToContents()
 
     def _cardinal_editor(self, key, s, m) -> QtWidgets.QWidget:
-        """Cardinal point: a drop-down with the names, and ... = the Insertion Point form
-        (picture of the section, include the offset in the analysis or not)."""
-        from .insertion_dialog import CARDINAL_NAMES, InsertionPointDialog
+        """Cardinal point: a drop-down with the names (Auto: beams 8, columns 10), and ... =
+        the Insertion Point form (picture of the section, include the offset in the
+        analysis or not)."""
+        from .insertion_dialog import AUTO_TEXT, CARDINAL_NAMES, InsertionPointDialog
         w = QtWidgets.QWidget()
         h = QtWidgets.QHBoxLayout(w)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(2)
         box = QtWidgets.QComboBox()
-        box.addItems(CARDINAL_NAMES)
-        box.setCurrentIndex(max(1, min(11, int(getattr(s, key) or 10))) - 1)
-        box.currentIndexChanged.connect(lambda i: setattr(s, key, i + 1))
+        box.addItems([AUTO_TEXT] + CARDINAL_NAMES)
+        cur = getattr(s, key)
+        box.setCurrentIndex(0 if cur is None else max(1, min(11, int(cur))))
+        box.setToolTip("The point of the section on the drawn line.  Auto: beams 8 (top flush with the slab), "
+                       "columns and braces 10 (centroid)")
+        box.currentIndexChanged.connect(lambda i: setattr(s, key, None if i == 0 else i))
         more = QtWidgets.QToolButton()
         more.setText("...")
         more.setToolTip("Insertion Point: the section with its points; include the offset in the analysis or not")
 
         def open_form():
-            d = InsertionPointDialog(m, s.frame_section, int(getattr(s, key) or 10),
-                                     bool(getattr(s, "cardinal_transform", True)), self.window())
+            cp = getattr(s, key)
+            if cp is None:
+                cp = 10 if self.tool_name in ("column", "quick_column", "brace", "quick_brace") else 8
+            d = InsertionPointDialog(m, s.frame_section, int(cp), bool(getattr(s, "cardinal_transform", False)),
+                                     self.window())
             if d.exec():
                 v = d.form.values()
                 s.cardinal_transform = v["transform"]
-                box.setCurrentIndex(v["cp"] - 1)
+                box.setCurrentIndex(v["cp"])
         more.clicked.connect(open_form)
         h.addWidget(box, 1)
         h.addWidget(more)

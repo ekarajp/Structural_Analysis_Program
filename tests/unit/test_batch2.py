@@ -746,20 +746,25 @@ def test_gui_insertion_point(window, qapp, monkeypatch):
     st = window.state
     st.set_tool("beam")
     ed = window.object_props.editors["cardinal_point"]
-    assert ed.box.currentText() == "10 Centroid" and ed.more.text() == "..."
+    assert ed.box.currentText().startswith("Auto") and ed.more.text() == "..."
+    # Auto: beams at the top (8), columns at the centroid; analysed at the centroid
+    assert _cardinal_fields(st.settings, "Beam") == {"cardinal_point": 10, "display_cardinal": 8}
+    assert _cardinal_fields(st.settings, "Column") == {"cardinal_point": 10, "display_cardinal": 10}
+    assert st.settings.cardinal_transform is False
 
     def fake_exec(self):
-        self.form.picture.picked.emit(8)  # a click on point 8
-        self.form.transform.setChecked(False)
+        assert self.form.values() == {"cp": 8, "transform": False}  # (Auto for a beam: 8)
+        self.form.picture.picked.emit(2)  # a click on point 2
+        self.form.transform.setChecked(True)
         return 1
     monkeypatch.setattr(ins.InsertionPointDialog, "exec", fake_exec)
     ed.more.click()
-    assert st.settings.cardinal_point == 8 and st.settings.cardinal_transform is False
-    assert _cardinal_fields(st.settings) == {"cardinal_point": 10, "display_cardinal": 8}
-    st.settings.cardinal_transform = True
-    assert _cardinal_fields(st.settings) == {"cardinal_point": 8, "display_cardinal": 8}
-    st.settings.cardinal_point = 10
-    assert _cardinal_fields(st.settings) == {"cardinal_point": 10}
+    assert st.settings.cardinal_point == 2 and st.settings.cardinal_transform is True
+    assert _cardinal_fields(st.settings, "Beam") == {"cardinal_point": 2, "display_cardinal": 2}
+    st.settings.cardinal_transform = False
+    st.settings.cardinal_point = 10  # chosen 10: drawn at the centroid (no more drawn like 8)
+    assert _cardinal_fields(st.settings, "Beam") == {"cardinal_point": 10, "display_cardinal": 10}
+    st.settings.cardinal_point = None
     st.set_tool("select")
     # the picture follows the choice
     w = ins.InsertionPointWidget(m, next(iter(m.frame_sections)), 3, True)

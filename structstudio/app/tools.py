@@ -270,8 +270,12 @@ class DrawSettings:
     arc_segments: int = 8  # an arc is drawn as this many straight members (CSI curved frames)
     arc_radius: float = 0.0  # "Arc: start, end, radius" (model length units; sign: side of the bulge)
     frame_angle: float = 0.0  # local axis 2 angle of drawn beams / braces
-    cardinal_point: int = 10  # insertion point (CSI numbering, 10 = centroid)
-    cardinal_transform: bool = True  # the offset from the centroid goes into the analysis
+    # insertion point (CSI numbering, 10 = centroid); None = Auto: beams 8 (top centre,
+    # flush with the slab), columns / braces 10
+    cardinal_point: Optional[int] = None
+    # the offset from the centroid goes into the analysis (eccentric member); off = drawn
+    # there only (ETABS "Do not transform frame stiffness for offsets from centroid")
+    cardinal_transform: bool = False
     offset_x: float = 0.0  # plan offsets of the clicked locations (ETABS joints / columns)
     offset_y: float = 0.0
     offset_z: float = 0.0  # offset normal to the drawing plane (SAP2000 "XY Plane Offset Normal")
@@ -544,8 +548,8 @@ class Preview:
 class Tool:
     """Base class.  ``click`` receives the (snapped) point on the plane."""
 
-    def _cardinal_extra(self) -> dict:
-        return _cardinal_fields(self.settings)
+    def _cardinal_extra(self, ftype: Optional[str] = "Beam") -> dict:
+        return _cardinal_fields(self.settings, ftype)
 
     name = "tool"
     prompt = ""
@@ -914,7 +918,8 @@ class BeamTool(Tool):
                                                         self.plane) or "These points do not define an arc")
             sec = self._frame_section()
             rel_i, rel_j = self._beam_releases()
-            extra = dict(angle=self.settings.frame_angle, **self._cardinal_extra())
+            extra = dict(angle=self.settings.frame_angle,
+                         **self._cardinal_extra(self._type_for(chain[0], chain[1]) or _geom_type(chain[0], chain[-1], self.tol)))
 
             def mutate_arc(model: Model):
                 prev = model.add_point(*chain[0])
@@ -938,7 +943,8 @@ class BeamTool(Tool):
         sec = self._section_for(a, b)
         rel_i, rel_j = self._releases_for(a, b)
         horizontal = abs(a[2] - b[2]) <= self.tol
-        extra = dict(angle=self.settings.frame_angle, **self._cardinal_extra())
+        extra = dict(angle=self.settings.frame_angle,
+                     **self._cardinal_extra(self._type_for(a, b) or _geom_type(a, b, self.tol)))
         if self.plane.kind == "plan" and horizontal and not self.settings.offset_z and self.story:
             stories = self.story_names_to_draw()
             ftype = self._type_for(a, b) or "Beam"
@@ -998,14 +1004,26 @@ class BeamTool(Tool):
         return False
 
 
-def _cardinal_fields(settings) -> dict:
-    """Frame attributes of the cardinal point chosen in Properties of Object."""
-    cp = int(settings.cardinal_point or 10)
-    if cp == 10:
-        return {"cardinal_point": 10}  # (the default: beams still drawn at the top in story models)
-    if getattr(settings, "cardinal_transform", True):
-        return {"cardinal_point": cp, "display_cardinal": cp}
-    return {"cardinal_point": 10, "display_cardinal": cp}
+def _cardinal_fields(settings, ftype: Optional[str] = "Beam") -> dict:
+    """Frame attributes of the cardinal point chosen in Properties of Object: where the
+    member is drawn (``display_cardinal``) and, if its offset goes into the analysis,
+    ``cardinal_point``.  Auto (None): beams 8 (top centre), others 10."""
+    cp = settings.cardinal_point
+    if cp is None:
+        cp = 8 if (ftype or "Beam") == "Beam" else 10
+    cp = int(cp)
+    transform = bool(getattr(settings, "cardinal_transform", False))
+    return {"cardinal_point": cp if transform else 10, "display_cardinal": cp}
+
+
+def _geom_type(a, b, tol: float = 1e-6) -> str:
+    """Beam (level), Column (vertical) or Brace, as the model infers a line's type."""
+    dx, dy, dz = (b[0] - a[0]), (b[1] - a[1]), (b[2] - a[2])
+    if abs(dz) <= tol:
+        return "Beam"
+    if abs(dx) <= tol and abs(dy) <= tol:
+        return "Column"
+    return "Brace"
 
 
 class BraceTool(BeamTool):
@@ -1042,7 +1060,7 @@ class ColumnTool(Tool):
         p = (q[0], q[1], raw[2])
         sec = self._frame_section()
         angle = self.settings.column_angle
-        cardinal = self._cardinal_extra()
+        cardinal = self._cardinal_extra("Column")
         if self.plane.kind == "plan" and self.story is None:
             # free plan (any Z): the column runs from the level below the plane up to it
             top = p[2]
