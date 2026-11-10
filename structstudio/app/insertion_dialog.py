@@ -33,11 +33,12 @@ SHIFT_HELP = (
     "joint offsets) instead.<br><br>"
     "The cardinal point tick ('Include the offset from the centroid ...') is separate: it decides "
     "only whether the cardinal point's own offset is in the analysis.")
-TRANSFORM_TEXT = "Include the offset from the centroid in the analysis (stiffness transformed - eccentric member)"
-TRANSFORM_TIP = ("On: the member's centroid axis lies off the drawn line by the cardinal point; the analysis uses "
-                 "that eccentricity (the stiffness is transformed to the joints).\n"
-                 "Off: the member is only drawn at that position; the analysis takes it on the drawn line "
-                 "(centroid at the joints), like ETABS 'Do not transform frame stiffness for offsets from centroid'.")
+TRANSFORM_TEXT = ("Include these offsets (cardinal point and joint offsets) in the analysis - stiffness "
+                  "transformed, eccentric member")
+TRANSFORM_TIP = ("On: the member's axis lies off its joints by the cardinal point and the joint offsets; the "
+                 "analysis joins them by rigid arms (stiffness transformed to the joints).\n"
+                 "Off: the member is only drawn at that position; the analysis takes it on its joints, like ETABS "
+                 "'Do not transform frame stiffness for offsets from centroid'.")
 
 
 def section_pieces(model, section: Optional[str]):
@@ -58,12 +59,13 @@ class SectionPicture(QtWidgets.QWidget):
 
     picked = QtCore.Signal(int)
 
-    def __init__(self, pieces: Sequence[np.ndarray], parent=None):
+    def __init__(self, pieces: Sequence[np.ndarray], parent=None, title: str = ""):
         super().__init__(parent)
+        self.title = title
         self.pieces = [np.asarray(p, float) for p in pieces]
         self.cardinal = 10
         self.offset = (0.0, 0.0)  # (d2, d3): the section moved from the cardinal point
-        self.setMinimumSize(220, 220)
+        self.setMinimumSize(190, 230)
         self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         self.setToolTip("Click a point to choose it")
 
@@ -159,8 +161,15 @@ class SectionPicture(QtWidgets.QWidget):
                 p.drawLine(line, base)
                 p.drawText(line + QtCore.QPointF(10, 14), "line")
         p.setPen(pal.color(QtGui.QPalette.Text))
+        if self.title:
+            f2 = p.font()
+            f2.setBold(True)
+            p.setFont(f2)
+            p.drawText(self.rect().adjusted(6, 4, -4, -4), QtCore.Qt.AlignTop | QtCore.Qt.AlignHCenter, self.title)
+            f2.setBold(False)
+            p.setFont(f2)
         p.drawText(self.rect().adjusted(40, 4, -4, -4), QtCore.Qt.AlignBottom | QtCore.Qt.AlignRight,
-                   "seen from End-I; red = cardinal point")
+                   "seen from End-I; red = cardinal point" if self.width() >= 250 else "red = cardinal pt")
         p.end()
 
     def mousePressEvent(self, ev):
@@ -172,17 +181,28 @@ class SectionPicture(QtWidgets.QWidget):
 
 
 class InsertionPointWidget(QtWidgets.QWidget):
-    """The form: picture + cardinal point list + 'include in the analysis' + (optional)
-    joint offsets End-I / End-J (global X Y Z, model length units)."""
+    size_changed = QtCore.Signal()  # (one / two pictures: the window grows with it)
+
+    """The form: picture(s) + cardinal point + joint offsets (dx, dy from the cardinal
+    point along the section, or each end global X Y Z - converted when switching) + at
+    the bottom: include these offsets in the analysis.  ``axes``: the member's local axes
+    (rows 1, 2, 3) for the global <-> local conversion and the pictures of both ends."""
 
     def __init__(self, model, section: Optional[str], cardinal: int = 10, transform: bool = False,
                  offset_i=(0.0, 0.0, 0.0), offset_j=(0.0, 0.0, 0.0), offsets: bool = True, parent=None,
-                 shift=(0.0, 0.0), local: bool = True):
+                 shift=(0.0, 0.0), local: bool = True, axes=None):
         super().__init__(parent)
+        self.axes = None if axes is None else np.asarray(axes, float)
+        u = self.unit = model.units.length
         lay = QtWidgets.QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        self.picture = SectionPicture(section_pieces(model, section))
-        lay.addWidget(self.picture, 1)
+        pieces = section_pieces(model, section)
+        pics = QtWidgets.QHBoxLayout()
+        self.picture = SectionPicture(pieces)  # dx, dy mode (both ends) / End-I
+        self.picture_j = SectionPicture(pieces, title="End-J")
+        pics.addWidget(self.picture, 1)
+        pics.addWidget(self.picture_j, 1)
+        lay.addLayout(pics, 1)
         right = QtWidgets.QVBoxLayout()
         lay.addLayout(right, 1)
         right.addWidget(QtWidgets.QLabel(f"Section: {section or '(none)'}"))
@@ -191,23 +211,18 @@ class InsertionPointWidget(QtWidgets.QWidget):
         form = QtWidgets.QFormLayout()
         form.addRow("Cardinal point", self.cardinal)
         right.addLayout(form)
-        self.transform = QtWidgets.QCheckBox(TRANSFORM_TEXT)
-        self.transform.setToolTip(TRANSFORM_TIP)
-        self.transform.setStyleSheet("QCheckBox { spacing: 6px; }")
-        lab = QtWidgets.QLabel(TRANSFORM_TEXT)
-        lab.setWordWrap(True)
-        self.transform.setText("")
-        row = QtWidgets.QHBoxLayout()
-        row.addWidget(self.transform, 0, QtCore.Qt.AlignTop)
-        row.addWidget(lab, 1)
-        lab.mousePressEvent = lambda _e: self.transform.toggle()
-        right.addLayout(row)
-        self.transform.setChecked(bool(transform))
-        # joint offsets: dx / dy from the cardinal point along the section (local 3 / 2, the
-        # same at both ends), or each end its own global X Y Z
-        u = model.units.length
         from .mesh_dialog import help_button
-        g = QtWidgets.QGroupBox(f"Joint offsets ({u})")
+
+        def spin(v, tip=""):
+            sp = QtWidgets.QDoubleSpinBox()
+            sp.setRange(-1e6, 1e6)
+            sp.setDecimals(4)
+            sp.setSuffix(f" {u}")  # the unit in every box
+            sp.setValue(float(v))
+            if tip:
+                sp.setToolTip(tip)
+            return sp
+        g = QtWidgets.QGroupBox(f"Joint offsets [{u}]")
         gl = QtWidgets.QVBoxLayout(g)
         mrow = QtWidgets.QHBoxLayout()
         self.mode = QtWidgets.QComboBox()
@@ -219,72 +234,126 @@ class InsertionPointWidget(QtWidgets.QWidget):
         self.local_box = QtWidgets.QWidget()
         sl = QtWidgets.QFormLayout(self.local_box)
         sl.setContentsMargins(0, 0, 0, 0)
-        self.dx = QtWidgets.QDoubleSpinBox()
-        self.dy = QtWidgets.QDoubleSpinBox()
-        for sp, v, tip in ((self.dx, shift[1], "along local 3 (to the right in the picture)"),
-                           (self.dy, shift[0], "along local 2 (up in the picture)")):
-            sp.setRange(-1e6, 1e6)
-            sp.setDecimals(4)
-            sp.setValue(float(v))
-            sp.setToolTip(tip)
-        sl.addRow("dx (local 3)", self.dx)
-        sl.addRow("dy (local 2)", self.dy)
+        self.dx = spin(shift[1], "along local 3 (to the right in the picture)")
+        self.dy = spin(shift[0], "along local 2 (up in the picture)")
+        sl.addRow(f"dx (local 3) [{u}]", self.dx)
+        sl.addRow(f"dy (local 2) [{u}]", self.dy)
         gl.addWidget(self.local_box)
         self.offset_boxes = {}
         self.global_box = QtWidgets.QWidget()
         gg = QtWidgets.QGridLayout(self.global_box)
         gg.setContentsMargins(0, 0, 0, 0)
         for c, axis in enumerate("XYZ"):
-            gg.addWidget(QtWidgets.QLabel(axis), 0, c + 1, QtCore.Qt.AlignHCenter)
+            gg.addWidget(QtWidgets.QLabel(f"{axis} [{u}]"), 0, c + 1, QtCore.Qt.AlignHCenter)
         for r, (end, vals) in enumerate((("End-I", offset_i), ("End-J", offset_j))):
             gg.addWidget(QtWidgets.QLabel(end), r + 1, 0)
             for c in range(3):
-                sp = QtWidgets.QDoubleSpinBox()
-                sp.setRange(-1e6, 1e6)
-                sp.setDecimals(4)
-                sp.setValue(float(vals[c]))
+                sp = spin(vals[c])
                 gg.addWidget(sp, r + 1, c + 1)
                 self.offset_boxes[(end, c)] = sp
         gl.addWidget(self.global_box)
-        note = QtWidgets.QLabel("A joint offset moves the member's ends away from its joints (joined by rigid "
-                                "arms); it is always in the analysis.")
-        note.setWordWrap(True)
-        note.setStyleSheet("color: gray")
-        gl.addWidget(note)
+        self.mode_note = QtWidgets.QLabel()
+        self.mode_note.setWordWrap(True)
+        self.mode_note.setStyleSheet("color: gray")
+        gl.addWidget(self.mode_note)
         self.shift_warn = QtWidgets.QLabel()
         self.shift_warn.setWordWrap(True)
         self.shift_warn.setStyleSheet("color: #b05000")
         gl.addWidget(self.shift_warn)
         right.addWidget(g)
-        if not offsets:  # (drawing: only dx, dy)
+        # at the bottom: it is about the cardinal point and the joint offsets together
+        self.transform = QtWidgets.QCheckBox()
+        self.transform.setToolTip(TRANSFORM_TIP)
+        lab = QtWidgets.QLabel(TRANSFORM_TEXT)
+        lab.setWordWrap(True)
+        lab.setToolTip(TRANSFORM_TIP)
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(self.transform, 0, QtCore.Qt.AlignTop)
+        row.addWidget(lab, 1)
+        lab.mousePressEvent = lambda _e: self.transform.toggle()
+        right.addLayout(row)
+        self.transform.setChecked(bool(transform))
+        right.addStretch(1)
+        if not offsets:  # (drawing: no member yet - dx, dy only)
             self.mode.setEnabled(False)
         self.mode.setCurrentIndex(0 if (local or not offsets) else 1)
-        allp = np.vstack(self.picture.pieces)
+        if self.axes is None:
+            self.mode.model().item(1).setEnabled(offsets)
+        allp = np.vstack(pieces)
         self._size = float(np.max(allp.max(axis=0) - allp.min(axis=0)))
         for w in (self.dx, self.dy, *self.offset_boxes.values()):
             w.valueChanged.connect(self._shift_changed)
+        self._last_mode = self.mode.currentIndex()
         self.mode.currentIndexChanged.connect(self._mode_changed)
-        right.addStretch(1)
-        self.cardinal.currentIndexChanged.connect(lambda i: self.picture.set_cardinal(i + 1))
+        self.cardinal.currentIndexChanged.connect(self._cardinal_changed)
         self.picture.picked.connect(lambda cp: self.cardinal.setCurrentIndex(cp - 1))
+        self.picture_j.picked.connect(lambda cp: self.cardinal.setCurrentIndex(cp - 1))
         self.cardinal.setCurrentIndex(max(1, min(11, int(cardinal or 10))) - 1)
-        self.picture.set_cardinal(self.cardinal.currentIndex() + 1)
-        self._mode_changed()
+        self._cardinal_changed()
+        self._show_mode()
 
-    def _mode_changed(self, *_):
+    # ---- the two ways of giving the offsets, converted into each other
+    def _to_local(self, v) -> np.ndarray:
+        return self.axes @ np.asarray(v, float) if self.axes is not None else np.asarray(v, float)
+
+    def _to_global(self, v) -> np.ndarray:
+        return self.axes.T @ np.asarray(v, float) if self.axes is not None else np.asarray(v, float)
+
+    def _set_boxes(self, end: str, vec):
+        for c in range(3):
+            b = self.offset_boxes[(end, c)]
+            b.blockSignals(True)
+            b.setValue(float(vec[c]))
+            b.blockSignals(False)
+
+    def _mode_changed(self, idx: int):
+        note = ""
+        if idx == 1 and self._last_mode == 0:  # dx, dy -> the same global vector at both ends
+            g = self._to_global((0.0, self.dy.value(), self.dx.value()))
+            self._set_boxes("End-I", g)
+            self._set_boxes("End-J", g)
+        elif idx == 0 and self._last_mode == 1:  # global -> dx, dy of End-I
+            oi = [self.offset_boxes[("End-I", c)].value() for c in range(3)]
+            oj = [self.offset_boxes[("End-J", c)].value() for c in range(3)]
+            loc = self._to_local(oi)
+            for sp, v in ((self.dy, loc[1]), (self.dx, loc[2])):
+                sp.blockSignals(True)
+                sp.setValue(float(v))
+                sp.blockSignals(False)
+            if not np.allclose(oi, oj, atol=1e-9):
+                note = "End-J had other offsets: dx, dy are those of End-I (both ends now)."
+            if abs(loc[0]) > 1e-9:
+                note += (" " if note else "") + "The part along the member (local 1) is dropped."
+        self._last_mode = idx
+        self.mode_note.setText(note)
+        self._show_mode()
+
+    def _show_mode(self):
         local = self.mode.currentIndex() == 0
         self.local_box.setVisible(local)
         self.global_box.setVisible(not local)
+        self.picture_j.setVisible(not local)
+        self.picture.title = "" if local else "End-I"
         self._shift_changed()
+        self.updateGeometry()
+        self.size_changed.emit()
+
+    def _cardinal_changed(self, *_):
+        cp = self.cardinal.currentIndex() + 1
+        self.picture.set_cardinal(cp)
+        self.picture_j.set_cardinal(cp)
 
     def _shift_changed(self, *_):
         if self.mode.currentIndex() == 0:
             d2, d3 = self.dy.value(), self.dx.value()
+            self.picture.set_offset(d2, d3)
             far = max(abs(d2), abs(d3)) > self._size
         else:
-            d2 = d3 = 0.0  # (global offsets: not drawn on the section)
-            far = max(abs(b.value()) for b in self.offset_boxes.values()) > self._size
-        self.picture.set_offset(d2, d3)
+            far = False
+            for end, pic in (("End-I", self.picture), ("End-J", self.picture_j)):
+                loc = self._to_local([self.offset_boxes[(end, c)].value() for c in range(3)])
+                pic.set_offset(float(loc[1]), float(loc[2]))  # (the part along the member: not drawn)
+                far = far or max(abs(loc[1]), abs(loc[2])) > self._size
         self.shift_warn.setText("Larger than the section itself: in the analysis a long rigid arm "
                                 "(see the ?)." if far else "")
 
@@ -301,11 +370,11 @@ class InsertionPointWidget(QtWidgets.QWidget):
         return out
 
 
-def frame_fields(cp: int, transform: bool) -> dict:
-    """The Frame attributes for a cardinal point: in the analysis (``cardinal_point``)
-    or only where it is drawn (``display_cardinal``)."""
+def frame_fields(cp: int, include: bool) -> dict:
+    """The Frame attributes of the cardinal point; ``include``: the cardinal point and the
+    joint offsets in the analysis (``offsets_in_analysis``), else drawn there only."""
     cp = int(cp or 10)
-    return {"cardinal_point": cp if transform else 10, "display_cardinal": cp}
+    return {"cardinal_point": cp, "display_cardinal": cp, "offsets_in_analysis": bool(include)}
 
 
 def offset_fields(v: dict) -> dict:
@@ -325,12 +394,16 @@ def offset_state(frame):
 
 
 def frame_state(frame, model) -> tuple:
-    """(cardinal point shown, offset included in the analysis) of a frame."""
+    """(cardinal point shown, offsets included in the analysis) of a frame."""
     cp = frame.display_cardinal
     if cp is None:
         cp = 8 if (frame.type == "Beam" and model.grid_mode == "story") else frame.cardinal_point
-    transform = int(frame.cardinal_point or 10) != 10 and int(frame.cardinal_point) == int(cp)
-    return int(cp), bool(transform)
+    include = bool(getattr(frame, "offsets_in_analysis", True))
+    if int(frame.cardinal_point or 10) != int(cp):  # (drawn at cp, analysed at another point: not included)
+        include = False
+    elif int(cp) == 10 and not any(frame.joint_offset_i) and not any(frame.joint_offset_j):
+        include = False  # nothing to include: the default stays off
+    return int(cp), include
 
 
 AUTO_TEXT = "Auto (beams 8 Top center, columns / braces 10)"

@@ -748,7 +748,8 @@ def test_gui_insertion_point(window, qapp, monkeypatch):
     ed = window.object_props.editors["cardinal_point"]
     assert ed.box.currentText().startswith("Auto") and ed.more.text() == "..."
     # Auto: beams at the top (8), columns at the centroid; analysed at the centroid
-    assert _cardinal_fields(st.settings, "Beam") == {"cardinal_point": 10, "display_cardinal": 8}
+    assert _cardinal_fields(st.settings, "Beam") == {"cardinal_point": 8, "display_cardinal": 8,
+                                                     "offsets_in_analysis": False}
     assert _cardinal_fields(st.settings, "Column") == {"cardinal_point": 10, "display_cardinal": 10}
     assert st.settings.cardinal_transform is False
 
@@ -762,7 +763,8 @@ def test_gui_insertion_point(window, qapp, monkeypatch):
     monkeypatch.setattr(ins.InsertionPointDialog, "exec", fake_exec)
     ed.more.click()
     assert st.settings.cardinal_point == 2 and st.settings.cardinal_transform is True
-    assert _cardinal_fields(st.settings, "Beam") == {"cardinal_point": 2, "display_cardinal": 2}
+    assert _cardinal_fields(st.settings, "Beam") == {"cardinal_point": 2, "display_cardinal": 2,
+                                                     "offsets_in_analysis": True}
     st.settings.cardinal_transform = False
     st.settings.cardinal_point = 10  # chosen 10: drawn at the centroid (no more drawn like 8)
     assert _cardinal_fields(st.settings, "Beam") == {"cardinal_point": 10, "display_cardinal": 10}
@@ -823,8 +825,18 @@ def test_gui_insertion_shift_and_window_size(window, qapp):
     window.assign_insertion_point()
     f = window.assign_panel._form
     assert f.mode.currentIndex() == 0 and f.dy.value() == pytest.approx(-0.2) and f.dx.value() == pytest.approx(0.1)
-    f.mode.setCurrentIndex(1)  # each end, global
+    assert f.dx.suffix().strip() == "m" and f.offset_boxes[("End-I", 0)].suffix().strip() == "m"  # units shown
+    f.mode.setCurrentIndex(1)  # each end, global: dx / dy converted (a level beam along X: local 2 = Z, 3 = -Y)
+    vi = [f.offset_boxes[("End-I", c)].value() for c in range(3)]
+    vj = [f.offset_boxes[("End-J", c)].value() for c in range(3)]
+    assert vi == pytest.approx(vj) and abs(vi[2] - (-0.2)) < 1e-9 and f.picture_j.isVisibleTo(f)
+    assert f.picture.offset == pytest.approx((-0.2, 0.1)) and f.picture_j.offset == pytest.approx((-0.2, 0.1))
+    f.offset_boxes[("End-J", 2)].setValue(0.5)
+    f.mode.setCurrentIndex(0)  # back: End-I's dx / dy, and a note that End-J differed
+    assert f.dy.value() == pytest.approx(-0.2) and f.dx.value() == pytest.approx(0.1) and "End-J" in f.mode_note.text()
+    f.mode.setCurrentIndex(1)
     f.offset_boxes[("End-J", 0)].setValue(0.3)
+    f.transform.setChecked(True)  # (at the bottom: cardinal point and joint offsets in the analysis)
     window.assign_panel.ok_button.click()
     fr = window.doc.model.frames[beam]
-    assert not fr.joint_offset_local and fr.joint_offset_j[0] == pytest.approx(0.3)
+    assert not fr.joint_offset_local and fr.joint_offset_j[0] == pytest.approx(0.3) and fr.offsets_in_analysis

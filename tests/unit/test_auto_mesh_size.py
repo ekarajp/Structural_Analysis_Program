@@ -139,3 +139,35 @@ def test_per_area_manual_maximum_and_fine_mesh():
     assert h == 0.6 and am.auto_sizes[floor.name] == 0.6
     # the mesh check looks for the fine mesh itself: the area's fine flag is not applied
     assert _floor_spacing(m, MeshOptions(area_fine=False))[0] == 1.2
+
+
+def test_insertion_offsets_only_in_the_analysis_when_included():
+    """Frame.offsets_in_analysis: the cardinal point and joint offsets are rigid arms in
+    the analysis; off = drawn there only (the same results as without them)."""
+    import copy
+    from structstudio.app.templates import new_building
+    base = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
+    beams = [f for f in base.frames.values() if f.type == "Beam"]
+
+    def run(include, offset):
+        m = copy.deepcopy(base)
+        for f in m.frames.values():
+            if f.type == "Beam":
+                f.cardinal_point, f.display_cardinal = 8, 8
+                f.joint_offset_i = f.joint_offset_j = (0.0, offset, 0.0)
+                f.joint_offset_local = True
+                f.offsets_in_analysis = include
+        r = analyze(m)
+        case = next(iter(r.cases)) if hasattr(r, "cases") else None
+        return r, case
+    plain = analyze(copy.deepcopy(base))
+    off_r, _ = run(False, -0.3)
+    on_r, _ = run(True, -0.3)
+    import numpy as np
+
+    case = plain.case_names[0]
+    def disp(r):
+        return np.array([r.joint_displacement(n, case) for n in sorted(base.points)], float)
+    a, b, c = disp(plain), disp(off_r), disp(on_r)
+    assert np.allclose(a, b, atol=1e-12) and not np.allclose(a, c, atol=1e-9)
+    del beams

@@ -588,6 +588,8 @@ class Mesher:
             off_i, off_j = nominal.T @ off_i, nominal.T @ off_j
         off_i = off_i + cardinal
         off_j = off_j + cardinal
+        if not getattr(f, "offsets_in_analysis", True):  # drawn off the joints only
+            off_i = off_j = np.zeros(3)
         axes = transformed_axes(nominal, (b + off_j) - (a + off_i))
 
         # end offsets and rigid zones along the (transformed) axis

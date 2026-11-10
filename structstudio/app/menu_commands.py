@@ -826,7 +826,14 @@ class MenuCommandsMixin:
         spec = AssignSpec(key, title, tuple(picks), apply, fields=fields, widget=widget, note=note)
         self.state.start_tool(lambda: AssignFormTool(self.doc, self.state.settings, spec))
 
+    # the unit of an object value (shown with the number to type)
+    _ATTR_QUANTITY = {"mass_per_length": "mass_per_length", "mass_per_area": "mass_per_area",
+                      "spring": "weight_per_volume"}
+
     def _assign_number(self, kind: str, attr: str, title: str, label: str, of: str = ""):
+        q = self._ATTR_QUANTITY.get(attr)
+        if q:
+            label = f"{label.split(' (')[0]} [{self.doc.model.units.shown(q)}]"
         self.assign_form(f"{kind}.{attr}.{of}", title, (kind,),
                          lambda names, v: C.assign(self.doc, kind, self._of_kind(names, of), **{attr: v["v"]}),
                          fields=lambda o: [("v", label, float(getattr(o, attr) or 0.0))])
@@ -835,7 +842,7 @@ class MenuCommandsMixin:
         what = "Frame" if kind == "frame" else (of or "Shell")
         self.assign_form(f"{kind}.angle.{of}", what + " Local Axes", (kind,),
                          lambda names, v: C.assign(self.doc, kind, self._of_kind(names, of), angle=v["angle"]),
-                         fields=lambda o: [("angle", "Rotate local axes about axis 1 / 3 by (deg)",
+                         fields=lambda o: [("angle", "Rotate local axes about axis 1 / 3 by [deg]",
                                             float(o.angle))])
 
     def _assign_label(self, kind: str, attr: str, of: str = ""):
@@ -897,7 +904,7 @@ class MenuCommandsMixin:
 
         def fields(f):
             cur = f.modifiers or FrameModifiers()
-            return [(n, l, float(getattr(cur, n))) for n, l in zip(names_, labels)]
+            return [(n, f"{l} [x section value]", float(getattr(cur, n))) for n, l in zip(names_, labels)]
         self.assign_form("frame.modifiers", "Frame Property/Stiffness Modifiers", ("frame",),
                          lambda names, v: C.assign(self.doc, "frame", names, modifiers=FrameModifiers(**v)),
                          fields=fields)
@@ -909,8 +916,8 @@ class MenuCommandsMixin:
         def fields(a):
             cur = a.modifiers or ShellModifiers()
             return [(n, {"mass": "Mass", "weight": "Weight"}.get(
-                n, f"{n[0].upper()}{n[1:]} {'membrane' if n[0] == 'f' else 'bending' if n[0] == 'm' else 'shear'}"),
-                float(getattr(cur, n))) for n in keys]
+                n, f"{n[0].upper()}{n[1:]} {'membrane' if n[0] == 'f' else 'bending' if n[0] == 'm' else 'shear'}")
+                + " [x section value]", float(getattr(cur, n))) for n in keys]
         self.assign_form(f"{kind.lower()}.modifiers", f"{kind} Stiffness Modifiers", ("area",),
                          lambda names, v: C.assign(self.doc, "area", self._of_kind(names, kind),
                                                    modifiers=ShellModifiers(**v)),
@@ -1011,7 +1018,16 @@ class MenuCommandsMixin:
             sec = f.section if f.section in m.frame_sections else next(iter(m.frame_sections), None)
             cp, transform = frame_state(f, m) if f.name else (10, False)
             local, shift, oi, oj = offset_state(f)
-            w = InsertionPointWidget(m, sec, cp, transform, oi, oj, shift=shift, local=local)
+            axes = None
+            if f.name:
+                import numpy as np
+                from ..mesh.geometry import frame_axes
+                try:
+                    axes = frame_axes(np.array(m.points[f.point_i].xyz, float),
+                                      np.array(m.points[f.point_j].xyz, float), f.angle)
+                except (ValueError, KeyError):
+                    axes = None
+            w = InsertionPointWidget(m, sec, cp, transform, oi, oj, shift=shift, local=local, axes=axes)
             return w, w.values
 
         def apply(names, v):

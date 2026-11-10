@@ -393,8 +393,17 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
         scroll.setWidget(w)
-        hint = w.sizeHint()  # the window opens big enough for the form (scrolls only on a small screen)
-        scroll.setMinimumSize(min(hint.width() + 24, 1000), min(hint.height() + 8, 640))
+        def fit_scroll():  # the window opens (and grows) big enough for the form; scrolls only on a small screen
+            if w.layout() is not None:
+                w.layout().activate()
+            hint = w.sizeHint()
+            scroll.setMinimumSize(min(hint.width() + 24, 1100), min(hint.height() + 8, 640))
+            win = self.window()
+            if hasattr(win, "_fit") and win.isVisible():
+                win._fit()
+        fit_scroll()
+        if hasattr(w, "size_changed"):
+            w.size_changed.connect(fit_scroll)
         self.picker_lay.addWidget(scroll, 1)
         self.picker_box.setVisible(True)
         tool.read_values = values
@@ -696,7 +705,9 @@ class AssignWindow(QtWidgets.QDialog):
 
     def _fit(self):
         """Big enough for the command's form (the Insertion Point picture ...), within the screen."""
-        self.layout().activate()
+        for lay in (self.panel.picker_lay, self.panel.layout(), self.layout()):
+            lay.invalidate()
+            lay.activate()
         want = self.sizeHint()
         scr = (self.screen() or QtWidgets.QApplication.primaryScreen()).availableGeometry()
         w = min(max(self.width(), want.width()), int(scr.width() * 0.9))

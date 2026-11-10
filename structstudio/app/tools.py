@@ -349,23 +349,23 @@ TOOL_PROPERTIES: Dict[str, List[tuple]] = {
              ("arc_radius", "Arc radius", "float", "Arc: start, end, radius (negative: bulge to the other side)"),
              ("moment_releases", "Moment releases", "choice",
               ["Continuous", "Pinned", "Pinned at start", "Pinned at end"]),
-             ("frame_angle", "Local axis 2 angle", "float", "degrees"),
+             ("frame_angle", "Local axis 2 angle [deg]", "float", "degrees"),
              ("cardinal_point", "Cardinal point", "cardinal", "the point of the section on the drawn line; ... = picture"),
              *_OFFSETS,
              ("drawing_control", "Drawing control", "choice",
               ["None", "Parallel to X", "Parallel to Y", "Parallel to Z", "Fixed length", "Fixed angle"]),
-             ("fixed_length", "Fixed length", "float", ""), ("fixed_angle", "Fixed angle (deg)", "float", ""),
+             ("fixed_length", "Fixed length", "float", ""), ("fixed_angle", "Fixed angle [deg]", "float", ""),
              _WORK_PLANE_ITEM, ("all_stories", "All stories", "bool", "")],
     "brace": [("brace_section", "Section", "section_frame", ""),
               ("moment_releases", "Moment releases", "choice", ["Continuous", "Pinned"]),
-              ("frame_angle", "Local axis 2 angle", "float", "degrees"), *_OFFSETS,
+              ("frame_angle", "Local axis 2 angle [deg]", "float", "degrees"), *_OFFSETS,
               ("drawing_control", "Drawing control", "choice", ["None", "Fixed length", "Fixed angle"]),
-              ("fixed_length", "Fixed length", "float", ""), ("fixed_angle", "Fixed angle (deg)", "float", ""),
+              ("fixed_length", "Fixed length", "float", ""), ("fixed_angle", "Fixed angle [deg]", "float", ""),
               _WORK_PLANE_ITEM],
-    "column": [("frame_section", "Section", "section_frame", ""), ("column_angle", "Angle (deg)", "float", ""),
+    "column": [("frame_section", "Section", "section_frame", ""), ("column_angle", "Angle [deg]", "float", ""),
                *_OFFSETS,
                ("cardinal_point", "Cardinal point", "cardinal", ""), ("all_stories", "All stories", "bool", "")],
-    "quick_column": [("frame_section", "Section", "section_frame", ""), ("column_angle", "Angle (deg)", "float", ""),
+    "quick_column": [("frame_section", "Section", "section_frame", ""), ("column_angle", "Angle [deg]", "float", ""),
                      ("offset_x", "Offset X", "float", _OFFSET_HINT), ("offset_y", "Offset Y", "float", _OFFSET_HINT),
                      ("all_stories", "All stories", "bool", "")],
     "quick_beam": [("frame_section", "Section", "section_frame", ""),
@@ -1015,8 +1015,10 @@ def _cardinal_fields(settings, ftype: Optional[str] = "Beam") -> dict:
         cp = 8 if (ftype or "Beam") == "Beam" else 10
     cp = int(cp)
     transform = bool(getattr(settings, "cardinal_transform", False))
-    out = {"cardinal_point": cp if transform else 10, "display_cardinal": cp}
+    out = {"cardinal_point": cp, "display_cardinal": cp}
     shift = tuple(getattr(settings, "insertion_shift", (0.0, 0.0)) or (0.0, 0.0))
+    if cp != 10 or any(shift):  # (nothing off the joints: the default stays)
+        out["offsets_in_analysis"] = transform
     if any(shift):
         d = (0.0, float(shift[0]), float(shift[1]))
         out.update(joint_offset_i=d, joint_offset_j=d, joint_offset_local=True)

@@ -182,6 +182,10 @@ class Frame:
     joint_offset_i: Vec3 = qlist("length", lambda: (0.0, 0.0, 0.0))  # global
     joint_offset_j: Vec3 = qlist("length", lambda: (0.0, 0.0, 0.0))
     joint_offset_local: bool = False  # joint offsets given in the member local axes
+    # the insertion point (cardinal point and joint offsets) in the analysis: the member's
+    # axis off its joints, stiffness transformed.  False: drawn there only, analysed on the
+    # joints (ETABS "Do not transform frame stiffness for offsets from centroid")
+    offsets_in_analysis: bool = True
     modifiers: Optional["FrameModifiers"] = None  # object level, multiplies section modifiers
     mass_per_length: float = q("mass_per_length", 0.0)  # additional (object level)
     tension_limit: Optional[float] = q("force", None)
