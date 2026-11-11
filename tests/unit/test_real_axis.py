@@ -310,3 +310,25 @@ def test_offsets_in_the_rigid_zone_equal_the_moved_beam():
     m, beams = _south()
     f = {"joint_offset_i": (0.0, -0.5, 0.0), "joint_offset_j": (0.0, -0.5, 0.0), "offsets_in_analysis": True}
     assert len(C.offset_zone_issues(m, beams[:1], f)) == 2  # clear of the column: not as an offset
+
+
+def test_moved_by_a_distance_shows_that_move_in_the_form():
+    """Edit > Move Beams to Real Axis with a distance: the Insertion Point form shows that
+    move (global offsets, the move ticked); the same values change nothing; un-ticked the
+    beam goes back with the joint offsets it had before (not the distance)."""
+    m, beams = _south()
+    b = beams[0]
+    m.frames[b].joint_offset_i = m.frames[b].joint_offset_j = (0.0, 0.0, -0.05)  # its own offsets (kept)
+    before = _dump(m)
+    doc = Document(m)
+    moved, links, _ = C.move_beams_to_axis(doc, [b], distance=0.1)  # + = left of I -> J: +Y here
+    assert moved == [b] and len(links) == 2
+    st = C.moved_beam_state(doc.model, b)
+    assert st["local"] is False and st["offset_i"] == pytest.approx((0.0, 0.1, 0.0)) \
+        and st["offset_j"] == pytest.approx((0.0, 0.1, 0.0))
+    same = {"joint_offset_i": st["offset_i"], "joint_offset_j": st["offset_j"], "joint_offset_local": False}
+    assert C.set_insertion_point(doc, [b], same, move=True) == ([], [], [], [])
+    _, _, _, restored = C.set_insertion_point(doc, [b], {"joint_offset_i": (0.0, 0.0, -0.05),
+                                                         "joint_offset_j": (0.0, 0.0, -0.05),
+                                                         "joint_offset_local": False}, move=False)
+    assert restored == [b] and _dump(doc.model) == before

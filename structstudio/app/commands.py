@@ -654,6 +654,9 @@ def moved_beam_state(model: Model, name: str) -> Optional[dict]:
     rec = _real_axis_record(model, f) if f is not None else None
     if rec is None:
         return None
+    if rec.get("moved_by"):  # moved by a distance (Edit > Move Beams to Real Axis): that move, global
+        return {"joints": tuple(rec["joints"]), "local": False,
+                "offset_i": tuple(rec["moved_by"][0]), "offset_j": tuple(rec["moved_by"][1])}
     return {"joints": tuple(rec["joints"]), "local": bool(rec.get("local", False)),
             "offset_i": tuple(f.real_axis_offset_i), "offset_j": tuple(f.real_axis_offset_j)}
 
@@ -735,6 +738,8 @@ def _move_to_axis(m: Model, names: Sequence[str], distance: Optional[float], not
         a, b = xyz(pi), xyz(pj)
         records[n] = rec = {"joints": [pi, pj], "ends": [pi, pj], "local": bool(getattr(f, "joint_offset_local", False)),
                             "links": [], "points": [], "followers": []}
+        if distance is not None:  # moved by a distance, not by its offsets: the form shows that move
+            rec["moved_by"] = [[float(x) for x in si], [float(x) for x in sj]]
         f.real_axis_offset_i, f.real_axis_offset_j = tuple(f.joint_offset_i), tuple(f.joint_offset_j)
         used = set()  # joints on the old line that other objects use
         for g in m.frames.values():
@@ -979,15 +984,16 @@ def _same_insertion(m: Model, f, fields: dict) -> bool:
     if rec is None:
         return False
     near = lambda a, b: all(abs(float(x) - float(y)) <= 1e-9 for x, y in zip(a, b))
+    st = moved_beam_state(m, f.name)
     for k, v in fields.items():
         if k == "offsets_in_analysis":
             continue
         if k == "joint_offset_i":
-            ok = near(v, f.real_axis_offset_i)
+            ok = near(v, st["offset_i"])
         elif k == "joint_offset_j":
-            ok = near(v, f.real_axis_offset_j)
+            ok = near(v, st["offset_j"])
         elif k == "joint_offset_local":
-            ok = bool(v) == bool(rec.get("local", False))
+            ok = bool(v) == bool(st["local"])
         else:
             ok = getattr(f, k, None) == v
         if not ok:
