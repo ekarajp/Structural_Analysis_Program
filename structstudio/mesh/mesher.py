@@ -396,14 +396,30 @@ class Mesher:
             return
         X = np.array([xyz for _, xyz in pts], float)
         tol = self.tol
+        # joints rigidly linked to a column's joint from inside that column (a beam moved to
+        # its real axis within the joint zone): a member framing into that column is not cut
+        # there - that part of it is in the joint zone already (its end offset), exactly as
+        # with the same beam analysed on its offset axis
+        in_zone: Dict[str, set] = {}
+        Lf = self.U.factor("length")
+        for g in self.model.frames.values():
+            if g.type != "Rigid":
+                continue
+            for e, q in ((g.point_i, g.point_j), (g.point_j, g.point_i)):
+                if column_containing(self.model, e, self._xyz(self.model.points[q]), tol, Lf, self._xyz) is not None:
+                    in_zone.setdefault(e, set()).add(self.am.point_to_node[q])
         for f in self.model.frames.values():
             if not (f.auto_mesh and f.mesh_at_intersections) or f.type == "Rigid":
                 continue
             a, b = self._frame_geom[f.name]
+            skip = in_zone.get(f.point_i, set()) | in_zone.get(f.point_j, set()) if in_zone and f.type != "Column" else ()
             # broad phase: the joints in the frame's box (+tol); the exact test is unchanged
             lo, hi = np.minimum(a, b) - tol, np.maximum(a, b) + tol
             near = np.nonzero(np.all((X >= lo) & (X <= hi), axis=1))[0]
             for k in near:
+                if skip and pts[int(k)][0] in skip and pts[int(k)][0] not in (self.am.point_to_node[f.point_i],
+                                                                              self.am.point_to_node[f.point_j]):
+                    continue
                 t = point_on_segment(X[k], a, b, tol)
                 if t is not None:
                     self._frame_cuts[f.name].append(t)
@@ -796,7 +812,9 @@ class Mesher:
                     hu = h / hn
                     half = 0.5 * (abs(float(hu @ ax[1])) * (sec.t3 or 0.0) + abs(float(hu @ ax[2])) * (sec.t2 or 0.0)) \
                         * U.factor("length")
-                    if hn > half + self.tol:
+                    own = self.model.frame_sections.get(f.section)
+                    bears = 0.5 * float(getattr(own, "t2", 0.0) or 0.0) * U.factor("length")  # the beam still overlaps the column
+                    if hn > half + bears + self.tol:
                         am.warnings.append(
                             f"Beam {f.name}: its axis is {hn / U.factor('length'):.3f} off joint {end_point}, outside "
                             f"column {other.name} ({half / U.factor('length'):.3f} to its face) - joined to the joint by a "
@@ -1471,10 +1489,15 @@ class Mesher:
             shifted = f.name in self._axis_shift
             # per end, the joints it stands for: its own (offset beam), or the joints its
             # rigid links go to (a moved beam; an end without a link: the end itself)
-            ends = [[p] for p in (f.point_i, f.point_j)] if shifted else \
-                [rigid_at.get(p, []) or [p] for p in (f.point_i, f.point_j)]
-            if not shifted and not any(rigid_at.get(p) for p in (f.point_i, f.point_j)):
-                continue  # on its joints: the usual case, the floor mesh follows the beam
+            rec = getattr(f, "real_axis", None)  # a beam moved to its real axis: the joints it came from
+            came = [p for p in (rec or {}).get("joints", ()) if p in m.points]
+            if not shifted and len(came) == 2 and [f.point_i, f.point_j] == list(rec.get("ends", ())):
+                ends = [[p] for p in came]
+            else:
+                ends = [[p] for p in (f.point_i, f.point_j)] if shifted else \
+                    [rigid_at.get(p, []) or [p] for p in (f.point_i, f.point_j)]
+                if not shifted and not any(rigid_at.get(p) for p in (f.point_i, f.point_j)):
+                    continue  # on its joints: the usual case, the floor mesh follows the beam
             nodes = {n for e in am.object_to_frames[f.name] for n in (am.frames[e].node_i, am.frames[e].node_j)}
             ga, gb = self._frame_geom[f.name]
             for name, P in polys.items():

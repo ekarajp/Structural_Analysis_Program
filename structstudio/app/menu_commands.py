@@ -1048,17 +1048,27 @@ class MenuCommandsMixin:
         def widget(f):
             sec = f.section if f.section in m.frame_sections else next(iter(m.frame_sections), None)
             cp, transform = frame_state(f, m) if f.name else (10, False)
+            # a beam moved to its real axis: the form shows what it was moved with, the move ticked
+            was = C.moved_beam_state(self.doc.model, f.name) if f.name else None
+            if was:
+                import copy
+                f = copy.copy(f)
+                f.point_i, f.point_j = was["joints"]
+                f.joint_offset_i, f.joint_offset_j, f.joint_offset_local = was["offset_i"], was["offset_j"], was["local"]
             local, shift, oi, oj = offset_state(f)
             axes = None
             if f.name:
                 import numpy as np
                 from ..mesh.geometry import frame_axes
+                mm = self.doc.model
                 try:
-                    axes = frame_axes(np.array(m.points[f.point_i].xyz, float),
-                                      np.array(m.points[f.point_j].xyz, float), f.angle)
+                    axes = frame_axes(np.array(mm.points[f.point_i].xyz, float),
+                                      np.array(mm.points[f.point_j].xyz, float), f.angle)
                 except (ValueError, KeyError):
                     axes = None
             w = InsertionPointWidget(m, sec, cp, transform, oi, oj, shift=shift, local=local, axes=axes)
+            if was:
+                w.move.setChecked(True)
             holder["w"] = w
             return w, w.values
 
@@ -1066,54 +1076,51 @@ class MenuCommandsMixin:
 
         def apply(names, v):
             fields = {**offset_fields(v), **frame_fields(v["cp"], v["transform"])}
-            if not v.get("move") and v["transform"]:
-                issues = C.offset_zone_issues(self.doc.model, names, fields)
+            move = bool(v.get("move"))
+            if move or v["transform"]:
+                issues = C.offset_zone_issues(self.doc.model, names, fields, in_analysis_only=not move)
                 if issues:
-                    choice = self._offset_zone_choice(issues)
-                    if choice == "cancel":
+                    if self._offset_zone_choice(issues) != "move":
                         return "Insertion point: nothing assigned"
-                    if choice == "move":
-                        v = dict(v, move=True)
-            if not v.get("move"):
-                C.assign(self.doc, "frame", names, **fields)
-                return
-            moved, links, notes = C.move_beams_to_axis(self.doc, names, None, assign=fields)
-            msg = (f"Insertion point assigned; {len(moved)} beam(s) moved to their real axis with "
-                   f"{len(links)} rigid link(s)")
+                    move = True
+                    w = holder.get("w")
+                    if w is not None:
+                        w.move.setChecked(True)
+            moved, links, notes, restored = C.set_insertion_point(self.doc, names, fields, move)
+            parts = ["Insertion point assigned"]
+            if restored:
+                parts.append(f"{len(restored)} moved beam(s) put back on their joints")
+            if moved:
+                parts.append(f"{len(moved)} beam(s) moved to their real axis"
+                             + (f" with {len(links)} rigid link(s)" if links else ", no rigid link"))
+            msg = "; ".join(parts)
             self._info(msg)
-            w = holder.get("w")
-            if moved and w is not None:  # the form shows the moved beams as they are now
-                f = self.doc.model.frames.get(moved[0])
-                if f is not None:
-                    local, shift, oi, oj = offset_state(f)
-                    w.show_offsets(local, shift, oi, oj)
             if notes:
-                head = msg + "." if moved else "The insertion point was assigned; no beam was moved:"
                 QtWidgets.QMessageBox.information(self, "Move Beams to Real Axis",
-                                                  head + "\n\n" + "\n".join(notes[:20]))
+                                                  msg + ".\n\n" + "\n".join(notes[:20]))
         self.assign_form("frame.insertion", "Frame Insertion Point", ("frame",), apply, widget=widget)
 
     def _offset_zone_choice(self, issues) -> str:
-        """Offsets outside the rigid zone of the joints: move the beams there instead
-        (the same as drawing them there), keep them as offsets, or cancel."""
+        """Offsets beyond the rigid zone of the joints: not kept as offsets (a rigid arm that
+        is not in the building) - move the beams there instead (as drawn, no rigid link
+        outside the rigid zone), or cancel."""
         box = QtWidgets.QMessageBox(self)
         box.setIcon(QtWidgets.QMessageBox.Warning)
-        box.setWindowTitle("Offset outside the rigid zone")
-        box.setText("These offsets reach outside the rigid zone of the joints:")
+        box.setWindowTitle("Beyond the rigid zone")
+        box.setText("These offsets take the beam beyond the rigid zone of its joints:")
         box.setInformativeText(
             "\n".join(issues[:12]) + ("\n..." if len(issues) > 12 else "") + "\n\n"
-            "As an offset, the beam stays drawn on its joints and is joined to them by a rigid arm "
-            "that is not in the real building (sideways: outside the column; up / down: the slab is "
-            "joined to a beam it does not touch).\n\n"
-            "Move Beams to Real Axis puts each beam where it really is - the same as drawing it "
-            "there: it frames into the column or beam it lands on (a rigid link only inside a column).")
-        mv = box.addButton("Move Beams to Real Axis", QtWidgets.QMessageBox.AcceptRole)
-        keep = box.addButton("Keep as Offset", QtWidgets.QMessageBox.DestructiveRole)
+            "An offset (with or without a rigid link) is right only inside the rigid zone: inside the "
+            "column, and with the joint's level within the beam's depth.  Beyond it a rigid link would "
+            "make what it lies on rigid, or hold the beam where nothing does.\n\n"
+            "Move the Beam puts it where it really is, the same as drawing it there: no offset and no "
+            "rigid link outside the rigid zone.  It frames into the beam or column it lands on; where it "
+            "lands on nothing you are told - draw what carries it.")
+        mv = box.addButton("Move the Beam", QtWidgets.QMessageBox.AcceptRole)
         box.addButton(QtWidgets.QMessageBox.Cancel)
         box.setDefaultButton(mv)
         box.exec()
-        b = box.clickedButton()
-        return "move" if b is mv else "keep" if b is keep else "cancel"
+        return "move" if box.clickedButton() is mv else "cancel"
 
     def assign_output_stations(self):
         self.assign_form("frame.stations", "Frame Output Stations", ("frame",),

@@ -186,6 +186,14 @@ class Frame:
     # axis off its joints, stiffness transformed.  False: drawn there only, analysed on the
     # joints (ETABS "Do not transform frame stiffness for offsets from centroid")
     offsets_in_analysis: bool = True
+    # Move Beams to Real Axis: what the beam was before it was moved, so that the Insertion
+    # Point form shows what was assigned and the move can be taken back.  ``real_axis``:
+    # {"joints": [I, J] it was on, "ends": [I, J] it is on now, "local": joint offsets were
+    # local, "links": rigid links made, "points": joints made, "followers": [[frame, "i" |
+    # "j", old joint, new joint], ...]}; the joint offsets it had are the two fields below.
+    real_axis: Optional[dict] = None
+    real_axis_offset_i: Vec3 = qlist("length", lambda: (0.0, 0.0, 0.0))
+    real_axis_offset_j: Vec3 = qlist("length", lambda: (0.0, 0.0, 0.0))
     modifiers: Optional["FrameModifiers"] = None  # object level, multiplies section modifiers
     mass_per_length: float = q("mass_per_length", 0.0)  # additional (object level)
     tension_limit: Optional[float] = q("force", None)

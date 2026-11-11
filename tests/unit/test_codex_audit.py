@@ -801,8 +801,8 @@ def test_secondary_beam_end_follows_the_moved_beam():
         mm = doc.model
         assert mm.points[mm.frames[s2].point_i].y == pytest.approx(dy) and len(links) == (0 if dy > 0 else 2)
         assert any("its end moved" in t for t in notes) and not duplicates_of(mm, list(mm.frames))
-        if dy < 0:
-            assert sum("on no member" in t for t in notes) == 2
+        if dy < 0:  # 0.3 out: past the 0.4 column's face, the 0.3 wide beam still bears on the column
+            assert sum("still bears on it" in t for t in notes) == 2
         r1, r2 = run(mm), run(hand)
         assert r1.base_reactions(case) == pytest.approx(r2.base_reactions(case), rel=1e-9, abs=1e-9)
         for n in (b, s2):
@@ -810,26 +810,27 @@ def test_secondary_beam_end_follows_the_moved_beam():
                 pytest.approx(np.abs(r2.frame_forces(n, case).forces).max(axis=0), rel=1e-9, abs=1e-9)
 
 
-def test_rigid_links_down_from_one_joint_are_chained():
-    """Two beams on one line meeting at a joint, moved across onto the side beam and down
-    by different depths: their rigid links are chained (side beam -> 0.2 down -> 1.0
-    down), not laid over each other."""
+def test_rigid_links_over_each_other_are_not_duplicates():
+    """Two beams meeting at a joint, moved across onto the side beam and down by different
+    depths within its depth: each gets its own short rigid link down from the side beam.
+    The links lie over each other - one rigid body, not reported as duplicate members -
+    and each beam can be put back on its own."""
     from structstudio.app.document import Document
     from structstudio.app import commands as C
     from structstudio.app.templates import new_building
     from structstudio.model.checks import duplicates_of
     m = new_building(x_spacings=(6,), y_spacings=(5, 4), story_heights=(3.5,), grid_only=False)
     a, b = sorted(_edge_beams(m, x=6.0), key=lambda n: m.points[m.frames[n].point_i].y)
-    for n, dz in ((a, -1.0), (b, -0.2)):  # 0.6 inward: onto the beams along x, outside the columns
+    for n, dz in ((a, -0.4), (b, -0.2)):  # 0.6 inward: onto the beams along x, clear of the columns
         m.frames[n].joint_offset_i = m.frames[n].joint_offset_j = (-0.6, 0.0, dz)
     doc = Document(m)
     moved, links, notes = C.move_beams_to_axis(doc, [a, b])
     mm = doc.model
-    assert sorted(moved) == sorted([a, b]) and not duplicates_of(mm, list(mm.frames))
-    shared = [n for n in links if abs(mm.points[mm.frames[n].point_i].y - 5.0) < 1e-9]
-    spans = sorted(tuple(sorted((round(mm.points[mm.frames[n].point_i].z, 9), round(mm.points[mm.frames[n].point_j].z, 9))))
-                   for n in shared)
-    assert spans == [(2.5, 3.3), (3.3, 3.5)]  # chained at the shared joint
+    assert sorted(moved) == sorted([a, b]) and len(links) == 4 and not duplicates_of(mm, list(mm.frames))
+    C.set_insertion_point(doc, [a], {"joint_offset_i": (0.0, 0.0, 0.0), "joint_offset_j": (0.0, 0.0, 0.0)}, move=False)
+    mm = doc.model
+    assert sum(1 for g in mm.frames.values() if g.type == "Rigid") == 2 and C.moved_beam_state(mm, b) is not None
+    assert mm.points[mm.frames[a].point_i].x == pytest.approx(6.0) and mm.points[mm.frames[a].point_i].z == pytest.approx(3.5)
 
 
 def test_offset_beam_outside_a_membrane_floor_takes_no_load_from_it():

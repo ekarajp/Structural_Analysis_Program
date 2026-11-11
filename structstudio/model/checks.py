@@ -97,7 +97,10 @@ def _link_in_joint_zone(model, f, tol: float) -> bool:
         return False
     from ..mesh.geometry import column_containing
     for p, q in ((f.point_i, f.point_j), (f.point_j, f.point_i)):
-        if column_containing(model, p, model.points[q].xyz, tol) is not None:
+        # (a beam ending there whose body still overlaps the column bears on it: half its width more)
+        grow = max([0.5 * float(getattr(model.frame_sections.get(g.section), "t2", 0.0) or 0.0)
+                    for g in model.frames.values() if g.type == "Beam" and q in (g.point_i, g.point_j)] or [0.0])
+        if column_containing(model, p, model.points[q].xyz, tol, grow=grow) is not None:
             return True
     return False
 
@@ -130,6 +133,8 @@ def duplicates_of(model, frames: Iterable[str] = (), areas: Iterable[str] = ()) 
                     fa, fb = model.frames[a], model.frames[b]
                     if {fa.point_i, fa.point_j} == {fb.point_i, fb.point_j}:
                         continue
+                    if fa.type == "Rigid" and fb.type == "Rigid":
+                        continue  # rigid links over each other: one rigid body, nothing counted twice
                     if _link_in_joint_zone(model, fa, tol) or _link_in_joint_zone(model, fb, tol):
                         continue  # a rigid link inside a column: the joint zone, rigid anyway
                     seen.add(frozenset((a, b)))

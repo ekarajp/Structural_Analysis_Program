@@ -292,10 +292,11 @@ def beam_axis_shift(model, f, tol: float = 1e-9):
     return hi, hj
 
 
-def column_containing(model, point: str, xyz, tol: float, scale: float = 1.0, xyz_of=None):
+def column_containing(model, point: str, xyz, tol: float, scale: float = 1.0, xyz_of=None, grow: float = 0.0):
     """Name of a column with an end at joint ``point`` whose section rectangle, in
     plan, contains ``xyz`` at the joint's level (the joint zone of that column), or
-    None.  ``xyz`` and ``tol`` are in model units times ``scale`` (the mesher passes
+    None.  ``grow``: the rectangle made that much larger each way (half the width of a
+    beam: its axis there, the beam's body still overlaps the column - it bears on it).  ``xyz`` and ``tol`` are in model units times ``scale`` (the mesher passes
     SI with the length factor); ``xyz_of(p)`` gives a point's coordinates in those units."""
     xyz_of = xyz_of or (lambda p: np.array(p.xyz, float) * scale)
     q = np.asarray(xyz, float)
@@ -314,7 +315,7 @@ def column_containing(model, point: str, xyz, tol: float, scale: float = 1.0, xy
         except ValueError:
             continue
         t3, t2 = (sec.t3 or 0.0) * scale, (sec.t2 or 0.0) * scale
-        if abs(float(h @ ax[1])) <= 0.5 * t3 + tol and abs(float(h @ ax[2])) <= 0.5 * t2 + tol:
+        if abs(float(h @ ax[1])) <= 0.5 * t3 + grow + tol and abs(float(h @ ax[2])) <= 0.5 * t2 + grow + tol:
             return c.name
     return None
 

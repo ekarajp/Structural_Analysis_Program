@@ -38,7 +38,8 @@ DIMENSIONLESS = {
                         "fine_mesh_size_min", "fine_mesh_size_max"},  # (sizes: Model.convert_units)
     "Area": {"angle", "mesh_divisions", "edge_releases"},
     "ComboItem": {"scale"},
-    "Frame": {"angle", "rigid_factor", "auto_end_offsets", "display_cardinal"},
+    "Frame": {"angle", "rigid_factor", "auto_end_offsets", "display_cardinal",
+              "real_axis"},  # (joint names and flags only; its lengths are real_axis_offset_i / _j)
     "FrameHingeAssignment": {"relative_distance"},
     "FrameModifiers": {"A", "As2", "As3", "J", "I22", "I33", "mass", "weight"},
     "GridSystem": {"rotation"},

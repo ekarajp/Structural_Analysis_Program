@@ -147,7 +147,7 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "brace": (0.80, 0.55, 1.00),  # violet
         "steel": (0.42, 0.86, 0.38),  # green: steel members apart from the concrete ones
         "null_line": (0.55, 0.57, 0.62),
-        "rigid_link": (1.00, 0.30, 0.75),  # magenta: apart from every member colour
+        "rigid_link": (0.78, 0.10, 0.10),  # dark red (brighter on the dark background, to stay visible)
         "floor": (0.75, 0.80, 0.86),
         "wall": (0.84, 0.52, 0.52),  # brick: apart from every other object colour
         "opening": (0.40, 0.40, 0.40),
@@ -185,7 +185,7 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "brace": (0.50, 0.20, 0.78),  # violet
         "steel": (0.10, 0.58, 0.16),  # green: steel members apart from the concrete ones
         "null_line": (0.50, 0.52, 0.56),
-        "rigid_link": (0.80, 0.05, 0.55),
+        "rigid_link": (0.55, 0.00, 0.00),  # dark red
         "floor": (0.66, 0.76, 0.90),
         "wall": (0.62, 0.32, 0.34),  # brick: apart from every other object colour
         "opening": (0.62, 0.62, 0.62),

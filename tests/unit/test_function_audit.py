@@ -924,6 +924,7 @@ def test_gui_window_asks_merge_choices_in_a_dialog(window, monkeypatch, qapp):
     assert point_ops.CONFLICT_RESOLVER is not None
 
 
+@gui  # (was missing: the test also ran in the parent, off screen, where the VTK window can abort)
 def test_gui_closed_window_unhooks_its_merge_dialog(window):
     from structstudio.model import point_ops
     assert point_ops.CONFLICT_RESOLVER == window._ask_merge_choices

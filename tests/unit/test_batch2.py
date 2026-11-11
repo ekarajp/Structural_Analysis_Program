@@ -786,20 +786,26 @@ def test_gui_insertion_point(window, qapp, monkeypatch):
     f.transform.setChecked(True)
     f.mode.setCurrentIndex(1)  # each end, global X Y Z
     f.offset_boxes[("End-I", 2)].setValue(0.1)
-    asked = []  # cardinal point 2 (bottom) + 0.1 up: the joint below the beam - outside its depth
-    monkeypatch.setattr(type(window), "_offset_zone_choice", lambda self, issues: asked.append(issues) or "keep")
+    asked = []  # cardinal point 2 (bottom) + 0.1 up: the joint below the beam - beyond the rigid zone
+    monkeypatch.setattr(type(window), "_offset_zone_choice", lambda self, issues: asked.append(issues) or "cancel")
+    window.assign_panel.apply_button.click()
+    assert asked and "above" in asked[0][0]
+    assert window.doc.model.frames[beam].joint_offset_i[2] == 0.0  # cancelled: nothing assigned
+    f.offset_boxes[("End-I", 2)].setValue(-0.1)  # 0.1 down: the joint within the beam's depth - an offset
+    window.state.set_selection([beam])
     window.assign_panel.ok_button.click()
-    assert asked and "below its joints' level" not in asked[0][0] and "above" in asked[0][0]
+    assert len(asked) == 1
     fr = window.doc.model.frames[beam]
-    assert fr.cardinal_point == 2 and fr.display_cardinal == 2 and fr.joint_offset_i[2] == pytest.approx(0.1)
+    assert fr.cardinal_point == 2 and fr.display_cardinal == 2 and fr.joint_offset_i[2] == pytest.approx(-0.1)
 
 
 @gui
 def test_gui_insertion_point_moves_beams_to_real_axis(window, qapp, monkeypatch):
     """Assign > Frame > Insertion Point: 'Move Beams to Real Axis (Rigid Links)' (existing
-    members only, not when drawing) moves the beam by the offsets in one undo step; the
-    form then shows the beam as it is (offsets 0, the box unticked), and Apply again -
-    a tick changed, nothing picked - goes to the same beams (it stays enabled)."""
+    members only, not when drawing) moves the beam by the offsets in one undo step.  The
+    beam remembers it: picked again, the form shows the same values with the box ticked;
+    Apply again changes nothing; the box un-ticked puts the beam back on its joints, the
+    rigid links gone, the values its joint offsets."""
     from structstudio.app import insertion_dialog as ins
     from structstudio.app.templates import new_building
     monkeypatch.setattr(QtWidgets.QMessageBox, "information", lambda *a, **k: None)
@@ -824,55 +830,67 @@ def test_gui_insertion_point_moves_beams_to_real_axis(window, qapp, monkeypatch)
     assert m.points[fr.point_i].y == pytest.approx(0.1) and m.points[fr.point_j].y == pytest.approx(0.1)
     assert fr.joint_offset_i == pytest.approx((0, 0, 0)) and fr.joint_offset_j == pytest.approx((0, 0, 0))
     assert sum(1 for g in m.frames.values() if g.type == "Rigid") == 2
-    # the form: the beam as it is now; nothing picked, but Apply goes to the same beam again
-    assert not f.move.isChecked() and all(b.value() == 0.0 for b in f.offset_boxes.values())
-    assert not window.state.tool.picked(window.state)
-    f.transform.setChecked(not f.transform.isChecked())
+    # the form keeps what was assigned; Apply again (nothing picked: the same beam) changes nothing
+    assert f.move.isChecked() and f.offset_boxes[("End-I", 1)].value() == pytest.approx(0.1)
     assert panel.apply_button.isEnabled() and beam in panel.picked_label.text()
-    panel.apply_button.click()  # (a tick changed: applied again, the beam is not moved again)
+    rev = window.doc.revision
+    panel.apply_button.click()
+    assert window.doc.revision == rev and window.doc.model.points[window.doc.model.frames[beam].point_i].y == pytest.approx(0.1)
+    window.state.set_tool("select")
+    # picked again later: the same values, the move ticked
+    window.state.set_selection([beam])
+    window.assign_insertion_point()
+    panel = window.assign_panel
+    f = panel._form
+    assert f.move.isChecked() and f.mode.currentIndex() == 1
+    assert f.offset_boxes[("End-I", 1)].value() == pytest.approx(0.1) and f.offset_boxes[("End-J", 1)].value() == pytest.approx(0.1)
+    # un-ticked: back on its joints, no rigid link, the values are its joint offsets
+    f.move.setChecked(False)
+    panel.ok_button.click()
     m = window.doc.model
-    assert m.frames[beam].offsets_in_analysis == f.transform.isChecked()
-    assert m.points[m.frames[beam].point_i].y == pytest.approx(0.1)
+    fr = m.frames[beam]
+    assert (fr.point_i, fr.point_j) == old and fr.joint_offset_i == pytest.approx((0, 0.1, 0))
+    assert not any(g.type == "Rigid" for g in m.frames.values())
     window.doc.undo()
     window.doc.undo()
     m = window.doc.model
-    assert (m.frames[beam].point_i, m.frames[beam].point_j) == old
+    assert (m.frames[beam].point_i, m.frames[beam].point_j) == old and m.frames[beam].joint_offset_i == pytest.approx((0, 0, 0))
     assert not any(g.type == "Rigid" for g in m.frames.values())
 
 
 @gui
-def test_gui_insertion_point_outside_the_rigid_zone_offers_the_move(window, qapp, monkeypatch):
-    """Offsets in the analysis beyond the joint's rigid zone (0.5 sideways, outside the
-    0.4 column): the form asks - Move Beams to Real Axis (the same as drawing it there),
-    Keep as Offset, or Cancel (nothing assigned)."""
+def test_gui_insertion_point_beyond_the_rigid_zone_asks_cancel_or_move(window, qapp, monkeypatch):
+    """Offsets that take the beam beyond the rigid zone (0.5 sideways: clear of the 0.4
+    column) - in the analysis, or with the move ticked: the form warns and asks Cancel
+    (nothing assigned) or Move the Beam (moved there, no offset, no rigid link)."""
     from structstudio.app.templates import new_building
     monkeypatch.setattr(QtWidgets.QMessageBox, "information", lambda *a, **k: None)
-    for choice in ("cancel", "keep", "move"):
-        window.doc.model = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
-        m = window.doc.model
-        beam = next(n for n, f in m.frames.items() if f.type == "Beam"
-                    and abs(m.points[f.point_i].y) < 1e-9 and abs(m.points[f.point_j].y) < 1e-9)
-        asked = []
-        monkeypatch.setattr(type(window), "_offset_zone_choice",
-                            lambda self, issues, c=choice: asked.append(issues) or c)
-        window.state.set_selection([beam])
-        window.assign_insertion_point()
-        f = window.assign_panel._form
-        f.transform.setChecked(True)
-        f.mode.setCurrentIndex(1)
-        f.offset_boxes[("End-I", 1)].setValue(0.5)
-        f.offset_boxes[("End-J", 1)].setValue(0.5)
-        window.assign_panel.apply_button.click()
-        m = window.doc.model
-        fr = m.frames[beam]
-        assert len(asked) == 1 and len(asked[0]) == 2  # both ends outside the columns
-        if choice == "cancel":
-            assert fr.joint_offset_i == (0.0, 0.0, 0.0) and m.points[fr.point_i].y == 0.0
-        elif choice == "keep":
-            assert fr.joint_offset_i == pytest.approx((0.0, 0.5, 0.0)) and m.points[fr.point_i].y == 0.0
-        else:
-            assert fr.joint_offset_i == pytest.approx((0, 0, 0)) and m.points[fr.point_i].y == pytest.approx(0.5)
-        window.state.set_tool("select")
+    for ticked in ("transform", "move"):
+        for choice in ("cancel", "move"):
+            window.doc.model = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
+            m = window.doc.model
+            beam = next(n for n, f in m.frames.items() if f.type == "Beam"
+                        and abs(m.points[f.point_i].y) < 1e-9 and abs(m.points[f.point_j].y) < 1e-9)
+            asked = []
+            monkeypatch.setattr(type(window), "_offset_zone_choice",
+                                lambda self, issues, c=choice: asked.append(issues) or c)
+            window.state.set_selection([beam])
+            window.assign_insertion_point()
+            f = window.assign_panel._form
+            getattr(f, ticked).setChecked(True)
+            f.mode.setCurrentIndex(1)
+            f.offset_boxes[("End-I", 1)].setValue(0.5)
+            f.offset_boxes[("End-J", 1)].setValue(0.5)
+            window.assign_panel.apply_button.click()
+            m = window.doc.model
+            fr = m.frames[beam]
+            assert len(asked) == 1 and len(asked[0]) == 2, (ticked, choice)  # both ends clear of the columns
+            if choice == "cancel":
+                assert fr.joint_offset_i == (0.0, 0.0, 0.0) and m.points[fr.point_i].y == 0.0
+            else:
+                assert fr.joint_offset_i == pytest.approx((0, 0, 0)) and m.points[fr.point_i].y == pytest.approx(0.5)
+                assert not any(g.type == "Rigid" for g in m.frames.values()) and f.move.isChecked()
+            window.state.set_tool("select")
 
 
 @gui
@@ -926,10 +944,15 @@ def test_gui_insertion_shift_and_window_size(window, qapp, monkeypatch):
     f.mode.setCurrentIndex(1)
     f.offset_boxes[("End-J", 0)].setValue(0.3)
     f.transform.setChecked(True)  # (at the bottom: cardinal point and joint offsets in the analysis)
-    asked = []  # (sideways outside the column at end I: offered the move - kept as an offset here)
-    monkeypatch.setattr(type(window), "_offset_zone_choice", lambda self, issues: asked.append(issues) or "keep")
-    window.assign_panel.ok_button.click()
+    asked = []  # in the analysis the offsets must stay in the rigid zone: 0.2 / 0.5 down is beyond it
+    monkeypatch.setattr(type(window), "_offset_zone_choice", lambda self, issues: asked.append(issues) or "cancel")
+    window.assign_panel.apply_button.click()
     assert asked
+    for e in ("End-I", "End-J"):
+        f.offset_boxes[(e, 2)].setValue(0.0)
+    st.set_selection([beam])
+    window.assign_panel.ok_button.click()
+    assert len(asked) == 1
     fr = window.doc.model.frames[beam]
     assert not fr.joint_offset_local and fr.joint_offset_j[0] == pytest.approx(0.3) and fr.offsets_in_analysis
 
