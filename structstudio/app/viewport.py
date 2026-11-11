@@ -12,7 +12,7 @@ from dataclasses import asdict, dataclass, field
 from typing import List, Optional, Set, Tuple
 
 import numpy as np
-import vtk
+from . import vtk_lite as vtk
 from PySide6 import QtCore, QtGui, QtWidgets
 from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 

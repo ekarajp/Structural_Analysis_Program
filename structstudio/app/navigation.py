@@ -15,7 +15,7 @@ import math
 from typing import Optional, Sequence
 
 import numpy as np
-import vtk
+from . import vtk_lite as vtk
 
 ROTATE_DEG_PER_PIXEL = 0.4
 WHEEL_FACTOR = 1.2

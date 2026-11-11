@@ -13,7 +13,7 @@ import math
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
-import vtk
+from . import vtk_lite as vtk
 from vtkmodules.util import numpy_support
 
 from ..mesh.geometry import frame_axes, polygon_normal

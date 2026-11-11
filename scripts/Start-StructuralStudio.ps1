@@ -64,12 +64,15 @@ if (-not $Py -or -not (Test-Path $Py)) {
 Say "Python: $Py"
 
 # 2. first run (or after an update added a library): install Structural Studio + UI libraries
-$ImportCheck = "import PySide6, vtk, numpy, scipy, openpyxl, structstudio.app.mainwindow"
+# only that the libraries are installed (found, not loaded): loading them all here and then again
+# in the program doubled the start (half a minute after a restart, the antivirus scanning every
+# library twice); a library that is there but broken stops the program itself - step 4 shows why
+$ImportCheck = "import importlib.util as u, sys; m = [n for n in ('PySide6', 'vtkmodules', 'numpy', 'scipy', 'openpyxl', 'structstudio') if u.find_spec(n) is None]; print('missing:', *m) if m else None; sys.exit(1 if m else 0)"
 $CheckSeconds = 180
 function Test-Ready {
     $r = Invoke-PyTimed ('-c "' + $ImportCheck + '"') $CheckSeconds
     if ($r.TimedOut) {
-        Say ("The library check did not finish in {0} s - Python is blocked (antivirus scanning E:, " -f $CheckSeconds) 'Yellow'
+        Say ("The library check did not finish in {0} s - Python is blocked (antivirus scanning the drive, " -f $CheckSeconds) 'Yellow'
         Say 'a full disk, or another Python process holding the files). Running Python processes:' 'Yellow'
         Get-Process -Name python, pythonw -ErrorAction SilentlyContinue |
             ForEach-Object { Say ("  PID {0}  started {1}  {2}" -f $_.Id, $_.StartTime, $_.Path) 'Yellow' }
@@ -85,7 +88,7 @@ foreach ($r in $running) {
     Say ("Structural Studio is already running (PID {0}, since {1}) - check the taskbar; a new window is started anyway." -f `
         $r.ProcessId, $r.CreationDate) 'Yellow'
 }
-Say "Checking the libraries (can take 20-40 s right after a restart; limit $CheckSeconds s) ..."
+Say "Checking the libraries ..."
 if (-not (Test-Ready)) {
     $logDir = Join-Path $env:LOCALAPPDATA 'StructuralStudio'
     New-Item -ItemType Directory -Force -Path $logDir | Out-Null

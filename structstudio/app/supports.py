@@ -229,7 +229,7 @@ def _rot_from_local_axes(local_axes) -> np.ndarray:
 
 def support_polydata(restraints: Sequence[bool], xyz, size: float, local_axes=None):
     """vtkPolyData of the support symbol at ``xyz`` (joint local axes applied)."""
-    import vtk
+    from . import vtk_lite as vtk
 
     key = support_type(restraints)
     R = _rot_from_local_axes(local_axes)  # local -> global: x_g = R.T @ x_l

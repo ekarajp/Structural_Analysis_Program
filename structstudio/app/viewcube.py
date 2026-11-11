@@ -19,7 +19,7 @@ import math
 from typing import Callable, Dict, Optional, Tuple
 
 import numpy as np
-import vtk
+from . import vtk_lite as vtk
 
 Key = Tuple[int, int, int]
 

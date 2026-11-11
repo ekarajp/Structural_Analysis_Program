@@ -377,3 +377,42 @@ def test_gui_main_window_start_page_and_recent_menu(app, settings, tmp_path, mon
     w.act_start_page.trigger()
     assert StartDialog.show_at_startup(settings) is False
     w.close()
+
+
+def test_double_click_a_structure_card_creates_the_model(app, settings):
+    """Starting structure page: a double-click on a card picks that structure and creates
+    the model (like choosing it and pressing Create model)."""
+    from PySide6 import QtCore, QtTest
+    from structstudio.app.new_model import NewModelWizard
+    s = settings
+    w = NewModelWizard(None, settings=s)
+    w.show()
+    w.go(2)
+    card = w.cards["frame_only"]
+    QtTest.QTest.mouseDClick(card, QtCore.Qt.LeftButton)
+    assert w.result() == QtWidgets.QDialog.Accepted and w.structure == "frame_only"
+    m = w.model()
+    assert m.frames and not any(a.type == "Floor" for a in m.areas.values())
+    w2 = NewModelWizard(None, settings=s)  # on the other pages a double-click does not create
+    w2.show()
+    w2.go(0)
+    w2.cards["grid"].activated.emit("grid")
+    assert w2.result() == 0
+
+
+def test_catalog_steel_sections_are_worked_out_once():
+    """New Model: the region's catalog steel sections (properties from meshing the shape)
+    are kept for the session - the second and later wizards open at once - and every
+    model gets its own copies."""
+    from structstudio.app import templates
+    from structstudio.model import Model
+    from structstudio.units import UnitSystem
+    templates._STEEL_SECTIONS.clear()
+    templates.warm_region_properties()
+    assert templates._STEEL_SECTIONS and all(v is not None for v in templates._STEEL_SECTIONS.values())
+    a, b = Model("a", UnitSystem("kN", "m")), Model("b", UnitSystem("kN", "m"))
+    templates.region_properties(a)
+    templates.region_properties(b)
+    steel = [n for n in a.frame_sections if n not in [r[0] for r in templates.REGIONS["thailand"]["frames"]]]
+    assert steel and all(a.frame_sections[n] is not b.frame_sections[n] for n in steel)
+    assert all(a.frame_sections[n] == b.frame_sections[n] for n in steel)

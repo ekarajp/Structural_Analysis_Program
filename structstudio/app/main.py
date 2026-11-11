@@ -31,7 +31,7 @@ def _vtk_messages_to_file() -> None:
     """VTK warnings / errors go to a log file next to structstudio.log, never to the
     "vtkOutputWindow" pop-up (on Windows it opens on the first message and can fill up)."""
     try:
-        import vtk
+        from . import vtk_lite as vtk
         out = vtk.vtkFileOutputWindow()
         out.SetFileName(os.path.join(os.path.dirname(log_path()), "vtk-messages.log"))
         out.SetFlush(True)
@@ -123,6 +123,25 @@ def _install_excepthook():
     sys.excepthook = hook
 
 
+def _warm_new_model(settings) -> None:
+    """In the background, right after the window opens: the region's catalog steel
+    sections (their properties take a moment to work out), so New Model opens at once."""
+    import json
+    import threading
+    try:
+        d = json.loads(settings.value("new_model/defaults", "") or "{}")
+    except (TypeError, ValueError):
+        d = {}
+
+    def work():
+        try:
+            from .templates import warm_region_properties
+            warm_region_properties(d.get("region") or "thailand", d.get("steel_db"))
+        except Exception as exc:  # only a head start: New Model works them out itself otherwise
+            _log(f"New Model warm-up skipped: {exc!r}")
+    threading.Thread(target=work, name="new-model-warm-up", daemon=True).start()
+
+
 def main(argv=None) -> int:
     _install_excepthook()
     _vtk_messages_to_file()
@@ -146,6 +165,7 @@ def main(argv=None) -> int:
     settings = QtCore.QSettings("StructuralStudio", "StructuralStudio")
     win = MainWindow(doc, settings)
     win.show()
+    _warm_new_model(settings)
     if len(argv) > 1:
         win._open(argv[1])
     elif "--no-wizard" not in argv:

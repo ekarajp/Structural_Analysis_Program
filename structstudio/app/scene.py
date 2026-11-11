@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-import vtk
+from . import vtk_lite as vtk
 from vtkmodules.util import numpy_support
 
 from ..mesh import openings as opn

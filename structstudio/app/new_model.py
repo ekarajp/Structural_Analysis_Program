@@ -26,8 +26,8 @@ from .templates import (REGIONS, REGION_ORDER, STRUCTURES, SUPPORTS, _letters, b
 KEY_DEFAULTS = "new_model/defaults"
 STEP_TITLES = (("Model settings", "Units, materials and section lists for the new model. All can be changed later."),
                ("Grid lines and stories", "Start simple with uniform spacing, or switch to tables for any spacing."),
-               ("Starting structure", "Members are placed on the grid you set. Everything can be edited or deleted "
-                                      "afterwards."))
+               ("Starting structure", "Members are placed on your grid; all can be edited afterwards. "
+                                      "Double-click a picture to create the model."))
 PREVIEW_STORIES = 3  # the structure cards draw the lowest stories only (a tall model is unreadable that small)
 PREVIEW_LINES = 12  # ... and the first grid lines each way: a 30 x 30 grid is unreadable at card size and slow to build
 PREVIEW_BUDGET = 0.15  # s of card drawing done at once; the rest is drawn in later event-loop turns
@@ -319,6 +319,9 @@ class GridPreview(QtWidgets.QWidget):
 # structure cards
 # =============================================================================
 class StructureCard(QtWidgets.QAbstractButton):
+    """One starting structure; click = choose it, double-click = choose it and create the model."""
+    activated = QtCore.Signal(str)
+
     def __init__(self, key: str, title: str, desc: str, parent=None):
         super().__init__(parent)
         self.key, self.title, self.desc = key, title, desc
@@ -376,6 +379,14 @@ class StructureCard(QtWidgets.QAbstractButton):
         p.drawText(QtCore.QRectF(r.left() + 8, tr.bottom(), r.width() - 16, r.bottom() - tr.bottom() - 2),
                    QtCore.Qt.TextWordWrap | QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop, self.desc)
         p.end()
+
+    def mouseDoubleClickEvent(self, ev):
+        if ev.button() == QtCore.Qt.LeftButton:
+            self.setChecked(True)
+            self.activated.emit(self.key)
+            ev.accept()
+            return
+        super().mouseDoubleClickEvent(ev)
 
     def enterEvent(self, ev):
         self.update()
@@ -1314,6 +1325,7 @@ class NewModelWizard(QtWidgets.QDialog):
         for i, (key, title, desc) in enumerate(STRUCTURES):
             c = StructureCard(key, title, desc)
             c.toggled.connect(lambda on, k=key: on and self._structure_changed(k))
+            c.activated.connect(self._card_activated)
             self.card_grid.add(c)
             self.cards[key] = c
         left.addWidget(self.card_grid, 1)
@@ -1347,6 +1359,12 @@ class NewModelWizard(QtWidgets.QDialog):
         h.addLayout(right)
         self.cards["grid"].setChecked(True)
         return page
+
+    def _card_activated(self, key: str):
+        """Double-click on a card: that structure, and Create model."""
+        if self.pages.currentIndex() == 2 and self.btn_next.isEnabled():
+            self._structure_changed(key)
+            self._finish()
 
     def _structure_changed(self, key: str):
         self.structure = key

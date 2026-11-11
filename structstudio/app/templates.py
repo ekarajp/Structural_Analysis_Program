@@ -1,7 +1,8 @@
 """Model templates for the New Model wizard (grid + stories + default properties)."""
 from __future__ import annotations
 
-from typing import Optional, Sequence, Tuple
+import copy
+from typing import Dict, Optional, Sequence, Tuple
 
 from ..model import FIXED, FrameSection, Model, ShellSection
 from ..model.objects import PINNED
@@ -220,6 +221,29 @@ STRUCTURE_KEYS = tuple(k for k, _, _ in STRUCTURES)
 SUPPORTS = ("Fixed", "Pinned", "None")
 
 
+_STEEL_SECTIONS: Dict[tuple, Optional[FrameSection]] = {}
+
+
+def _steel_section(name: str, std: str, material: str, temperature: str) -> Optional[FrameSection]:
+    """A catalog steel section in kN m, worked out once per session: its properties come
+    from meshing the shape (about 0.2 s each), which made every New Model slow to open."""
+    from ..catalog import find_steel
+    from ..units import UnitSystem
+    key = (name, std, material, temperature)
+    if key not in _STEEL_SECTIONS:
+        e = find_steel(name, std)
+        _STEEL_SECTIONS[key] = None if e is None else e.frame_section(material, UnitSystem("kN", "m", temperature))
+    return _STEEL_SECTIONS[key]
+
+
+def warm_region_properties(region: str = "thailand", steel_db: Optional[str] = None) -> None:
+    """Works out the region's catalog steel sections ahead (the program does it in the
+    background after it opens, so New Model opens at once)."""
+    std, names = REGIONS[steel_db or region]["steel_sections"]
+    for n in dict.fromkeys(names):
+        _steel_section(n, std, REGIONS[region]["steel"], "C")
+
+
 def region_properties(model: Model, region: str = "thailand", steel_db: Optional[str] = None,
                       rebar_db: Optional[str] = None) -> None:
     """Materials, sections, rebar sizes of a region plus the default load
@@ -242,9 +266,9 @@ def region_properties(model: Model, region: str = "thailand", steel_db: Optional
         base.add_shell_section(ShellSection(name, mat, type=kind, thickness=t))
     std, names = REGIONS[steel_db or region]["steel_sections"]
     for n in dict.fromkeys(names):
-        e = find_steel(n, std)
-        if e is not None:
-            base.add_frame_section(e.frame_section(reg["steel"], base.units))
+        sec = _steel_section(n, std, reg["steel"], model.units.temperature)
+        if sec is not None:
+            base.add_frame_section(copy.deepcopy(sec))
     conv = base.convert_units(model.units)
     model.materials.update(conv.materials)
     model.frame_sections.update(conv.frame_sections)

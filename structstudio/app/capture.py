@@ -14,8 +14,8 @@ from PySide6 import QtCore, QtGui, QtWidgets
 def vtk_image(vp) -> Optional[QtGui.QImage]:
     """The drawing of a model window as a QImage (physical pixels), or None."""
     try:
-        import vtk
-        from vtk.util.numpy_support import vtk_to_numpy
+        from . import vtk_lite as vtk
+        from vtkmodules.util.numpy_support import vtk_to_numpy
         rw = vp.vtk_widget.GetRenderWindow()
         rw.Render()
         w2i = vtk.vtkWindowToImageFilter()

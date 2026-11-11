@@ -1848,7 +1848,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         # the drawings' OpenGL contexts go now, while their windows exist: VTK used to fill
         # the "vtkOutputWindow" with context errors when Qt had destroyed the windows first
         try:
-            import vtk
+            from . import vtk_lite as vtk
             vtk.vtkObject.GlobalWarningDisplayOff()
         except Exception:
             pass
