@@ -520,34 +520,19 @@ def panel_loads_to_members(model, strips: int = 60):
     pts = model.points
     from .geometry import beam_axis_shift
     tol_model = max(getattr(model.options, "merge_tolerance", 1e-3), 1e-9)
-    frame_ends, shifted_ends = {}, {}
+    frame_ends = {}
     for f in model.frames.values():
         if f.type == "Rigid":
             continue  # a rigid link carries no load
         a, b = np.asarray(pts[f.point_i].xyz, float), np.asarray(pts[f.point_j].xyz, float)
-        frame_ends[f.name] = (a, b)
-        sh = beam_axis_shift(model, f, tol_model)  # beams meshed on their true axis are loaded there
-        if sh is not None:
-            shifted_ends[f.name] = (a + sh[0], b + sh[1])
+        sh = beam_axis_shift(model, f, tol_model)
+        # a beam meshed on its true axis takes loads where that axis is: under the panel /
+        # floor or not (its axis outside the floor: not under it - the mesher warns),
+        # the same as that beam moved there (Move Beams to Real Axis)
+        frame_ends[f.name] = (a + sh[0], b + sh[1]) if sh is not None else (a, b)
 
     def ends_for(P):
-        """The beams on their true axis where that axis is on the panel (else - a panel
-        drawn only to the grid line - the joint-to-joint line, as before)."""
-        if not shifted_ends:
-            return frame_ends
-        try:
-            o, e1, e2, n = polygon_frame(P)
-        except ValueError:
-            return frame_ends
-        poly2 = np.array([[(q - o) @ e1, (q - o) @ e2] for q in P])
-        out = dict(frame_ends)
-        for name, (a, b) in shifted_ends.items():
-            if abs(float((a - o) @ n)) > tol or abs(float((b - o) @ n)) > tol:
-                continue
-            if clip_segment_to_polygon(np.array([(a - o) @ e1, (a - o) @ e2]),
-                                       np.array([(b - o) @ e1, (b - o) @ e2]), poly2):
-                out[name] = (a, b)
-        return out
+        return frame_ends
     area_polys = {a.name: np.array([pts[p].xyz for p in a.points], float) for a in model.areas.values()}
     tol = max(getattr(model.options, "merge_tolerance", 1e-3), 1e-6) * 2.0
     def to_frames(res, pattern, dvec):

@@ -577,6 +577,55 @@ def beam_axis_moves(model: Model, frames: Sequence[str], distance: Optional[floa
     return moves, notes
 
 
+def offset_zone_issues(model: Model, frames: Sequence[str], assign: Optional[dict] = None) -> List[str]:
+    """Beams whose insertion offsets, in the analysis, reach outside the rigid zone of
+    their joints (with ``assign``: as they would be with those values):
+
+    * sideways - an end of the axis outside the column at that joint (in plan); with
+      no column there, any sideways offset of the axis;
+    * up / down - the joint's level outside the beam's depth (the slab the joint stands
+      for no longer touches the beam).
+
+    There the offset way joins the beam by a rigid arm that does not exist in the real
+    building; Move Beams to Real Axis puts the beam where it is (the same as drawing it
+    there).  One line per beam end / beam."""
+    from ..mesh.geometry import column_containing, frame_insertion_offsets
+    tol = model.options.merge_tolerance
+    out: List[str] = []
+    for n in frames:
+        f0 = model.frames.get(n)
+        if f0 is None or f0.type != "Beam":
+            continue
+        f = copy.copy(f0)
+        for k, v in (assign or {}).items():
+            setattr(f, k, v)
+        if not getattr(f, "offsets_in_analysis", True):
+            continue  # drawn off the joints only: not in the analysis
+        try:
+            oi, oj = frame_insertion_offsets(model, f)
+        except (ValueError, KeyError):
+            continue
+        sec = model.frame_sections.get(f.section)
+        depth = float(getattr(sec, "t3", 0.0) or 0.0)
+        for end, p, o in (("I", f.point_i, oi), ("J", f.point_j, oj)):
+            h = np.array([o[0], o[1], 0.0])
+            hn = float(np.linalg.norm(h))
+            if hn <= tol:
+                continue
+            j = np.array(model.points[p].xyz, float)
+            if column_containing(model, p, j + h, tol) is not None:
+                continue
+            cols = [c for c in model.frames.values() if c.type == "Column" and p in (c.point_i, c.point_j)]
+            where = f"outside column {cols[0].name}" if cols else "with no column there"
+            out.append(f"{n} end {end}: its axis is {hn:.3f} sideways off joint {p}, {where}")
+        vz = 0.5 * (oi[2] + oj[2])
+        if abs(vz) > 0.5 * depth + tol:
+            gap = abs(vz) - 0.5 * depth
+            out.append(f"{n}: the beam is {gap:.3f} {'above' if vz > 0 else 'below'} its joints' level "
+                       f"(outside its depth {depth:.3f})")
+    return out
+
+
 def move_beams_to_axis(doc: Document, frames: Sequence[str], distance: Optional[float] = None,
                        assign: Optional[dict] = None) -> Tuple[List[str], List[str], List[str]]:
     """*Edit > Edit Frames > Move Beams to Real Axis (Rigid Links)*: each beam is moved
@@ -629,11 +678,11 @@ def move_beams_to_axis(doc: Document, frames: Sequence[str], distance: Optional[
                 q.diaphragm = p.diaphragm  # (in the floor plane only)
             return q.name
 
-        wanted: List[Tuple[str, str, str]] = []  # (beam, joint left, new joint): decided after all moves
+        wanted: List[Tuple[str, str, str, bool]] = []  # (beam, joint left, new joint, inner): after all moves
 
-        def link(p_from, p_to, beam):
+        def link(p_from, p_to, beam, inner=False):
             if p_from != p_to:
-                wanted.append((beam, p_from, p_to))
+                wanted.append((beam, p_from, p_to, inner))
 
         # joints that existed before this command: the new beam ends it makes are never
         # "joints of other members on the old line" of the next beam moved
@@ -676,7 +725,7 @@ def move_beams_to_axis(doc: Document, frames: Sequence[str], distance: Optional[
             link(pj, nj, n)
             for pname, t in inner:
                 s = (1.0 - t) * si + t * sj
-                link(pname, new_point(pname, s), n)
+                link(pname, new_point(pname, s), n, True)
             dz = 0.5 * (si[2] + sj[2])
             if abs(dz) > tol:
                 notes.append(f"{n}: moved {abs(dz):.3f} {'up' if dz > 0 else 'down'} - out of the floor plane, "
@@ -685,10 +734,33 @@ def move_beams_to_axis(doc: Document, frames: Sequence[str], distance: Optional[
         moved_names = set(moves)
 
         def add_link(p_from, p_to):
-            if p_from == p_to or any(g.type == "Rigid" and {g.point_i, g.point_j} == {p_from, p_to}
-                                     for g in m.frames.values()):
-                return
-            made_links.append(m.add_frame(p_from, p_to, "None", type="Rigid").name)
+            # rigid links on one line from one joint (two beams hung from it at different
+            # depths): chained, not laid over each other - the same rigid body
+            a = np.array(m.points[p_from].xyz, float)
+            b = np.array(m.points[p_to].xyz, float)
+            for _ in range(len(m.frames)):
+                if p_from == p_to or any(g.type == "Rigid" and {g.point_i, g.point_j} == {p_from, p_to}
+                                         for g in m.frames.values()):
+                    return
+                for g in m.frames.values():
+                    if g.type != "Rigid" or p_from not in (g.point_i, g.point_j) or g.name not in made_links:
+                        continue  # (only the links this command made: the user's own stay as drawn)
+                    other = g.point_j if g.point_i == p_from else g.point_i
+                    c = np.array(m.points[other].xyz, float)
+                    if point_on_segment(c, a, b, tol) is not None:  # an existing link part of the way
+                        p_from, a = other, c
+                        break
+                    if point_on_segment(b, a, c, tol) is not None:  # the new one is part of an existing one
+                        if g.point_i == p_from:
+                            g.point_i = p_to
+                        else:
+                            g.point_j = p_to
+                        break
+                else:
+                    break
+            if p_from != p_to and not any(g.type == "Rigid" and {g.point_i, g.point_j} == {p_from, p_to}
+                                          for g in m.frames.values()):
+                made_links.append(m.add_frame(p_from, p_to, "None", type="Rigid").name)
 
         def on_column(J, C):  # a column with an end at J whose axis passes through C (partway)
             for c in m.frames.values():
@@ -699,10 +771,36 @@ def move_beams_to_axis(doc: Document, frames: Sequence[str], distance: Optional[
                         return c.name
             return None
 
-        for beam, J, N in wanted:
+        def reconnect_secondary(beam, J, N) -> bool:
+            """A beam framing into the moved beam's old line at J (its only member there,
+            on the line of the move): its end goes to the moved beam's new line - as if
+            drawn there (no stub left past the beam, no rigid link to reach it)."""
+            others = [g for g in m.frames.values() if J in (g.point_i, g.point_j) and g.name != beam]
+            if len(others) != 1 or others[0].type in ("Rigid", "Column", "Null") or others[0].name in moved_names:
+                return False
+            g = others[0]
+            far = g.point_j if g.point_i == J else g.point_i
+            a = np.array(m.points[far].xyz, float)
+            jx = np.array(m.points[J].xyz, float)
+            q = np.array(m.points[N].xyz, float)
+            d = jx - a
+            L = float(np.linalg.norm(d))
+            if L <= tol or np.linalg.norm(np.cross(q - a, d)) / L > tol or float((q - a) @ d) <= tol * L:
+                return False  # not on its line, or past its other end
+            if g.point_i == J:
+                g.point_i = N
+            else:
+                g.point_j = N
+            notes.append(f"{g.name}: its end moved from joint {J} to {N} on {beam}'s real axis (as drawn there)")
+            return True
+
+        for beam, J, N, inner in wanted:
             jx = np.array(m.points[J].xyz, float)
             q = np.array(m.points[N].xyz, float)
             sz = q[2] - jx[2]
+            if inner and abs(sz) <= tol and column_containing(m, J, q, tol) is None and \
+                    reconnect_secondary(beam, J, N):
+                continue
             H = np.array([q[0], q[1], jx[2]])  # the new end in plan, at the joint's level
             in_col = column_containing(m, J, H, tol) is not None
             if abs(sz) <= tol:
@@ -711,6 +809,10 @@ def move_beams_to_axis(doc: Document, frames: Sequence[str], distance: Optional[
                     if g is not None:  # on the side beam, outside the column: it frames in there
                         notes.append(f"{beam}: frames into {g} at joint {N} (outside the column) - no rigid link")
                         continue
+                if not in_col and not inner:
+                    notes.append(f"{beam}: joint {N} is outside the column at joint {J} and on no member - joined "
+                                 f"by a rigid link {np.linalg.norm(q - jx):.3f} long; check that such a stiff "
+                                 f"connection is really there (or draw what supports the beam there)")
                 add_link(J, N)  # in the column's joint zone, or nothing there: a rigid link
                 continue
             # moved up / down: what it is joined to at its own height

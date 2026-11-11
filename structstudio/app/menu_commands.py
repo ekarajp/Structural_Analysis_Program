@@ -1066,6 +1066,14 @@ class MenuCommandsMixin:
 
         def apply(names, v):
             fields = {**offset_fields(v), **frame_fields(v["cp"], v["transform"])}
+            if not v.get("move") and v["transform"]:
+                issues = C.offset_zone_issues(self.doc.model, names, fields)
+                if issues:
+                    choice = self._offset_zone_choice(issues)
+                    if choice == "cancel":
+                        return "Insertion point: nothing assigned"
+                    if choice == "move":
+                        v = dict(v, move=True)
             if not v.get("move"):
                 C.assign(self.doc, "frame", names, **fields)
                 return
@@ -1084,6 +1092,28 @@ class MenuCommandsMixin:
                 QtWidgets.QMessageBox.information(self, "Move Beams to Real Axis",
                                                   head + "\n\n" + "\n".join(notes[:20]))
         self.assign_form("frame.insertion", "Frame Insertion Point", ("frame",), apply, widget=widget)
+
+    def _offset_zone_choice(self, issues) -> str:
+        """Offsets outside the rigid zone of the joints: move the beams there instead
+        (the same as drawing them there), keep them as offsets, or cancel."""
+        box = QtWidgets.QMessageBox(self)
+        box.setIcon(QtWidgets.QMessageBox.Warning)
+        box.setWindowTitle("Offset outside the rigid zone")
+        box.setText("These offsets reach outside the rigid zone of the joints:")
+        box.setInformativeText(
+            "\n".join(issues[:12]) + ("\n..." if len(issues) > 12 else "") + "\n\n"
+            "As an offset, the beam stays drawn on its joints and is joined to them by a rigid arm "
+            "that is not in the real building (sideways: outside the column; up / down: the slab is "
+            "joined to a beam it does not touch).\n\n"
+            "Move Beams to Real Axis puts each beam where it really is - the same as drawing it "
+            "there: it frames into the column or beam it lands on (a rigid link only inside a column).")
+        mv = box.addButton("Move Beams to Real Axis", QtWidgets.QMessageBox.AcceptRole)
+        keep = box.addButton("Keep as Offset", QtWidgets.QMessageBox.DestructiveRole)
+        box.addButton(QtWidgets.QMessageBox.Cancel)
+        box.setDefaultButton(mv)
+        box.exec()
+        b = box.clickedButton()
+        return "move" if b is mv else "keep" if b is keep else "cancel"
 
     def assign_output_stations(self):
         self.assign_form("frame.stations", "Frame Output Stations", ("frame",),

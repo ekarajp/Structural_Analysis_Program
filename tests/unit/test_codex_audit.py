@@ -741,3 +741,154 @@ def test_beam_outside_its_floor_is_warned(how):
         assert bool(hits) == want, (dy, hits)
         if want:
             assert hits[0].startswith(f"Beam {b}:") and "0.300" in hits[0]
+
+
+def test_offset_zone_issues_sideways_and_up_down():
+    """An offset in the analysis beyond the rigid zone of the joint - sideways outside the
+    column, or up / down so that the joint's level is outside the beam's depth - is
+    reported (the Insertion Point form then offers Move Beams to Real Axis)."""
+    from structstudio.app import commands as C
+    m = _building()  # columns C40x40, beam B30x60
+    b = _edge_beams(m, y=0.0)[0]
+
+    def issues(off, cp=8, local=False, include=True):
+        return C.offset_zone_issues(m, [b], {"joint_offset_i": off, "joint_offset_j": off, "cardinal_point": cp,
+                                             "joint_offset_local": local, "offsets_in_analysis": include})
+    assert issues((0, 0.1, 0)) == []  # inside the column
+    assert len(issues((0, 0.5, 0))) == 2  # both ends outside it
+    assert issues((0, 0.5, 0), include=False) == []  # drawn only: not in the analysis
+    assert issues((0, 0.2, 0), local=True) == []  # 0.2 up: the joint still within the 0.6 depth
+    got = issues((0, 0, -0.2))  # 0.2 down from the top: the slab no longer touches it
+    assert len(got) == 1 and "0.200 below" in got[0]
+    assert issues((0, 0.3, 0), cp=10, local=True) == []  # centroid 0.3 up = half the depth: the edge
+
+
+def test_offset_beyond_depth_is_warned_in_the_analysis():
+    from structstudio.mesh.mesher import build_analysis_model
+    m = _building()
+    b = _edge_beams(m, y=0.0)[0]
+    f = m.frames[b]
+    f.cardinal_point, f.offsets_in_analysis = 8, True  # the line is the beam top, in the analysis
+    f.joint_offset_i = f.joint_offset_j = (0.0, 0.0, -0.2)
+    w = [x for x in build_analysis_model(m).warnings if "outside its depth" in x]
+    assert len(w) == 1 and w[0].startswith(f"Beam {b}: 0.200 below") and "Move Beams to Real Axis" in w[0]
+
+
+def test_secondary_beam_end_follows_the_moved_beam():
+    """A secondary beam framing into the moved beam's old line: its end goes to the beam's
+    new line (no stub past the beam moved inward, no rigid link to reach it moved
+    outward) - exactly the beams drawn there by hand."""
+    from structstudio.app.document import Document
+    from structstudio.app import commands as C
+    from structstudio.model.checks import duplicates_of
+    for dy in (0.3, -0.3):
+        m = _building()
+        b = _edge_beams(m, y=0.0)[0]
+        mid, midt = m.add_point(3.0, 0.0, 3.0), m.add_point(3.0, 5.0, 3.0)
+        s2 = m.add_frame(mid.name, midt.name, m.frames[b].section).name
+        case = _floor_load(m)
+        hand = copy.deepcopy(m)
+        f = hand.frames[b]
+        ji, jj = f.point_i, f.point_j
+        f.point_i, f.point_j = hand.add_point(0.0, dy, 3.0).name, hand.add_point(6.0, dy, 3.0).name
+        hand.frames[s2].point_i = hand.add_point(3.0, dy, 3.0).name
+        if dy < 0:  # outside the columns, on no member: rigid links from the column joints
+            hand.add_frame(ji, f.point_i, "None", type="Rigid")
+            hand.add_frame(jj, f.point_j, "None", type="Rigid")
+        m.frames[b].joint_offset_i = m.frames[b].joint_offset_j = (0.0, dy, 0.0)
+        doc = Document(m)
+        moved, links, notes = C.move_beams_to_axis(doc, [b])
+        mm = doc.model
+        assert mm.points[mm.frames[s2].point_i].y == pytest.approx(dy) and len(links) == (0 if dy > 0 else 2)
+        assert any("its end moved" in t for t in notes) and not duplicates_of(mm, list(mm.frames))
+        if dy < 0:
+            assert sum("on no member" in t for t in notes) == 2
+        r1, r2 = run(mm), run(hand)
+        assert r1.base_reactions(case) == pytest.approx(r2.base_reactions(case), rel=1e-9, abs=1e-9)
+        for n in (b, s2):
+            assert np.abs(r1.frame_forces(n, case).forces).max(axis=0) == \
+                pytest.approx(np.abs(r2.frame_forces(n, case).forces).max(axis=0), rel=1e-9, abs=1e-9)
+
+
+def test_rigid_links_down_from_one_joint_are_chained():
+    """Two beams on one line meeting at a joint, moved across onto the side beam and down
+    by different depths: their rigid links are chained (side beam -> 0.2 down -> 1.0
+    down), not laid over each other."""
+    from structstudio.app.document import Document
+    from structstudio.app import commands as C
+    from structstudio.app.templates import new_building
+    from structstudio.model.checks import duplicates_of
+    m = new_building(x_spacings=(6,), y_spacings=(5, 4), story_heights=(3.5,), grid_only=False)
+    a, b = sorted(_edge_beams(m, x=6.0), key=lambda n: m.points[m.frames[n].point_i].y)
+    for n, dz in ((a, -1.0), (b, -0.2)):  # 0.6 inward: onto the beams along x, outside the columns
+        m.frames[n].joint_offset_i = m.frames[n].joint_offset_j = (-0.6, 0.0, dz)
+    doc = Document(m)
+    moved, links, notes = C.move_beams_to_axis(doc, [a, b])
+    mm = doc.model
+    assert sorted(moved) == sorted([a, b]) and not duplicates_of(mm, list(mm.frames))
+    shared = [n for n in links if abs(mm.points[mm.frames[n].point_i].y - 5.0) < 1e-9]
+    spans = sorted(tuple(sorted((round(mm.points[mm.frames[n].point_i].z, 9), round(mm.points[mm.frames[n].point_j].z, 9))))
+                   for n in shared)
+    assert spans == [(2.5, 3.3), (3.3, 3.5)]  # chained at the shared joint
+
+
+def test_offset_beam_outside_a_membrane_floor_takes_no_load_from_it():
+    """A beam analysed on its real axis outside a membrane floor (warned) takes no load
+    from that floor - the same as the beam moved there (before: it took the floor's edge
+    load as if under it, unlike a shell floor)."""
+    from structstudio.app.document import Document
+    from structstudio.app import commands as C
+    m = _building()
+    for s in m.shell_sections.values():
+        s.model_type = "Membrane"
+    b = _edge_beams(m, y=0.0)[0]
+    m.frames[b].joint_offset_i = m.frames[b].joint_offset_j = (0.0, -0.3, 0.0)
+    case = _floor_load(m)
+    doc = Document(copy.deepcopy(m))
+    C.move_beams_to_axis(doc, [b])
+    rA, rB = run(m), run(doc.model)
+    assert any(f"Beam {b}: its real axis is 0.300 outside floor" in w for w in rA.am.warnings)
+    shear = lambda r: np.abs(r.frame_forces(b, case).forces[:, 1]).max()
+    assert shear(rA) == pytest.approx(shear(rB), abs=1e-9) and shear(rA) < 1e-6
+    assert rA.base_reactions(case) == pytest.approx(rB.base_reactions(case), rel=1e-9)
+
+
+def test_moved_beam_warned_only_against_its_own_floor():
+    """A moved beam outside its floor is warned for that floor only - not for a floor that
+    merely has a corner at one of its joints."""
+    from structstudio.app.document import Document
+    from structstudio.app import commands as C
+    from structstudio.app.templates import new_building
+    from structstudio.mesh.mesher import build_analysis_model
+    m = new_building(x_spacings=(5, 4, 8), y_spacings=(7,), story_heights=(3.5,), grid_only=False)
+    b = [n for n in _edge_beams(m, y=0.0) if m.points[m.frames[n].point_i].x == pytest.approx(5.0)
+         or m.points[m.frames[n].point_j].x == pytest.approx(5.0)]
+    b = [n for n in b if min(m.points[m.frames[n].point_i].x, m.points[m.frames[n].point_j].x) == pytest.approx(5.0)][0]
+    m.frames[b].joint_offset_i = m.frames[b].joint_offset_j = (0.0, -0.3, 0.0)
+    doc = Document(m)
+    C.move_beams_to_axis(doc, [b])
+    w = [x for x in build_analysis_model(doc.model).warnings if "outside floor" in x]
+    assert len(w) == 1 and "0.300 outside floor" in w[0]
+
+
+def test_offset_beam_local_axes_from_its_joint_line():
+    """A beam on its real axis with unequal end offsets (its axis turned in plan) keeps the
+    local axes of the CSI rule from its joint-to-joint line (v3 = v1~ x v2): the section
+    is not turned with the axis (found by the OpenSees cross-check, seed 50027)."""
+    from structstudio.mesh.mesher import build_analysis_model
+    from structstudio.mesh.geometry import frame_axes
+    m = _building()
+    b = _edge_beams(m, y=0.0)[0]
+    f = m.frames[b]
+    f.angle = 90.0
+    f.joint_offset_i, f.joint_offset_j = (0.25, -0.13, -0.13), (-0.2, 0.22, -0.26)
+    am = build_analysis_model(m)
+    el = am.frames[am.object_to_frames[b][0]]
+    a = np.array(m.points[f.point_i].xyz, float)
+    c = np.array(m.points[f.point_j].xyz, float)
+    nominal = frame_axes(a, c, 90.0)
+    v1 = (c + np.array(f.joint_offset_j)) - (a + np.array(f.joint_offset_i))
+    v1 /= np.linalg.norm(v1)
+    v3 = np.cross(v1, nominal[1])
+    v3 /= np.linalg.norm(v3)
+    assert el.axes[0] == pytest.approx(v1, abs=1e-9) and el.axes[2] == pytest.approx(v3, abs=1e-9)

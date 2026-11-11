@@ -786,7 +786,10 @@ def test_gui_insertion_point(window, qapp, monkeypatch):
     f.transform.setChecked(True)
     f.mode.setCurrentIndex(1)  # each end, global X Y Z
     f.offset_boxes[("End-I", 2)].setValue(0.1)
+    asked = []  # cardinal point 2 (bottom) + 0.1 up: the joint below the beam - outside its depth
+    monkeypatch.setattr(type(window), "_offset_zone_choice", lambda self, issues: asked.append(issues) or "keep")
     window.assign_panel.ok_button.click()
+    assert asked and "below its joints' level" not in asked[0][0] and "above" in asked[0][0]
     fr = window.doc.model.frames[beam]
     assert fr.cardinal_point == 2 and fr.display_cardinal == 2 and fr.joint_offset_i[2] == pytest.approx(0.1)
 
@@ -838,7 +841,42 @@ def test_gui_insertion_point_moves_beams_to_real_axis(window, qapp, monkeypatch)
 
 
 @gui
-def test_gui_insertion_shift_and_window_size(window, qapp):
+def test_gui_insertion_point_outside_the_rigid_zone_offers_the_move(window, qapp, monkeypatch):
+    """Offsets in the analysis beyond the joint's rigid zone (0.5 sideways, outside the
+    0.4 column): the form asks - Move Beams to Real Axis (the same as drawing it there),
+    Keep as Offset, or Cancel (nothing assigned)."""
+    from structstudio.app.templates import new_building
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information", lambda *a, **k: None)
+    for choice in ("cancel", "keep", "move"):
+        window.doc.model = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
+        m = window.doc.model
+        beam = next(n for n, f in m.frames.items() if f.type == "Beam"
+                    and abs(m.points[f.point_i].y) < 1e-9 and abs(m.points[f.point_j].y) < 1e-9)
+        asked = []
+        monkeypatch.setattr(type(window), "_offset_zone_choice",
+                            lambda self, issues, c=choice: asked.append(issues) or c)
+        window.state.set_selection([beam])
+        window.assign_insertion_point()
+        f = window.assign_panel._form
+        f.transform.setChecked(True)
+        f.mode.setCurrentIndex(1)
+        f.offset_boxes[("End-I", 1)].setValue(0.5)
+        f.offset_boxes[("End-J", 1)].setValue(0.5)
+        window.assign_panel.apply_button.click()
+        m = window.doc.model
+        fr = m.frames[beam]
+        assert len(asked) == 1 and len(asked[0]) == 2  # both ends outside the columns
+        if choice == "cancel":
+            assert fr.joint_offset_i == (0.0, 0.0, 0.0) and m.points[fr.point_i].y == 0.0
+        elif choice == "keep":
+            assert fr.joint_offset_i == pytest.approx((0.0, 0.5, 0.0)) and m.points[fr.point_i].y == 0.0
+        else:
+            assert fr.joint_offset_i == pytest.approx((0, 0, 0)) and m.points[fr.point_i].y == pytest.approx(0.5)
+        window.state.set_tool("select")
+
+
+@gui
+def test_gui_insertion_shift_and_window_size(window, qapp, monkeypatch):
     """Insertion Point window opens big enough; dx / dy from the cardinal point are joint
     offsets along the section (local 3 / 2, both ends), drawn and in the analysis."""
     from structstudio.app import extrude as ex
@@ -888,7 +926,10 @@ def test_gui_insertion_shift_and_window_size(window, qapp):
     f.mode.setCurrentIndex(1)
     f.offset_boxes[("End-J", 0)].setValue(0.3)
     f.transform.setChecked(True)  # (at the bottom: cardinal point and joint offsets in the analysis)
+    asked = []  # (sideways outside the column at end I: offered the move - kept as an offset here)
+    monkeypatch.setattr(type(window), "_offset_zone_choice", lambda self, issues: asked.append(issues) or "keep")
     window.assign_panel.ok_button.click()
+    assert asked
     fr = window.doc.model.frames[beam]
     assert not fr.joint_offset_local and fr.joint_offset_j[0] == pytest.approx(0.3) and fr.offsets_in_analysis
 

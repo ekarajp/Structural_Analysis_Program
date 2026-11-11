@@ -663,7 +663,9 @@ class Mesher:
             return
         shift = self._axis_shift.get(f.name)
         props = self._section_props(f)
-        nominal = frame_axes(a, b, f.angle)
+        # the local axes come from the joint-to-joint line (CSI), also for a beam meshed on
+        # its true axis: unequal end offsets turn its axis in plan, not its section
+        nominal = frame_axes(*self._frame_line[f.name], f.angle) if shift is not None else frame_axes(a, b, f.angle)
 
         # insertion point offsets (global vectors from joint to element centroid)
         c2, c3 = _CARDINAL.get(f.cardinal_point, (0.0, 0.0))
@@ -676,6 +678,14 @@ class Mesher:
         off_j = off_j + cardinal
         if not getattr(f, "offsets_in_analysis", True):  # drawn off the joints only
             off_i = off_j = np.zeros(3)
+        elif f.type == "Beam":
+            vz = 0.5 * float(off_i[2] + off_j[2])
+            if abs(vz) > 0.5 * props["t3"] + self.tol:
+                am.warnings.append(
+                    f"Beam {f.name}: {(abs(vz) - 0.5 * props['t3']) / U.factor('length'):.3f} {'above' if vz > 0 else 'below'} "
+                    f"its joints' level, outside its depth - joined to the joints (and the slab there) by "
+                    f"rigid arms that are not in the real building: use Edit > Edit Frames > Move Beams to "
+                    f"Real Axis (the same as drawing the beam there)")
         if shift is not None:  # meshed on the true axis: only the rest (vertical) is an element arm
             off_i = off_i - shift[0]
             off_j = off_j - shift[1]
@@ -790,8 +800,9 @@ class Mesher:
                         am.warnings.append(
                             f"Beam {f.name}: its axis is {hn / U.factor('length'):.3f} off joint {end_point}, outside "
                             f"column {other.name} ({half / U.factor('length'):.3f} to its face) - joined to the joint by a "
-                            f"rigid link, no rigid end zone at that end; check that the connection is really "
-                            f"that stiff")
+                            f"rigid link, no rigid end zone at that end - a rigid arm that is not in the real "
+                            f"building: use Edit > Edit Frames > Move Beams to Real Axis (the same as drawing "
+                            f"the beam there)")
         if shift is not None:  # a joint whose cut merged with a nearby one: the nearest axis node
             used = {round(t, 12) for t in params}
             for t, joint in joint_cuts.items():
@@ -1458,10 +1469,12 @@ class Mesher:
             if f.type != "Beam" or f.name not in am.object_to_frames:
                 continue
             shifted = f.name in self._axis_shift
-            anchors = [] if shifted else [q for p in (f.point_i, f.point_j) for q in rigid_at.get(p, [])]
-            if not shifted and not anchors:
+            # per end, the joints it stands for: its own (offset beam), or the joints its
+            # rigid links go to (a moved beam; an end without a link: the end itself)
+            ends = [[p] for p in (f.point_i, f.point_j)] if shifted else \
+                [rigid_at.get(p, []) or [p] for p in (f.point_i, f.point_j)]
+            if not shifted and not any(rigid_at.get(p) for p in (f.point_i, f.point_j)):
                 continue  # on its joints: the usual case, the floor mesh follows the beam
-            joints = [f.point_i, f.point_j] if shifted else anchors
             nodes = {n for e in am.object_to_frames[f.name] for n in (am.frames[e].node_i, am.frames[e].node_j)}
             ga, gb = self._frame_geom[f.name]
             for name, P in polys.items():
@@ -1469,9 +1482,8 @@ class Mesher:
                 if abs(ga[2] - z) > tol or abs(gb[2] - z) > tol:
                     continue
                 Q = P[:, :2]
-                on = [p for p in joints if _plan_distance(self._xyz(m.points[p])[:2], Q) <= tol]
-                if len(on) < (2 if shifted else 1):
-                    continue  # the beam's joints are not on this floor
+                if not all(any(_plan_distance(self._xyz(m.points[p])[:2], Q) <= tol for p in end) for end in ends):
+                    continue  # the beam's joints (both ends) are not on this floor
                 if nodes & (shell_nodes.get(name, set()) | tied):
                     continue  # it is connected
                 mid = 0.5 * (ga + gb)
