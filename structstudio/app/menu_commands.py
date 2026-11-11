@@ -1062,7 +1062,17 @@ class MenuCommandsMixin:
             return w, w.values
 
         def apply(names, v):
-            C.assign(self.doc, "frame", names, **offset_fields(v), **frame_fields(v["cp"], v["transform"]))
+            fields = {**offset_fields(v), **frame_fields(v["cp"], v["transform"])}
+            if not v.get("move"):
+                C.assign(self.doc, "frame", names, **fields)
+                return
+            moved, links, notes = C.move_beams_to_axis(self.doc, names, None, assign=fields)
+            self._info(f"Insertion point assigned; {len(moved)} beam(s) moved to their real axis with "
+                       f"{len(links)} rigid link(s)")
+            if notes and not moved:
+                QtWidgets.QMessageBox.information(self, "Move Beams to Real Axis",
+                                                  "The insertion point was assigned; no beam was moved:\n\n"
+                                                  + "\n".join(notes[:20]))
         self.assign_form("frame.insertion", "Frame Insertion Point", ("frame",), apply, widget=widget)
 
     def assign_output_stations(self):

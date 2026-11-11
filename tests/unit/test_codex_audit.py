@@ -518,3 +518,119 @@ def test_move_beam_to_real_axis_with_rigid_links():
     doc.undo()
     assert (doc.model.frames[b.name].point_i, doc.model.frames[b.name].point_j) == old
     assert not any(g.type == "Rigid" for g in doc.model.frames.values())
+
+
+def _edge_beams(m, y=None, x=None):
+    out = []
+    for f in m.frames.values():
+        if f.type != "Beam":
+            continue
+        a, b = m.points[f.point_i], m.points[f.point_j]
+        if y is not None and abs(a.y - y) < 1e-9 and abs(b.y - y) < 1e-9:
+            out.append(f.name)
+        if x is not None and abs(a.x - x) < 1e-9 and abs(b.x - x) < 1e-9:
+            out.append(f.name)
+    return sorted(out)
+
+
+def _column_end_offsets(am, m):
+    """Top end offsets of the column elements (the depth of the deepest beam framing in)."""
+    return [e.end_offset_j for e in am.frames
+            if m.frames[e.object].type == "Column" and e.end_offset_j > 0]
+
+
+def _floor_load(m, q=2.0):
+    pat = next(iter(m.load_patterns))
+    case = [c for c, v in m.load_cases.items() if getattr(v, "loads", None) and pat in v.loads][0]
+    for a in m.areas.values():
+        if a.type == "Floor":
+            m.add_area_load(a.name, pat, q)
+    return case
+
+
+def test_insertion_point_dialog_moves_beams_in_one_undo_step():
+    """Assign > Insertion Point with 'Move Beams to Real Axis' ticked: the offsets are
+    assigned and the beam moved in ONE edit (one undo goes back to the original)."""
+    from structstudio.app.document import Document
+    from structstudio.app import commands as C
+    m = _building()
+    b = _edge_beams(m, y=0.0)[0]
+    old = (m.frames[b].point_i, m.frames[b].point_j)
+    doc = Document(m)
+    moved, links, notes = C.move_beams_to_axis(
+        doc, [b], assign={"joint_offset_i": (0.0, 0.3, 0.0), "joint_offset_j": (0.0, 0.3, 0.0),
+                          "joint_offset_local": False})
+    f = doc.model.frames[b]
+    assert moved == [b] and len(links) == 2 and not notes
+    assert doc.model.points[f.point_i].y == pytest.approx(0.3)
+    assert f.joint_offset_i == (0.0, 0.0, 0.0)
+    doc.undo()
+    g = doc.model.frames[b]
+    assert (g.point_i, g.point_j) == old and g.joint_offset_i == (0.0, 0.0, 0.0)
+    assert not any(h.type == "Rigid" for h in doc.model.frames.values())
+
+
+def test_two_corner_beams_moved_equal_the_offset_beams():
+    """Both edge beams at a corner moved: exactly one rigid link per old joint (no link
+    to the other beam's new end), the corner column keeps its top end offset through the
+    rigid links, and the results equal the two beams analysed on their offset axes."""
+    from structstudio.app.document import Document
+    from structstudio.app import commands as C
+    from structstudio.mesh.mesher import build_analysis_model
+    m = _building()
+    bs = _edge_beams(m, y=0.0) + _edge_beams(m, x=0.0)
+    m.frames[bs[0]].joint_offset_i = m.frames[bs[0]].joint_offset_j = (0.0, 0.25, 0.0)
+    m.frames[bs[1]].joint_offset_i = m.frames[bs[1]].joint_offset_j = (0.25, 0.0, 0.0)
+    ref = copy.deepcopy(m)
+    doc = Document(m)
+    moved, links, _ = C.move_beams_to_axis(doc, bs)
+    m = doc.model
+    assert sorted(moved) == sorted(bs) and len(links) == 4
+    ends = {(m.frames[n].point_i, m.frames[n].point_j) for n in links}
+    assert len(ends) == 4
+    am_a, am_b = build_analysis_model(ref), build_analysis_model(m)
+    assert sorted(_column_end_offsets(am_b, m)) == pytest.approx(sorted(_column_end_offsets(am_a, ref)))
+    assert max(_column_end_offsets(am_b, m)) == pytest.approx(0.6)  # deepest beam B30x60
+    case_a, case_b = _floor_load(ref), _floor_load(m)
+    ra, rb = run(ref), run(m)
+    assert rb.base_reactions(case_b) == pytest.approx(ra.base_reactions(case_a), rel=1e-9, abs=1e-9)
+    for b in bs:
+        fa = ra.frame_forces(b, case_a).forces
+        fb = rb.frame_forces(b, case_b).forces
+        assert np.abs(fb).max() == pytest.approx(np.abs(fa).max(), rel=1e-9)
+
+
+def test_length_inside_column_is_exact_off_the_axis():
+    """Automatic end offset of a beam end at a 0.4 x 0.6 column: half the column on its
+    axis (ETABS), the exact rectangle exit off it, zero outside."""
+    from structstudio.mesh.mesher import _length_inside_column as L
+    axes = np.array([[0, 0, 1.0], [1.0, 0, 0], [0, 1.0, 0]])  # local 2 = X (t3), 3 = Y (t2)
+    x, y = np.array([1.0, 0, 0]), np.array([0, 1.0, 0])
+    t3, t2 = 0.6, 0.4
+    assert L(np.zeros(3), x, axes, t3, t2, 1e-9) == pytest.approx(0.3)
+    assert L(np.zeros(3), y, axes, t3, t2, 1e-9) == pytest.approx(0.2)
+    assert L(np.array([0, 0.15, 0]), x, axes, t3, t2, 1e-9) == pytest.approx(0.3)  # along X, off in Y
+    assert L(np.array([0.1, 0, 0]), x, axes, t3, t2, 1e-9) == pytest.approx(0.2)   # 0.3 - 0.1
+    assert L(np.array([0.1, 0, 0]), -x, axes, t3, t2, 1e-9) == pytest.approx(0.4)  # 0.3 + 0.1
+    assert L(np.array([0, 0.3, 0]), x, axes, t3, t2, 1e-9) == 0.0                   # outside
+
+
+@pytest.mark.parametrize("how", ["offset", "moved"])
+def test_beam_outside_its_floor_is_warned(how):
+    """An edge beam whose real axis is outside the floor edge (offset outward, or moved
+    there) is not connected to the slab: a warning names it; inward gives none."""
+    from structstudio.app.document import Document
+    from structstudio.app import commands as C
+    from structstudio.mesh.mesher import build_analysis_model
+    for dy, want in ((0.3, False), (-0.3, True)):
+        m = _building()
+        b = _edge_beams(m, y=0.0)[0]
+        m.frames[b].joint_offset_i = m.frames[b].joint_offset_j = (0.0, dy, 0.0)
+        if how == "moved":
+            doc = Document(m)
+            assert C.move_beams_to_axis(doc, [b])[0] == [b]
+            m = doc.model
+        hits = [w for w in build_analysis_model(m).warnings if "outside floor" in w]
+        assert bool(hits) == want, (dy, hits)
+        if want:
+            assert hits[0].startswith(f"Beam {b}:") and "0.300" in hits[0]

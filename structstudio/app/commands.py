@@ -565,8 +565,8 @@ def beam_axis_moves(model: Model, frames: Sequence[str], distance: Optional[floa
     return moves, notes
 
 
-def move_beams_to_axis(doc: Document, frames: Sequence[str], distance: Optional[float] = None
-                       ) -> Tuple[List[str], List[str], List[str]]:
+def move_beams_to_axis(doc: Document, frames: Sequence[str], distance: Optional[float] = None,
+                       assign: Optional[dict] = None) -> Tuple[List[str], List[str], List[str]]:
     """*Edit > Edit Frames > Move Beams to Real Axis (Rigid Links)*: each beam is moved,
     in plan, to the line where it really is - by ``distance`` (+ to the left of I -> J)
     or by its own insertion offsets - and joined to the joints it left by rigid links
@@ -578,13 +578,23 @@ def move_beams_to_axis(doc: Document, frames: Sequence[str], distance: Optional[
     edge.  Returns (beams moved, rigid links made, notes); one undo step."""
     from ..mesh.geometry import frame_axes, point_on_segment
     model = doc.model
-    moves, notes = beam_axis_moves(model, frames, distance)
-    if not moves:
-        return [], [], notes
     made_links: List[str] = []
     tol = model.options.merge_tolerance
+    if assign is None:
+        moves, notes = beam_axis_moves(model, frames, distance)
+        if not moves:
+            return [], [], notes
+    else:  # Assign > Insertion Point with "move": the new offsets first, then the move (one undo step)
+        moves, notes = {}, []
 
     def mutate(m: Model):
+        nonlocal moves, notes
+        if assign is not None:
+            for n in frames:
+                if n in m.frames:
+                    for k, v in assign.items():
+                        setattr(m.frames[n], k, v)
+            moves, notes = beam_axis_moves(m, frames, distance)
         def new_point(src, shift):
             p = m.points[src]
             q = m.add_point(p.x + shift[0], p.y + shift[1], p.z)  # an existing joint there is used
@@ -602,6 +612,9 @@ def move_beams_to_axis(doc: Document, frames: Sequence[str], distance: Optional[
                     return
             made_links.append(m.add_frame(p_from, p_to, "None", type="Rigid").name)
 
+        # joints that existed before this command: the new beam ends it makes are never
+        # "joints of other members on the old line" of the next beam moved
+        existing = set(m.points)
         for n, (si, sj) in moves.items():
             f = m.frames[n]
             pi, pj = f.point_i, f.point_j
@@ -616,7 +629,7 @@ def move_beams_to_axis(doc: Document, frames: Sequence[str], distance: Optional[
                 used.update(ar.points)
             inner = []
             for p in m.points.values():
-                if p.name in (pi, pj) or p.name not in used:
+                if p.name in (pi, pj) or p.name not in used or p.name not in existing:
                     continue
                 t = point_on_segment(np.array(p.xyz, float), a, b, tol)
                 if t is not None and 0.0 < t < 1.0:

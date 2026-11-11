@@ -792,6 +792,38 @@ def test_gui_insertion_point(window, qapp, monkeypatch):
 
 
 @gui
+def test_gui_insertion_point_moves_beams_to_real_axis(window, qapp):
+    """Assign > Frame > Insertion Point: 'Move Beams to Real Axis (Rigid Links)' (existing
+    members only, not when drawing) moves the beam by the offsets in one undo step."""
+    from structstudio.app import insertion_dialog as ins
+    from structstudio.app.templates import new_building
+    window.doc.model = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
+    m = window.doc.model
+    assert ins.InsertionPointWidget(m, next(iter(m.frame_sections)), offsets=False).move.isHidden()
+    beam = next(n for n, f in m.frames.items() if f.type == "Beam"
+                and abs(m.points[f.point_i].y) < 1e-9 and abs(m.points[f.point_j].y) < 1e-9)
+    old = (m.frames[beam].point_i, m.frames[beam].point_j)
+    window.state.set_selection([beam])
+    window.assign_insertion_point()
+    f = window.assign_panel._form
+    assert f.move.text() == ins.MOVE_TEXT and not f.move.isHidden() and not f.move.isChecked()
+    f.mode.setCurrentIndex(1)  # each end, global X Y Z
+    f.offset_boxes[("End-I", 1)].setValue(0.3)
+    f.offset_boxes[("End-J", 1)].setValue(0.3)
+    f.move.setChecked(True)
+    window.assign_panel.ok_button.click()
+    m = window.doc.model
+    fr = m.frames[beam]
+    assert m.points[fr.point_i].y == pytest.approx(0.3) and m.points[fr.point_j].y == pytest.approx(0.3)
+    assert fr.joint_offset_i == pytest.approx((0, 0, 0)) and fr.joint_offset_j == pytest.approx((0, 0, 0))
+    assert sum(1 for g in m.frames.values() if g.type == "Rigid") == 2
+    window.doc.undo()
+    m = window.doc.model
+    assert (m.frames[beam].point_i, m.frames[beam].point_j) == old
+    assert not any(g.type == "Rigid" for g in m.frames.values())
+
+
+@gui
 def test_gui_insertion_shift_and_window_size(window, qapp):
     """Insertion Point window opens big enough; dx / dy from the cardinal point are joint
     offsets along the section (local 3 / 2, both ends), drawn and in the analysis."""

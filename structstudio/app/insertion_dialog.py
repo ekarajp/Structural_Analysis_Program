@@ -33,6 +33,12 @@ SHIFT_HELP = (
     "joint offsets) instead.<br><br>"
     "The cardinal point tick ('Include the offset from the centroid ...') is separate: it decides "
     "only whether the cardinal point's own offset is in the analysis.")
+MOVE_TEXT = "Move Beams to Real Axis (Rigid Links)"
+MOVE_TIP = ("On OK, each selected beam is moved in plan by the horizontal part of these offsets: its line "
+            "then is the real beam axis, rigid links join it to its joints (and to joints on the old line "
+            "that other members use), and its horizontal offsets become zero.  The vertical part stays an "
+            "offset.  Columns and braces are not moved.  Draw the floor to the real slab edge afterwards.  "
+            "One Undo restores everything.")
 TRANSFORM_TEXT = ("Include these offsets (cardinal point and joint offsets) in the analysis - stiffness "
                   "transformed, eccentric member")
 TRANSFORM_TIP = ("On: the member's axis lies off its joints by the cardinal point and the joint offsets; the "
@@ -276,6 +282,11 @@ class InsertionPointWidget(QtWidgets.QWidget):
         lab.mousePressEvent = lambda _e: self.transform.toggle()
         right.addLayout(row)
         self.transform.setChecked(bool(transform))
+        # an existing beam: move it to where it really is (the line drawn = the real axis)
+        self.move = QtWidgets.QCheckBox(MOVE_TEXT)
+        self.move.setToolTip(MOVE_TIP)
+        self.move.setVisible(bool(offsets))
+        right.addWidget(self.move)
         right.addStretch(1)
         if not offsets:  # (drawing: no member yet - dx, dy only)
             self.mode.setEnabled(False)
@@ -368,7 +379,7 @@ class InsertionPointWidget(QtWidgets.QWidget):
     def values(self) -> dict:
         local = self.mode.currentIndex() == 0
         out = {"cp": self.cardinal.currentIndex() + 1, "transform": self.transform.isChecked(), "local": local,
-               "shift": (self.dy.value(), self.dx.value())}
+               "shift": (self.dy.value(), self.dx.value()), "move": not self.move.isHidden() and self.move.isChecked()}
         if local:
             d = (0.0, self.dy.value(), self.dx.value())
             out["ioff"] = out["joff"] = d

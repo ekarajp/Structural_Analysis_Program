@@ -238,6 +238,8 @@ class Mesher:
         for t in m.tendons.values():
             self._apply_tendon(t)
 
+        self._check_beams_beside_floors()
+
         # 4a. line springs -> nodal springs by tributary length along the line
         self._apply_line_springs()
 
@@ -729,7 +731,7 @@ class Mesher:
                     # it does not join diaphragms (SAP2000 keeps such members as one element)
                     self._internal_nodes.add(node_ids[-1])
 
-        if shift is not None:  # the axis off the column at an end: the automatic end offset is a guess
+        if shift is not None:  # the axis off the column at an end: no rigid zone there (see _length_inside_column)
             for end_point, h in ((f.point_i, shift[0]), (f.point_j, shift[1])):
                 hn = float(np.linalg.norm(h))
                 if hn <= self.tol:
@@ -751,8 +753,9 @@ class Mesher:
                     if hn > half + self.tol:
                         am.warnings.append(
                             f"Beam {f.name}: its axis is {hn / U.factor('length'):.3f} off joint {end_point}, outside "
-                            f"column {other.name} ({half / U.factor('length'):.3f} to its face) - the rigid arm to the "
-                            f"joint is kept, but check the end offset / draw a rigid link to model the connection")
+                            f"column {other.name} ({half / U.factor('length'):.3f} to its face) - joined to the joint by a "
+                            f"rigid link, no rigid end zone at that end; check that the connection is really "
+                            f"that stiff")
         if shift is not None:  # a joint whose cut merged with a nearby one: the nearest axis node
             used = {round(t, 12) for t in params}
             for t, joint in joint_cuts.items():
@@ -1024,11 +1027,21 @@ class Mesher:
         Lf = U.factor("length")
         direction = unit(b - a)
         out = []
-        for end_point, end_xyz in ((f.point_i, a), (f.point_j, b)):
+        for end_point, end_xyz, inward in ((f.point_i, a, direction), (f.point_j, b, -direction)):
             offset = 0.0
-            for other in m.frames.values():
-                if other.name == f.name or end_point not in (other.point_i, other.point_j):
-                    continue
+            # the members at the end joint, and for a beam also the columns one rigid link
+            # away (a beam moved to its real axis, joined to the column joint by a link)
+            near = [(other, self._xyz(m.points[end_point])) for other in m.frames.values()
+                    if other.name != f.name and end_point in (other.point_i, other.point_j)]
+            # (a column likewise sees the beams moved to their real axis: its top end
+            # offset is the depth of the deepest beam framing in, linked or not)
+            want = "Column" if f.type in ("Beam", "Brace") else "Beam" if f.type == "Column" else None
+            if want is not None:
+                for lk in [g for g, _ in near if g.type == "Rigid"]:
+                    jn = lk.point_j if lk.point_i == end_point else lk.point_i
+                    near += [(other, self._xyz(m.points[jn])) for other in m.frames.values()
+                             if other.type == want and other.name != f.name and jn in (other.point_i, other.point_j)]
+            for other, joint_xyz in near:
                 sec = m.frame_sections.get(other.section)
                 if sec is None:
                     continue
@@ -1045,8 +1058,7 @@ class Mesher:
                         axes = frame_axes(oa, ob, other.angle)
                     except ValueError:
                         continue
-                    d = 0.5 * (abs(float(direction @ axes[1])) * t3 + abs(float(direction @ axes[2])) * t2)
-                    offset = max(offset, d)
+                    offset = max(offset, _length_inside_column(end_xyz - joint_xyz, inward, axes, t3, t2, self.tol))
             out.append(offset)
         return out[0], out[1]
 
@@ -1372,6 +1384,62 @@ class Mesher:
         self.am.object_to_shells[a.name] = elem_ids
 
     # ------------------------------------------- auto edge constraints (ETABS)
+    def _check_beams_beside_floors(self):
+        """A beam whose real axis (joint offsets / insertion point in the analysis, or the
+        beam moved there and joined by rigid links) lies outside the floor it belongs to
+        - its joints are on that floor, its axis is not - shares no node with that floor:
+        the slab edge along it has no beam under it.  Not an error the analysis can see,
+        so it is said."""
+        m, am = self.model, self.am
+        floors = [a for a in m.areas.values() if a.type == "Floor" and all(p in m.points for p in a.points)]
+        if not floors or not am.shells:
+            return
+        Lf = self.U.factor("length")
+        tol = max(self.tol, 1e-6)
+        shell_nodes: Dict[str, set] = {}
+        for sh in am.shells:
+            shell_nodes.setdefault(sh.object, set()).update(sh.nodes)
+        tied = {t.node for t in am.ties}
+        polys = {}
+        for a in floors:
+            P = np.array([self._xyz(m.points[p]) for p in a.points], float)
+            if np.ptp(P[:, 2]) > tol:
+                continue  # an inclined floor: not checked
+            polys[a.name] = P
+        rigid_at: Dict[str, List[str]] = {}
+        for g in m.frames.values():
+            if g.type == "Rigid":
+                rigid_at.setdefault(g.point_i, []).append(g.point_j)
+                rigid_at.setdefault(g.point_j, []).append(g.point_i)
+        for f in m.frames.values():
+            if f.type != "Beam" or f.name not in am.object_to_frames:
+                continue
+            shifted = f.name in self._axis_shift
+            anchors = [] if shifted else [q for p in (f.point_i, f.point_j) for q in rigid_at.get(p, [])]
+            if not shifted and not anchors:
+                continue  # on its joints: the usual case, the floor mesh follows the beam
+            joints = [f.point_i, f.point_j] if shifted else anchors
+            nodes = {n for e in am.object_to_frames[f.name] for n in (am.frames[e].node_i, am.frames[e].node_j)}
+            ga, gb = self._frame_geom[f.name]
+            for name, P in polys.items():
+                z = P[0, 2]
+                if abs(ga[2] - z) > tol or abs(gb[2] - z) > tol:
+                    continue
+                Q = P[:, :2]
+                on = [p for p in joints if _plan_distance(self._xyz(m.points[p])[:2], Q) <= tol]
+                if len(on) < (2 if shifted else 1):
+                    continue  # the beam's joints are not on this floor
+                if nodes & (shell_nodes.get(name, set()) | tied):
+                    continue  # it is connected
+                mid = 0.5 * (ga + gb)
+                d = _plan_distance(mid[:2], Q)
+                if d <= tol:
+                    continue
+                am.warnings.append(
+                    f"Beam {f.name}: its real axis is {d / Lf:.3f} outside floor {name} - the beam is not "
+                    f"connected to the slab, and the slab edge along it has no beam under it. Draw the floor "
+                    f"to the real slab edge (at least to the beam axis), or put the beam back on the floor edge")
+
     def _report_untied_joints(self):
         """Joints inside an area that got no mesh node and that no auto edge constraint
         ties to the mesh either: these are really not connected."""
@@ -2121,6 +2189,42 @@ class Mesher:
                 if weight_pa:
                     con.inertia_correction_loads["__self_weight__"] = con.inertia_correction_loads.get("__self_weight__", 0.0) + weight_pa / am.gravity * diff
             am.constraints.append(con)
+
+
+def _plan_distance(p: np.ndarray, Q: np.ndarray) -> float:
+    """Plan distance of point ``p`` from polygon ``Q`` (0 inside or on it)."""
+    if pg.inside(np.asarray(p, float), Q):
+        return 0.0
+    best = np.inf
+    n = len(Q)
+    for i in range(n):
+        a, b = Q[i], Q[(i + 1) % n]
+        ab = b - a
+        L2 = float(ab @ ab)
+        t = 0.0 if L2 == 0 else min(1.0, max(0.0, float((p - a) @ ab) / L2))
+        best = min(best, float(np.linalg.norm(p - (a + t * ab))))
+    return best
+
+
+def _length_inside_column(h: np.ndarray, d: np.ndarray, axes: np.ndarray, t3: float, t2: float,
+                          tol: float) -> float:
+    """Length of a beam axis inside a column (the automatic end offset), from the beam end
+    that lies ``h`` from the column's axis, going along ``d`` into the span.  At the
+    column's axis (h = 0): the ETABS rule, half the column dimension along the beam;
+    off it (a beam on its real axis, an offset beam): the exact length to where the axis
+    leaves the column's rectangle, 0 when the end is outside the column."""
+    u, v = float(h @ axes[1]), float(h @ axes[2])
+    du, dv = float(d @ axes[1]), float(d @ axes[2])
+    if abs(u) <= tol and abs(v) <= tol:
+        return 0.5 * (abs(du) * t3 + abs(dv) * t2)
+    h3, h2 = 0.5 * t3, 0.5 * t2
+    if abs(u) > h3 + tol or abs(v) > h2 + tol:
+        return 0.0
+    s = np.inf
+    for c, dc, half in ((u, du, h3), (v, dv, h2)):
+        if abs(dc) > 1e-12:
+            s = min(s, ((half if dc > 0 else -half) - c) / dc)
+    return float(max(0.0, s)) if np.isfinite(s) else 0.0
 
 
 def _part_inside(cell3: np.ndarray, region3: np.ndarray) -> float:
