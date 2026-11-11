@@ -418,7 +418,8 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
         return bool(getattr(self.state.tool, "picks", None))
 
     def _apply_load(self):
-        self.state.apply_load_tool()
+        self.state.apply_load_tool(again=True)
+        self._update_apply()
 
     def _ok(self):
         """OK: assign to the picked objects (if any), then close the command."""
@@ -447,8 +448,12 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
             n = len(tool.picked(self.state))
             spec = getattr(tool, "spec", None)
             self.apply_button.setVisible(spec is None or spec.apply is not None)
-            self.apply_button.setEnabled(n > 0)
+            last = self.state.last_applied_set() if spec is not None and not n else []
+            self.apply_button.setEnabled(n > 0 or bool(last))
             what = f"{n} {tool.plural(n)} picked" if n else f"Pick {tool.plural()} in the model (click / window)"
+            if last:
+                shown = ", ".join(last[:3]) + (" ..." if len(last) > 3 else "")
+                what += f" - or Apply again to the {len(last)} {tool.plural(len(last))} just assigned ({shown})"
             if n and not getattr(tool, "apply_label", None) and not getattr(tool, "spec", None):
                 what += f"  ({self.state.settings.load_mode})"
             self.picked_label.setText(what)

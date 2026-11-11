@@ -249,13 +249,17 @@ class ViewState(QtCore.QObject):
         if changed:
             self.selection_changed.emit()
 
-    def apply_load_tool(self) -> int:
+    def apply_load_tool(self, again: bool = False) -> int:
         """Enter / right-click / Apply with a load command: apply the form to the
-        picked objects (one undo step), then clear the picks."""
+        picked objects (one undo step), then clear the picks.  ``again`` (the Apply
+        button of an Assign form): with nothing picked, the objects of the last Apply
+        get the form again - changed a tick, Apply once more."""
         tool = self.tool
         if not getattr(tool, "picks", None):
             return 0
         names = tool.picked(self)
+        if not names and again:
+            names = self.last_applied_set()
         if not names:
             self.status.emit(f"{tool.title}: pick {tool.plural()} first (click or drag a window)")
             return 0
@@ -265,10 +269,20 @@ class ViewState(QtCore.QObject):
             self.report(exc)
             return 0
         tool.editing = False
+        if getattr(tool, "spec", None) is not None:
+            tool.last_set = list(names)
         self.clear_selection()
-        self.status.emit(f"{msg} - pick more, or Esc")
+        self.status.emit(f"{msg} - pick more, or Apply again to the same {tool.plural(len(names))}, or Esc"
+                         if getattr(tool, "spec", None) is not None else f"{msg} - pick more, or Esc")
         self.update_hint()
         return len(names)
+
+    def last_applied_set(self) -> list:
+        """The objects the Assign form was last applied to (those still in the model)."""
+        tool = self.tool
+        m = self.doc.model
+        tables = (m.points, m.frames, m.areas, getattr(m, "panel_loads", {}))
+        return [n for n in getattr(tool, "last_set", None) or [] if any(n in t for t in tables)]
 
     def finish_load_tool(self) -> int:
         """Enter / OK with a pick command: apply it to the picked objects and end the

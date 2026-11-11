@@ -90,6 +90,18 @@ def _overlaps(seg: List[Tuple[str, float, float]], tol: float) -> List[Tuple[str
     return out
 
 
+def _link_in_joint_zone(model, f, tol: float) -> bool:
+    """A rigid link from a column's joint to a point inside that column's section (in
+    plan, same level): the beam joined to the column inside its joint zone."""
+    if f.type != "Rigid":
+        return False
+    from ..mesh.geometry import column_containing
+    for p, q in ((f.point_i, f.point_j), (f.point_j, f.point_i)):
+        if column_containing(model, p, model.points[q].xyz, tol) is not None:
+            return True
+    return False
+
+
 def duplicates_of(model, frames: Iterable[str] = (), areas: Iterable[str] = ()) -> List[GeometryIssue]:
     """Duplicate / overlapping members and duplicate shells involving the given ones."""
     tol = max(model.options.merge_tolerance, 1e-9)
@@ -118,6 +130,8 @@ def duplicates_of(model, frames: Iterable[str] = (), areas: Iterable[str] = ()) 
                     fa, fb = model.frames[a], model.frames[b]
                     if {fa.point_i, fa.point_j} == {fb.point_i, fb.point_j}:
                         continue
+                    if _link_in_joint_zone(model, fa, tol) or _link_in_joint_zone(model, fb, tol):
+                        continue  # a rigid link inside a column: the joint zone, rigid anyway
                     seen.add(frozenset((a, b)))
                     out.append(GeometryIssue("warning", "OVERLAPPING_FRAMES",
                                              f"{a} and {b} overlap along {ov:.4g} (same line): part of the member "

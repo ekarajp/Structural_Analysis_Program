@@ -290,3 +290,49 @@ def beam_axis_shift(model, f, tol: float = 1e-9):
     if max(np.linalg.norm(hi), np.linalg.norm(hj)) <= tol:
         return None
     return hi, hj
+
+
+def column_containing(model, point: str, xyz, tol: float, scale: float = 1.0, xyz_of=None):
+    """Name of a column with an end at joint ``point`` whose section rectangle, in
+    plan, contains ``xyz`` at the joint's level (the joint zone of that column), or
+    None.  ``xyz`` and ``tol`` are in model units times ``scale`` (the mesher passes
+    SI with the length factor); ``xyz_of(p)`` gives a point's coordinates in those units."""
+    xyz_of = xyz_of or (lambda p: np.array(p.xyz, float) * scale)
+    q = np.asarray(xyz, float)
+    j = xyz_of(model.points[point])
+    h = q - j
+    if abs(h[2]) > tol:
+        return None
+    for c in model.frames.values():
+        if c.type != "Column" or point not in (c.point_i, c.point_j):
+            continue
+        sec = model.frame_sections.get(c.section)
+        if sec is None:
+            continue
+        try:
+            ax = frame_axes(xyz_of(model.points[c.point_i]), xyz_of(model.points[c.point_j]), c.angle)
+        except ValueError:
+            continue
+        t3, t2 = (sec.t3 or 0.0) * scale, (sec.t2 or 0.0) * scale
+        if abs(float(h @ ax[1])) <= 0.5 * t3 + tol and abs(float(h @ ax[2])) <= 0.5 * t2 + tol:
+            return c.name
+    return None
+
+
+def member_through(model, point: str, xyz, tol: float, exclude=(), geom=None, scale: float = 1.0, xyz_of=None):
+    """Name of a member (not a rigid link / null line) with an end at joint ``point``
+    that passes through ``xyz`` (strictly inside it, on its line) and is meshed at the
+    joints on it (so a member ending at ``xyz`` connects to it there), or None.
+    ``geom(name)`` gives a member's analysis line (default: joint to joint)."""
+    xyz_of = xyz_of or (lambda p: np.array(p.xyz, float) * scale)
+    q = np.asarray(xyz, float)
+    for g in model.frames.values():
+        if g.name in exclude or g.type in ("Rigid", "Null") or point not in (g.point_i, g.point_j):
+            continue
+        if not (g.auto_mesh and g.mesh_at_intersections):
+            continue
+        a, b = geom(g.name) if geom is not None else (xyz_of(model.points[g.point_i]), xyz_of(model.points[g.point_j]))
+        t = point_on_segment(q, np.asarray(a, float), np.asarray(b, float), tol)
+        if t is not None:
+            return g.name
+    return None

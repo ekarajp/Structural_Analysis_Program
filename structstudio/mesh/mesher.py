@@ -30,7 +30,7 @@ from . import tendons as TD
 from .panel_loads import membrane_floors, panel_loads_to_members
 from .analysis_model import (AnalysisModel, Body, Constraint, RigidLink, ElementLoad, FrameElement, Node, ShellElement,
                              ShellLoad, Tie)
-from .geometry import (beam_axis_shift, cross3, frame_axes, joint_axes, point_on_segment, polygon_centroid, polygon_normal, polygon_polar_inertia,
+from .geometry import (beam_axis_shift, column_containing, cross3, member_through, frame_axes, joint_axes, point_on_segment, polygon_centroid, polygon_normal, polygon_polar_inertia,
                        quad_tributary_areas, segment_intersection, shell_axes, transformed_axes, unit)
 
 G_SI = 9.80665
@@ -205,6 +205,8 @@ class Mesher:
             am.info.append(f"{len(self._axis_shift)} beam(s) meshed on their true (offset) axis, "
                            f"joined to their joints by rigid links")
         self._cut_frames_at_points()
+        self._frames_into: Dict[Tuple[str, int], str] = {}
+        self._find_axis_ends_on_members()
         if self.opts.frame_intersections:
             self._cut_frames_at_intersections()
 
@@ -416,6 +418,40 @@ class Mesher:
                     if t is not None and 0.0 < t < 1.0:
                         self._frame_cuts[f.name].append(t)
                         self._joint_cuts[f.name][round(t, 12)] = pts[int(k)][0]
+
+    def _find_axis_ends_on_members(self):
+        """A beam meshed on its true axis whose axis end (or the axis node of a joint
+        on its line) lies outside the column at the joint and on a member framing into
+        that joint - the side beam, typically - frames into that member there, as the
+        beam really is built: that member gets a node there and no rigid link joins the
+        two (a link along it would make that part of it rigid).  The same rule as Move
+        Beams to Real Axis, so both give the same model."""
+        if not self._axis_shift:
+            return
+        m, Lf = self.model, self.U.factor("length")
+        node_point = {nid: pn for pn, nid in self.am.point_to_node.items()}
+        xyz_of = self._xyz
+        for name, (hi, hj) in self._axis_shift.items():
+            f = m.frames[name]
+            a, b = self._frame_line[name]
+            anchors = [(f.point_i, a + hi), (f.point_j, b + hj)]
+            for t, nid in self._joint_cuts.get(name, {}).items():
+                pn = node_point.get(nid)
+                if pn is not None:
+                    anchors.append((pn, xyz_of(m.points[pn]) + (1.0 - t) * hi + t * hj))
+            for pn, q in anchors:
+                if column_containing(m, pn, q, self.tol, Lf, xyz_of) is not None:
+                    continue  # in the column's joint zone: the rigid link stays
+                g = member_through(m, pn, q, self.tol, exclude=set(self._axis_shift) | {name},
+                                   geom=lambda n: self._frame_geom[n], xyz_of=xyz_of)
+                if g is None:
+                    continue
+                ga, gb = self._frame_geom[g]
+                t = point_on_segment(q, ga, gb, self.tol)
+                self._frame_cuts[g].append(t)
+                self._frames_into[(name, self.am.point_to_node[pn])] = g
+                self.am.info.append(f"Beam {name}: its axis frames into {g} {np.linalg.norm(q - xyz_of(m.points[pn])) / Lf:.3f} "
+                                    f"from joint {pn} (outside the column) - joined there, no rigid link")
 
     def _cut_frames_at_intersections(self):
         names = [f.name for f in self.model.frames.values() if f.auto_mesh and f.mesh_at_intersections
@@ -716,7 +752,7 @@ class Mesher:
                 node_ids.append(nid)
                 joint = am.point_to_node[f.point_i] if k == 0 else am.point_to_node[f.point_j] \
                     if k == len(params) - 1 else joint_cuts.get(round(t, 12))
-                if joint is not None and joint != nid:
+                if joint is not None and joint != nid and (f.name, joint) not in self._frames_into:
                     am.rigid_links.append(RigidLink(joint, nid, f.name))
                 continue
             if k == 0:
@@ -734,7 +770,7 @@ class Mesher:
         if shift is not None:  # the axis off the column at an end: no rigid zone there (see _length_inside_column)
             for end_point, h in ((f.point_i, shift[0]), (f.point_j, shift[1])):
                 hn = float(np.linalg.norm(h))
-                if hn <= self.tol:
+                if hn <= self.tol or (f.name, am.point_to_node[end_point]) in self._frames_into:
                     continue
                 for other in self.model.frames.values():
                     if other.type != "Column" or end_point not in (other.point_i, other.point_j):
@@ -759,7 +795,7 @@ class Mesher:
         if shift is not None:  # a joint whose cut merged with a nearby one: the nearest axis node
             used = {round(t, 12) for t in params}
             for t, joint in joint_cuts.items():
-                if t not in used:
+                if t not in used and (f.name, joint) not in self._frames_into:
                     k = int(np.argmin([abs(t - p) for p in params]))
                     am.rigid_links.append(RigidLink(joint, node_ids[k], f.name))
         fix_i = np.concatenate([np.array(f.fixity_i_trans, float) * U.factor("translational_stiffness"),
@@ -1031,8 +1067,15 @@ class Mesher:
             offset = 0.0
             # the members at the end joint, and for a beam also the columns one rigid link
             # away (a beam moved to its real axis, joined to the column joint by a link)
+            end_node = self.am.point_to_node.get(end_point)
             near = [(other, self._xyz(m.points[end_point])) for other in m.frames.values()
-                    if other.name != f.name and end_point in (other.point_i, other.point_j)]
+                    if other.name != f.name and end_point in (other.point_i, other.point_j)
+                    and (other.name, end_node) not in self._frames_into]  # (framing into a side beam)
+            if f.type in ("Beam", "Brace"):  # a column the end lands on partway up (moved up / down)
+                near += [(c, end_xyz) for c in m.frames.values()
+                         if c.type == "Column" and end_point not in (c.point_i, c.point_j)
+                         and c.auto_mesh and c.mesh_at_intersections
+                         and point_on_segment(end_xyz, *self._frame_geom[c.name], self.tol) is not None]
             # (a column likewise sees the beams moved to their real axis: its top end
             # offset is the depth of the deepest beam framing in, linked or not)
             want = "Column" if f.type in ("Beam", "Brace") else "Beam" if f.type == "Column" else None

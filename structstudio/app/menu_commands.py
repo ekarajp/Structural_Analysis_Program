@@ -1059,7 +1059,10 @@ class MenuCommandsMixin:
                 except (ValueError, KeyError):
                     axes = None
             w = InsertionPointWidget(m, sec, cp, transform, oi, oj, shift=shift, local=local, axes=axes)
+            holder["w"] = w
             return w, w.values
+
+        holder = {}
 
         def apply(names, v):
             fields = {**offset_fields(v), **frame_fields(v["cp"], v["transform"])}
@@ -1067,12 +1070,19 @@ class MenuCommandsMixin:
                 C.assign(self.doc, "frame", names, **fields)
                 return
             moved, links, notes = C.move_beams_to_axis(self.doc, names, None, assign=fields)
-            self._info(f"Insertion point assigned; {len(moved)} beam(s) moved to their real axis with "
-                       f"{len(links)} rigid link(s)")
-            if notes and not moved:
+            msg = (f"Insertion point assigned; {len(moved)} beam(s) moved to their real axis with "
+                   f"{len(links)} rigid link(s)")
+            self._info(msg)
+            w = holder.get("w")
+            if moved and w is not None:  # the form shows the moved beams as they are now
+                f = self.doc.model.frames.get(moved[0])
+                if f is not None:
+                    local, shift, oi, oj = offset_state(f)
+                    w.show_offsets(local, shift, oi, oj)
+            if notes:
+                head = msg + "." if moved else "The insertion point was assigned; no beam was moved:"
                 QtWidgets.QMessageBox.information(self, "Move Beams to Real Axis",
-                                                  "The insertion point was assigned; no beam was moved:\n\n"
-                                                  + "\n".join(notes[:20]))
+                                                  head + "\n\n" + "\n".join(notes[:20]))
         self.assign_form("frame.insertion", "Frame Insertion Point", ("frame",), apply, widget=widget)
 
     def assign_output_stations(self):

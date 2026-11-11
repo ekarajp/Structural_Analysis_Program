@@ -34,11 +34,14 @@ SHIFT_HELP = (
     "The cardinal point tick ('Include the offset from the centroid ...') is separate: it decides "
     "only whether the cardinal point's own offset is in the analysis.")
 MOVE_TEXT = "Move Beams to Real Axis (Rigid Links)"
-MOVE_TIP = ("On OK, each selected beam is moved in plan by the horizontal part of these offsets: its line "
-            "then is the real beam axis, rigid links join it to its joints (and to joints on the old line "
-            "that other members use), and its horizontal offsets become zero.  The vertical part stays an "
-            "offset.  Columns and braces are not moved.  Draw the floor to the real slab edge afterwards.  "
-            "One Undo restores everything.")
+MOVE_TIP = ("On Apply / OK, each picked beam is moved by these offsets - sideways in plan, and up / down by "
+            "the vertical part of the joint offsets - so its line is where the beam really is; the offsets it "
+            "was moved by become zero.  The cardinal point stays (8: the line is the beam top).\n"
+            "Each moved end is joined as the beam is built: inside the column - a rigid link (the joint "
+            "zone); on a member framing into the joint (the side beam, or the column for a beam moved up / "
+            "down) - it frames into that member there, no link; elsewhere - a rigid link.\n"
+            "Columns and braces are not moved.  Draw the floor to the real slab edge afterwards.  One Undo "
+            "restores everything.")
 TRANSFORM_TEXT = ("Include these offsets (cardinal point and joint offsets) in the analysis - stiffness "
                   "transformed, eccentric member")
 TRANSFORM_TIP = ("On: the member's axis lies off its joints by the cardinal point and the joint offsets; the "
@@ -375,6 +378,23 @@ class InsertionPointWidget(QtWidgets.QWidget):
                 far = far or max(abs(loc[1]), abs(loc[2])) > self._size
         self.shift_warn.setText("Larger than the section itself: in the analysis a long rigid arm "
                                 "(see the ?)." if far else "")
+
+    def show_offsets(self, local: bool, shift, offset_i, offset_j):
+        """Show these joint offsets (a frame's, after a command changed them); the move
+        box is unticked - the beams are where they are now."""
+        for sp, v in ((self.dy, shift[0]), (self.dx, shift[1])):
+            sp.blockSignals(True)
+            sp.setValue(float(v))
+            sp.blockSignals(False)
+        self._set_boxes("End-I", offset_i)
+        self._set_boxes("End-J", offset_j)
+        self.mode.blockSignals(True)
+        self.mode.setCurrentIndex(0 if local else 1)
+        self.mode.blockSignals(False)
+        self._last_mode = self.mode.currentIndex()
+        self.mode_note.setText("")
+        self.move.setChecked(False)
+        self._show_mode()
 
     def values(self) -> dict:
         local = self.mode.currentIndex() == 0

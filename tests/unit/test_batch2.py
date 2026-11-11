@@ -792,11 +792,14 @@ def test_gui_insertion_point(window, qapp, monkeypatch):
 
 
 @gui
-def test_gui_insertion_point_moves_beams_to_real_axis(window, qapp):
+def test_gui_insertion_point_moves_beams_to_real_axis(window, qapp, monkeypatch):
     """Assign > Frame > Insertion Point: 'Move Beams to Real Axis (Rigid Links)' (existing
-    members only, not when drawing) moves the beam by the offsets in one undo step."""
+    members only, not when drawing) moves the beam by the offsets in one undo step; the
+    form then shows the beam as it is (offsets 0, the box unticked), and Apply again -
+    a tick changed, nothing picked - goes to the same beams (it stays enabled)."""
     from structstudio.app import insertion_dialog as ins
     from structstudio.app.templates import new_building
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information", lambda *a, **k: None)
     window.doc.model = new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.0,), grid_only=False)
     m = window.doc.model
     assert ins.InsertionPointWidget(m, next(iter(m.frame_sections)), offsets=False).move.isHidden()
@@ -805,18 +808,29 @@ def test_gui_insertion_point_moves_beams_to_real_axis(window, qapp):
     old = (m.frames[beam].point_i, m.frames[beam].point_j)
     window.state.set_selection([beam])
     window.assign_insertion_point()
-    f = window.assign_panel._form
+    panel = window.assign_panel
+    f = panel._form
     assert f.move.text() == ins.MOVE_TEXT and not f.move.isHidden() and not f.move.isChecked()
     f.mode.setCurrentIndex(1)  # each end, global X Y Z
-    f.offset_boxes[("End-I", 1)].setValue(0.3)
-    f.offset_boxes[("End-J", 1)].setValue(0.3)
+    f.offset_boxes[("End-I", 1)].setValue(0.1)  # inside the 0.4 columns: rigid links
+    f.offset_boxes[("End-J", 1)].setValue(0.1)
     f.move.setChecked(True)
-    window.assign_panel.ok_button.click()
+    panel.apply_button.click()
     m = window.doc.model
     fr = m.frames[beam]
-    assert m.points[fr.point_i].y == pytest.approx(0.3) and m.points[fr.point_j].y == pytest.approx(0.3)
+    assert m.points[fr.point_i].y == pytest.approx(0.1) and m.points[fr.point_j].y == pytest.approx(0.1)
     assert fr.joint_offset_i == pytest.approx((0, 0, 0)) and fr.joint_offset_j == pytest.approx((0, 0, 0))
     assert sum(1 for g in m.frames.values() if g.type == "Rigid") == 2
+    # the form: the beam as it is now; nothing picked, but Apply goes to the same beam again
+    assert not f.move.isChecked() and all(b.value() == 0.0 for b in f.offset_boxes.values())
+    assert not window.state.tool.picked(window.state)
+    f.transform.setChecked(not f.transform.isChecked())
+    assert panel.apply_button.isEnabled() and beam in panel.picked_label.text()
+    panel.apply_button.click()  # (a tick changed: applied again, the beam is not moved again)
+    m = window.doc.model
+    assert m.frames[beam].offsets_in_analysis == f.transform.isChecked()
+    assert m.points[m.frames[beam].point_i].y == pytest.approx(0.1)
+    window.doc.undo()
     window.doc.undo()
     m = window.doc.model
     assert (m.frames[beam].point_i, m.frames[beam].point_j) == old
