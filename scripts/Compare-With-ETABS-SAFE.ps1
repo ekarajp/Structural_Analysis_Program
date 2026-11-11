@@ -1,6 +1,6 @@
 # One click: builds the free-form / inclined comparison models in Structural Studio,
 # the same models in ETABS and SAFE (official API), runs everything and writes
-#   E:\REA ETABS\studio\tests\verification\data\compare\report.txt
+#   F:\REA ETABS\studio\tests\verification\data\compare\report.txt
 # (opened in Notepad at the end).  ETABS / SAFE open on screen while they work.
 $ErrorActionPreference = 'Continue'
 $Studio = Split-Path -Parent $PSScriptRoot

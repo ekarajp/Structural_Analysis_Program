@@ -3,15 +3,15 @@
 # frame end forces) to CSV files so StructStudio can be checked against the
 # program itself, not only against the (older) verification manual.
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File "E:\REA ETABS\studio\scripts\Export-VerificationResults.ps1"
+#   powershell -NoProfile -ExecutionPolicy Bypass -File "F:\REA ETABS\studio\scripts\Export-VerificationResults.ps1"
 #
-# Needs an installed, licensed ETABS 21.  Nothing outside E:\REA ETABS is written.
-# Output: E:\REA ETABS\studio\tests\verification\data\etabs\results\<Example>.<table>.csv
+# Needs an installed, licensed ETABS 21.  Nothing outside F:\REA ETABS is written.
+# Output: F:\REA ETABS\studio\tests\verification\data\etabs\results\<Example>.<table>.csv
 $ErrorActionPreference = 'Stop'
 $EtabsDir = 'C:\Program Files\Computers and Structures\ETABS 21'
-$Source   = 'E:\REA ETABS\reference\etabs21\Verification\Analysis Examples'
-$Work     = 'E:\REA ETABS\studio\tests\verification\data\etabs\run'
-$Dest     = 'E:\REA ETABS\studio\tests\verification\data\etabs\results'
+$Source   = 'F:\REA ETABS\reference\etabs21\Verification\Analysis Examples'
+$Work     = 'F:\REA ETABS\studio\tests\verification\data\etabs\run'
+$Dest     = 'F:\REA ETABS\studio\tests\verification\data\etabs\results'
 $Log      = Join-Path $Dest 'results.log'
 
 New-Item -ItemType Directory -Force -Path $Work | Out-Null

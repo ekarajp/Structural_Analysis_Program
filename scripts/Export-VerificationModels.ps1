@@ -1,12 +1,12 @@
 # Exports the ETABS verification examples to text (.e2k) using the official ETABS API.
-# Needs an installed, licensed ETABS 21.  Nothing outside E:\REA ETABS is written.
+# Needs an installed, licensed ETABS 21.  Nothing outside F:\REA ETABS is written.
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File "E:\REA ETABS\studio\scripts\Export-VerificationModels.ps1"
+#   powershell -NoProfile -ExecutionPolicy Bypass -File "F:\REA ETABS\studio\scripts\Export-VerificationModels.ps1"
 #
 $ErrorActionPreference = 'Stop'
 $EtabsDir = 'C:\Program Files\Computers and Structures\ETABS 21'
-$Source   = 'E:\REA ETABS\reference\etabs21\Verification\Analysis Examples'
-$Dest     = 'E:\REA ETABS\studio\tests\verification\data\etabs'
+$Source   = 'F:\REA ETABS\reference\etabs21\Verification\Analysis Examples'
+$Dest     = 'F:\REA ETABS\studio\tests\verification\data\etabs'
 $Log      = Join-Path $Dest 'export.log'
 
 New-Item -ItemType Directory -Force -Path $Dest | Out-Null

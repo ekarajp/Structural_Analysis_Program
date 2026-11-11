@@ -1,9 +1,9 @@
 # Runs the converted SAP2000 / SAFE sample models (tests\verification\data\sap2000|safe\*.sdb|*.FDB)
 # in the installed program and dumps the analysis results to CSV (kip-in), like
 # Export-VerificationResults.ps1 does for ETABS, so Structural Studio can be checked against
-# SAP2000 and SAFE themselves.  Nothing outside E:\REA ETABS is written.
+# SAP2000 and SAFE themselves.  Nothing outside F:\REA ETABS is written.
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File "E:\REA ETABS\studio\scripts\Export-CsiResults.ps1"
+#   powershell -NoProfile -ExecutionPolicy Bypass -File "F:\REA ETABS\studio\scripts\Export-CsiResults.ps1"
 #
 $ErrorActionPreference = 'Continue'
 $Studio = Split-Path -Parent $PSScriptRoot

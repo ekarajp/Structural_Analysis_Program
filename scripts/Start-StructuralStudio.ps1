@@ -1,18 +1,18 @@
 # Starts Structural Studio (Python desktop app).  On the first run it installs the
 # package and its UI libraries (PySide6, VTK, openpyxl) into the project's Python
-# at E:\REA ETABS\tools\python (internet needed once, about 300 MB).
+# at F:\REA ETABS\tools\python (internet needed once, about 300 MB).
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File "E:\REA ETABS\studio\scripts\Start-StructuralStudio.ps1" [model]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File "F:\REA ETABS\studio\scripts\Start-StructuralStudio.ps1" [model]
 #
 # Every step prints what it is doing and how long it took, and the app's own output goes to
-# E:\REA ETABS\cache\app-stderr.log / app-stdout.log, so a slow start is visible and a failed
+# F:\REA ETABS\cache\app-stderr.log / app-stdout.log, so a slow start is visible and a failed
 # start shows its reason instead of silently doing nothing.
 param([string]$Model = "")
 # 'Continue': in Windows PowerShell 5.1 anything a program writes to stderr (a Python traceback,
 # pip warnings) becomes a terminating error under 'Stop' - exit codes are checked instead.
 $ErrorActionPreference = 'Continue'
 $Studio = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)   # ...\studio
-$Repo   = Split-Path -Parent $Studio                                              # E:\REA ETABS
+$Repo   = Split-Path -Parent $Studio                                              # F:\REA ETABS
 $LogDir = Join-Path $Repo 'cache'
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $sw = [System.Diagnostics.Stopwatch]::StartNew()

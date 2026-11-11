@@ -159,6 +159,8 @@ class SectionLibrary:
 
 
 DEFAULT_SEARCH_PATHS = [p for p in os.environ.get("STRUCTSTUDIO_SECTION_PATH", "").split(os.pathsep) if p] + [
-    r"E:\REA ETABS\reference\etabs21\Property Libraries",
+    # the project's copy beside the program (F:\REA ETABS\reference\..., whatever the drive)
+    os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..",
+                                  "reference", "etabs21", "Property Libraries")),
     r"C:\Program Files\Computers and Structures\ETABS 21\Property Libraries",
 ]

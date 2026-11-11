@@ -4,14 +4,14 @@ Object-based building analysis engine, Python-first and compiled-kernel-ready.
 This folder is the new code base; the old `source/StructuralStudio` (WPF + worker) is
 kept only for reference and its EtabsBridge capture tool.
 
-## Run on Windows (E:\REA ETABS)
+## Run on Windows (F:\REA ETABS)
 
 ```powershell
-. 'E:\REA ETABS\scripts\Environment.ps1'
-cd 'E:\REA ETABS\studio'
-& 'E:\REA ETABS\tools\python\Scripts\python.exe' -m pip install -e .[dev]
-& 'E:\REA ETABS\tools\python\Scripts\python.exe' -m pytest -q          # 18 tests
-& 'E:\REA ETABS\tools\python\Scripts\python.exe' -m structstudio.cli analyze tests\verification\data\Example01.e2k --cases I II --frames "B1@1ST"
+. 'F:\REA ETABS\scripts\Environment.ps1'
+cd 'F:\REA ETABS\studio'
+& 'F:\REA ETABS\tools\python\Scripts\python.exe' -m pip install -e .[dev]
+& 'F:\REA ETABS\tools\python\Scripts\python.exe' -m pytest -q          # 18 tests
+& 'F:\REA ETABS\tools\python\Scripts\python.exe' -m structstudio.cli analyze tests\verification\data\Example01.e2k --cases I II --frames "B1@1ST"
 ```
 
 (needs numpy >= 1.26, scipy >= 1.11, pytest; Python >= 3.11)
@@ -19,8 +19,8 @@ cd 'E:\REA ETABS\studio'
 ## Desktop app (Phase 2)
 
 ```powershell
-E:\REA ETABS\tools\python\Scripts\python.exe -m pip install -e .[app]
-E:\REA ETABS\tools\python\Scripts\python.exe -m structstudio.app examples\office.ssj.json
+F:\REA ETABS\tools\python\Scripts\python.exe -m pip install -e .[app]
+F:\REA ETABS\tools\python\Scripts\python.exe -m structstudio.app examples\office.ssj.json
 ```
 
 PySide6 + VTK, ETABS / SAP2000-style workflow:
@@ -592,10 +592,10 @@ elements and solvers are cross-checked step by step against OpenSees 3.8
 (`pytest tests/xcheck`, needs `pip install openseespy`).
 
 ```powershell
-cd 'E:\REA ETABS\studio'
-& 'E:\REA ETABS\tools\python\Scripts\python.exe' examples\nonlinear_rc_frame.py
-& 'E:\REA ETABS\tools\python\Scripts\python.exe' -m pip install openseespy   # optional: OpenSees cross-checks
-& 'E:\REA ETABS\tools\python\Scripts\python.exe' -m pytest -q tests\unit\test_nonlinear.py tests\xcheck
+cd 'F:\REA ETABS\studio'
+& 'F:\REA ETABS\tools\python\Scripts\python.exe' examples\nonlinear_rc_frame.py
+& 'F:\REA ETABS\tools\python\Scripts\python.exe' -m pip install openseespy   # optional: OpenSees cross-checks
+& 'F:\REA ETABS\tools\python\Scripts\python.exe' -m pytest -q tests\unit\test_nonlinear.py tests\xcheck
 ```
 
 Details, verification table and known differences: `docs/NONLINEAR.md`.
