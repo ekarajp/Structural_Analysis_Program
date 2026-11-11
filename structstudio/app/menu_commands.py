@@ -56,6 +56,7 @@ class MenuCommandsMixin:
             "edit.point_coordinates": self.edit_point,
             "edit.join_frames": self.edit_join_frames,
             "edit.reverse_frames": self.edit_reverse_frames,
+            "edit.beam_axis": self.edit_beam_axis,
             "edit.frame_type": self.edit_frame_type,
             "edit.divide_shells": self.edit_divide_shells,
             "edit.merge_shells": self.edit_merge_shells,
@@ -491,6 +492,36 @@ class MenuCommandsMixin:
     def edit_reverse_frames(self):
         if self._need("frame"):
             C.reverse_frames(self.doc, list(self.state.frames))
+
+    def edit_beam_axis(self):
+        """Edit > Edit Frames > Move Beams to Real Axis (Rigid Links)."""
+        if not self._need("frame"):
+            return
+        m = self.doc.model
+        names = [n for n in self.state.frames if n in m.frames]
+        lu = m.units.length
+        from_offsets, _ = C.beam_axis_moves(m, names, None)
+        use = "The beam's own joint offsets / insertion point" if from_offsets else "A distance"
+        v = ask(self, "Move Beams to Real Axis (Rigid Links)", [
+            ("how", "Move by", use, {"choices": ["The beam's own joint offsets / insertion point", "A distance"]}),
+            ("d", f"Distance [{lu}] (+ = to the left of I -> J seen from above)", 0.0)],
+            note="Each selected beam is moved in plan to where it really is, and joined to its old joints by "
+                 "rigid links (drawn, and analysed as rigid). The beam line you see is then the real beam axis, "
+                 "so draw or reshape the floor to the real slab edge. Joints on the old line used by other "
+                 "members get a rigid link to the new line too. One Undo restores everything.")
+        if not v:
+            return
+        dist = None if v["how"].startswith("The beam") else float(v["d"])
+        if dist is not None and abs(dist) <= m.options.merge_tolerance:
+            QtWidgets.QMessageBox.information(self, "Move Beams to Real Axis", "The distance is zero: nothing to move.")
+            return
+        moved, links, notes = C.move_beams_to_axis(self.doc, names, dist)
+        self.state.set_selection([n for n in moved + links if n in self.doc.model.frames])
+        self._info(f"Moved {len(moved)} beam(s) to their real axis with {len(links)} rigid link(s)")
+        if notes or not moved:
+            QtWidgets.QMessageBox.information(self, "Move Beams to Real Axis",
+                                              (f"Moved {len(moved)} beam(s), {len(links)} rigid link(s).\n\n" if moved else
+                                               "Nothing was moved.\n\n") + "\n".join(notes[:20]))
 
     def edit_frame_type(self):
         if not self._need("frame"):

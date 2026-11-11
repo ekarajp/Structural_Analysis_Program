@@ -525,6 +525,128 @@ def extrude_frames_to_shells(doc: Document, frames: Sequence[str], dx: float, dy
 
 
 # ---------------------------------------------------------- joints (Edit)
+def beam_axis_moves(model: Model, frames: Sequence[str], distance: Optional[float] = None
+                    ) -> Tuple[Dict[str, Tuple[np.ndarray, np.ndarray]], List[str]]:
+    """Plan shifts (global, model units, Z = 0) of the ends I and J of each beam for
+    *Move Beams to Real Axis*: ``distance`` given - that distance square to the beam in
+    plan, + to the left of I -> J seen from above; None - the horizontal part of the
+    beam's own insertion offsets (cardinal point + joint offsets).  Also the reasons
+    for the beams left out."""
+    from ..mesh.geometry import frame_insertion_offsets
+    moves: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+    notes: List[str] = []
+    tol = model.options.merge_tolerance
+    for n in frames:
+        f = model.frames.get(n)
+        if f is None:
+            continue
+        if f.type != "Beam":
+            notes.append(f"{n}: not a beam ({f.type}) - left as it is")
+            continue
+        a = np.array(model.points[f.point_i].xyz, float)
+        b = np.array(model.points[f.point_j].xyz, float)
+        if distance is None:
+            oi, oj = frame_insertion_offsets(model, f)
+            si = np.array([oi[0], oi[1], 0.0])
+            sj = np.array([oj[0], oj[1], 0.0])
+        else:
+            d = b - a
+            d[2] = 0.0
+            L = float(np.linalg.norm(d))
+            if L <= tol:
+                notes.append(f"{n}: vertical in plan - left as it is")
+                continue
+            left = np.array([-d[1], d[0], 0.0]) / L
+            si = sj = left * float(distance)
+        if max(np.linalg.norm(si), np.linalg.norm(sj)) <= tol:
+            notes.append(f"{n}: no plan offset - it is already on its axis")
+            continue
+        moves[n] = (si, sj)
+    return moves, notes
+
+
+def move_beams_to_axis(doc: Document, frames: Sequence[str], distance: Optional[float] = None
+                       ) -> Tuple[List[str], List[str], List[str]]:
+    """*Edit > Edit Frames > Move Beams to Real Axis (Rigid Links)*: each beam is moved,
+    in plan, to the line where it really is - by ``distance`` (+ to the left of I -> J)
+    or by its own insertion offsets - and joined to the joints it left by rigid links
+    (Rigid frame objects).  The beam keeps its section, loads (relative positions),
+    releases, local axes and the vertical part of its offsets; the horizontal part of
+    its offsets becomes zero, since the beam now is where it is drawn.  Joints on the
+    old line used by other members (a secondary beam framing in) get a rigid link to
+    the new line too.  Floors are not changed: draw or reshape them to the real slab
+    edge.  Returns (beams moved, rigid links made, notes); one undo step."""
+    from ..mesh.geometry import frame_axes, point_on_segment
+    model = doc.model
+    moves, notes = beam_axis_moves(model, frames, distance)
+    if not moves:
+        return [], [], notes
+    made_links: List[str] = []
+    tol = model.options.merge_tolerance
+
+    def mutate(m: Model):
+        def new_point(src, shift):
+            p = m.points[src]
+            q = m.add_point(p.x + shift[0], p.y + shift[1], p.z)  # an existing joint there is used
+            if q.story is None:
+                q.story = p.story
+            if q.diaphragm is None and p.diaphragm is not None:
+                q.diaphragm = p.diaphragm
+            return q.name
+
+        def link(p_from, p_to):
+            if p_from == p_to:
+                return
+            for g in m.frames.values():  # already linked
+                if g.type == "Rigid" and {g.point_i, g.point_j} == {p_from, p_to}:
+                    return
+            made_links.append(m.add_frame(p_from, p_to, "None", type="Rigid").name)
+
+        for n, (si, sj) in moves.items():
+            f = m.frames[n]
+            pi, pj = f.point_i, f.point_j
+            a = np.array(m.points[pi].xyz, float)
+            b = np.array(m.points[pj].xyz, float)
+            # joints on the old line that other members use: they follow the beam by a rigid link
+            used = set()
+            for g in m.frames.values():
+                if g.name != n:
+                    used.update((g.point_i, g.point_j))
+            for ar in m.areas.values():
+                used.update(ar.points)
+            inner = []
+            for p in m.points.values():
+                if p.name in (pi, pj) or p.name not in used:
+                    continue
+                t = point_on_segment(np.array(p.xyz, float), a, b, tol)
+                if t is not None and 0.0 < t < 1.0:
+                    inner.append((p.name, t))
+            ni, nj = new_point(pi, si), new_point(pj, sj)
+            # the horizontal part of the insertion offsets is now the move itself
+            old_axes = frame_axes(a, b, f.angle)
+            gi = np.array(f.joint_offset_i, float)
+            gj = np.array(f.joint_offset_j, float)
+            if getattr(f, "joint_offset_local", False):
+                gi, gj = old_axes.T @ gi, old_axes.T @ gj
+            if distance is None:
+                gi, gj = gi - si, gj - sj
+            f.point_i, f.point_j = ni, nj
+            if getattr(f, "joint_offset_local", False):
+                new_axes = frame_axes(np.array(m.points[ni].xyz, float), np.array(m.points[nj].xyz, float), f.angle)
+                gi, gj = new_axes @ gi, new_axes @ gj
+            clean = lambda v: tuple(0.0 if abs(x) < 1e-12 else float(x) for x in v)
+            f.joint_offset_i, f.joint_offset_j = clean(gi), clean(gj)
+            link(pi, ni)
+            link(pj, nj)
+            for pname, t in inner:
+                s = (1.0 - t) * si + t * sj
+                link(pname, new_point(pname, s))
+        _restory(m)
+
+    doc.edit(mutate)
+    return list(moves), made_links, notes
+
+
 def merge_joints(doc: Document, points: Sequence[str], tolerance: float) -> int:
     """*Edit > Merge Joints*: selected joints within ``tolerance`` of an earlier
     selected joint are merged into it.  Their assignments are combined (supports,

@@ -160,6 +160,7 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
         "-",
         ("Edit Frames", [("Divide Frames...", "edit.divide_frames"), ("Join Frames", "edit.join_frames"),
                          ("Reverse Frame Connectivity", "edit.reverse_frames"),
+                         ("Move Beams to Real Axis (Rigid Links)...", "edit.beam_axis"),
                          ("Modify/Show Frame Type...", "edit.frame_type")]),
         ("Edit Shells", [("Divide Shells...", "edit.divide_shells"), ("Merge Shells", "edit.merge_shells"),
                          ("Expand/Shrink Shells...", "edit.expand_shells"), ("Split Shell Edge...", "edit.split_edge"),

@@ -481,3 +481,40 @@ def test_offset_beam_is_shown_on_its_true_axis_with_rigid_links():
     assert ys == {0.3}  # analysis nodes on the true axis
     assert len([lk for lk in r.am.rigid_links if lk.object == b.name]) == 2
     assert len(scene.build_offset_axis_actors(m, r.am)) == 3  # axis, rigid links, link ends
+
+
+def test_move_beam_to_real_axis_with_rigid_links():
+    """Edit > Move Beams to Real Axis: the beam object itself moves (its line is the real
+    axis), rigid links join it to its old joints, its horizontal offsets become zero, and
+    the analysis equals the beam analysed on its offset axis; one undo restores it."""
+    from structstudio.app.document import Document
+    from structstudio.app import commands as C
+    m = _building()
+    b = [f for f in m.frames.values() if f.type == "Beam"
+         and abs(m.points[f.point_i].y) < 1e-9 and abs(m.points[f.point_j].y) < 1e-9][0]
+    b.joint_offset_i = b.joint_offset_j = (0.0, 0.3, 0.0)
+    ref = copy.deepcopy(m)
+    doc = Document(m)
+    old = (b.point_i, b.point_j)
+    moved, links, notes = C.move_beams_to_axis(doc, [b.name])  # by its own joint offsets
+    m = doc.model
+    f = m.frames[b.name]
+    assert moved == [b.name] and len(links) == 2 and not notes
+    assert m.points[f.point_i].y == pytest.approx(0.3) and m.points[f.point_j].y == pytest.approx(0.3)
+    assert f.joint_offset_i == (0.0, 0.0, 0.0) and f.joint_offset_j == (0.0, 0.0, 0.0)
+    assert {frozenset((m.frames[n].point_i, m.frames[n].point_j)) for n in links} == \
+        {frozenset((old[0], f.point_i)), frozenset((old[1], f.point_j))}
+    assert all(m.frames[n].type == "Rigid" for n in links)
+    pat = next(iter(m.load_patterns))
+    case = [c for c, v in m.load_cases.items() if getattr(v, "loads", None) and pat in v.loads][0]
+    floor = [a for a in m.areas.values() if a.type == "Floor"][0].name
+    for mm in (m, ref):
+        mm.add_area_load(floor, pat, 2.0)
+    r1, r2 = run(m), run(ref)
+    assert r1.base_reactions(case)[2] == pytest.approx(r2.base_reactions(case)[2], rel=1e-9)
+    m1 = np.abs(r1.frame_forces(b.name, case).forces[:, 5]).max()
+    m2 = np.abs(r2.frame_forces(b.name, case).forces[:, 5]).max()
+    assert m1 == pytest.approx(m2, rel=0.03)  # same structure, meshed slightly differently
+    doc.undo()
+    assert (doc.model.frames[b.name].point_i, doc.model.frames[b.name].point_j) == old
+    assert not any(g.type == "Rigid" for g in doc.model.frames.values())
