@@ -7,17 +7,15 @@ What a grip drag moves depends on what was selected before the command:
 =====================  =============================================================
 selection              a grip drag
 =====================  =============================================================
-joints only            every selected joint moves by the same vector and every member
-                       on them follows (one joint: that joint; a window round several
-                       joints: AutoCAD STRETCH - members with both ends inside move,
-                       members crossing the window stretch)
+joints only            the dragged joint only; every member on it follows (several
+                       joints moved together, STRETCH: Move does that)
 frames / shells only   the dragged joint of the selected objects only: an unselected
                        member on that joint keeps its own joint where it was (shown
                        dashed orange while dragging); the middle grip of a floor edge
                        moves that edge square to itself (a rectangle stays one)
-joints and members     the selected joints move; of the members on them only the
-                       selected ones follow (a selected joint with no selected member
-                       on it takes all its members along)
+joints and members     the dragged joint only; of the members on it only the selected
+                       ones follow (a selected joint with no selected member on it
+                       takes all its members along)
 =====================  =============================================================
 
 The drag stays in the window's plane (plan: X / Y only, elevation: in the elevation,
@@ -26,7 +24,8 @@ axes) or along the dragged member.  A typed distance + Enter works as in Move.  
 joint dropped on another joint becomes that joint; dropped on a member it is a joint
 of that member (the analysis connects it).  Joint loads go with their joint, frame
 loads keep their place along the member (relative), drawn load panels stay where
-they are.  One edit = one undo step.
+they are.  One edit = one undo step.  Reshape changes the shape one joint at a time; moving the
+selection as a whole is the Move command.
 """
 from __future__ import annotations
 
@@ -128,9 +127,7 @@ def edge_normal(model: Model, area: str, k: int) -> Optional[np.ndarray]:
 
 
 def grip_joints(model: Model, rs: ReshapeSet, key: GripKey) -> List[str]:
-    """The joints a drag of the grip moves."""
-    if rs.mode in ("joints", "mixed"):
-        return list(rs.joints)
+    """The joints a drag of the grip moves: that joint only (an edge grip: its two)."""
     if key[0] == "edge":
         a = model.areas[key[1]]
         return [a.points[key[2]], a.points[(key[2] + 1) % len(a.points)]]

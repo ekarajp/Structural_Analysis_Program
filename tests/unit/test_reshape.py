@@ -55,20 +55,21 @@ def test_one_joint_all_members_follow():
     assert info["stayed"] == []
 
 
-def test_window_of_joints_is_stretch():
+def test_several_selected_joints_a_grip_moves_only_its_joint():
     d = _doc(floor=False)
     m = d.model
     right = [_pt(m, 6, 0, Z), _pt(m, 6, 5, Z)]
+    rs = R.reshape_set(m, [], [], right)
+    keys = [k for k, _ in R.grips(m, rs)]
+    assert keys == [("joint", n) for n in right]
+    assert R.grip_joints(m, rs, ("joint", right[0])) == [right[0]]  # not both: that is Move
     bx = _beam(m, _pt(m, 0, 0, Z), right[0])
     by = _beam(m, right[0], right[1])
-    L0 = _len(m, by)
-    R.reshape(d, R.reshape_set(m, [], [], right), {n: (7, d.model.points[n].y, Z) for n in right})
+    R.reshape(d, rs, {right[0]: (7, 0, Z)})
     m = d.model
-    assert _len(m, bx) == pytest.approx(7.0)  # crossing the window: stretches
-    assert _len(m, by) == pytest.approx(L0)  # both ends inside: moves
-    col = next(f for f in m.frames.values() if right[0] in (f.point_i, f.point_j) and f.type == "Column")
-    other = col.point_i if col.point_j == right[0] else col.point_j
-    assert m.points[other].xyz == (6, 0, 0)  # the column leans (its top followed)
+    assert _len(m, bx) == pytest.approx(7.0)
+    assert m.points[right[1]].xyz == (6, 5, Z)  # the other selected joint stayed
+    assert _len(m, by) == pytest.approx(np.hypot(1, 5))
 
 
 def test_selected_beam_only_detaches_from_column_and_others():
