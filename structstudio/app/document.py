@@ -163,6 +163,25 @@ class Document:
             raise
         self.end_edit(what)
 
+    def edit_design(self, func: Callable[[Model], None]):
+        """A change of design data only (design preferences, Cd / Ie of the load cases,
+        slab design data): undoable, but the model stays locked and the analysis results
+        are kept - they do not depend on it (as ETABS keeps them for design overwrites)."""
+        if self.busy:
+            raise ModelError("ANALYSIS_RUNNING", "The analysis is running - wait for it to finish or press Cancel")
+        res = self.results
+        redo = list(self._redo)
+        self.begin_edit(check=False)
+        try:
+            func(self.model)
+        except BaseException:
+            self.model = self._restore(self._undo.pop())
+            self._redo = redo
+            raise
+        self.dirty = True
+        self.results = res
+        self._emit("design")
+
     def replace_model(self, model: Model, what: str = "model"):
         """Swap in a new model (e.g. converted units) as one undoable edit."""
         self.begin_edit()

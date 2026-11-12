@@ -22,6 +22,7 @@ from .objects import (Area, AreaLoad, Diaphragm, Frame, FrameLoad, GridLine, Gri
                       LineSpring, PanelLoad, PanelLoadCase, Point, PointLoad, Story, Tendon, TendonLoad,
                       TendonPoint, FREE)
 from .properties import FrameModifiers, FrameSection, Material, RebarSize, ShellModifiers, ShellSection
+from .design import DesignPreferences, SlabColumnDriftPrefs
 from .nonlinear import (NONLINEAR_TYPES, FiberSectionDef, FrameHingeAssignment, FrameNonlinearProperty,
                         HingeProperty, LinkDOF, LinkObject, LinkProperty, NonlinearMaterial, NonlinearStaticCase,
                         TimeHistoryCase, TimeHistoryLoad)
@@ -40,7 +41,7 @@ _KNOWN_KEYS = {"schema_version", "units", "display_units", "info", "options", "m
                "frame_sections", "shell_sections", "stories", "grid_systems", "grid_lines", "diaphragms", "points",
                "frames", "areas", "groups", "line_springs", "tendons", "panel_loads", "load_patterns", "mass_sources",
                "functions", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",
-               "frame_nonlinear", "hinge_properties", "link_properties", "links"}
+               "frame_nonlinear", "hinge_properties", "link_properties", "links", "design"}
 
 _CASE_TYPES = {
     "LinearStatic": LinearStaticCase,
@@ -59,6 +60,7 @@ _TYPE_REGISTRY = {
         FrameLoad, AreaLoad, Story, GridLine, GridSystem, Diaphragm, Group, LineSpring, LoadPattern, MassSource,
         ResponseSpectrumFunction, TimeHistoryFunction, LinearStaticCase, ModalCase, ResponseSpectrumCase,
         PDeltaCase, LinearBucklingCase, ComboItem, LoadCombination, SpectrumLoad,
+        DesignPreferences, SlabColumnDriftPrefs,
     ) + NONLINEAR_TYPES
 }
 
@@ -195,6 +197,7 @@ class Model:
         self.link_properties: Dict[str, LinkProperty] = {}
         self.links: Dict[str, LinkObject] = {}
         self.options = AnalysisOptions()
+        self.design = DesignPreferences()  # Design menu preferences
         # units each kind of value is shown / typed in (Display Units form, e.g. Thai
         # legacy: section dimensions cm, areas cm^2, deflections mm, strengths ksc);
         # item -> unit label, missing = the consistent units above.  Display only.
@@ -1017,6 +1020,7 @@ class Model:
             setattr(out, attr, {k: convert_dataclass(v, src, new_units) for k, v in table.items()})
         out.grid_lines = [convert_dataclass(g, src, new_units) for g in self.grid_lines]
         out.options = dataclasses.replace(self.options)
+        out.design = convert_dataclass(self.design, src, new_units)
         out.display_units = dict(self.display_units)
         ratio = src.factor("length") / new_units.factor("length")
         for name in ("floor_mesh_max_size", "wall_mesh_max_size", "fine_mesh_size_min", "fine_mesh_size_max"):
@@ -1090,6 +1094,7 @@ class Model:
             "hinge_properties": to_dict(self.hinge_properties),
             "link_properties": to_dict(self.link_properties),
             "links": to_dict(self.links),
+            "design": to_dict(self.design),
             **{k: v for k, v in (getattr(self, "unknown_data", None) or {}).items() if k not in _KNOWN_KEYS},
         }
 
@@ -1132,6 +1137,8 @@ class Model:
         from ..display_units import force_label
         m.display_units = {str(k): force_label(v) for k, v in (data.get("display_units") or {}).items() if v}
         m.options = AnalysisOptions(**_coerce_tuples(_strip(data.get("options", {}))))
+        if isinstance(data.get("design"), dict):
+            m.design = _from_dict(data["design"], "design")
         for attr in ("materials", "rebar_sizes", "frame_sections", "shell_sections", "stories", "grid_systems", "diaphragms",
                      "points", "frames", "areas", "groups", "line_springs", "tendons", "panel_loads", "load_patterns", "mass_sources",
                      "functions", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",

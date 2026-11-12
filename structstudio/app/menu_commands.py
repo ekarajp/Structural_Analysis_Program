@@ -180,6 +180,8 @@ class MenuCommandsMixin:
             "display.frame_forces": lambda: self.display_forces("frame"),
             "display.shell_forces": lambda: self.display_forces("shell"),
             "display.tables": self.show_tables,
+            # Design
+            "design.slab.drift_check": self.slab_column_drift_check,
             # Options
             "options.units": self.options_units,
             "options.tolerances": self.options_tolerances,
@@ -320,6 +322,11 @@ class MenuCommandsMixin:
         except (ModelError, ValueError, KeyError) as exc:
             QtWidgets.QMessageBox.warning(self, title, str(exc))
             return None
+
+    # --------------------------------------------------------------- Design
+    def slab_column_drift_check(self):
+        from .slab_drift_dialog import SlabColumnDriftDialog
+        SlabColumnDriftDialog(self).exec()
 
     # --------------------------------------------------------------- File
     def close_model(self):

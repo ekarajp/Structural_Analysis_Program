@@ -101,6 +101,11 @@ class LinearStaticCase:
     # CSI nonlinear static case without geometric nonlinearity: solved iteratively when
     # members have tension / compression limits, otherwise identical to a linear case
     nonlinear: bool = False
+    # earthquake cases: deflection amplification Cd and importance factor Ie - the design
+    # story drift is Cd / Ie x the elastic drift (ASCE 7 12.8.6, มยผ. 1301/1302-61);
+    # None = not given (the slab-column drift check then asks for it)
+    cd: Optional[float] = None
+    ie: float = 1.0
 
 
 @dataclass
@@ -139,6 +144,8 @@ class ResponseSpectrumCase:
     eccentricity_ratio: float = 0.0  # accidental eccentricity (later)
     rigid_response: Optional[Tuple[float, float]] = None  # (f1, f2) Gupta; None = all periodic
     type: str = "ResponseSpectrum"
+    cd: Optional[float] = None  # deflection amplification (see LinearStaticCase.cd)
+    ie: float = 1.0
 
 
 LATERAL_PATTERN_TYPES = ("Wind", "Seismic", "Notional")

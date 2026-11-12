@@ -296,6 +296,13 @@ class ShellSection:
     weight_per_area: float = q("force_per_area", 0.0)  # additional
     color: Optional[str] = None
     notes: str = ""
+    # slab design data (punching / slab-column checks): distance from each face to the
+    # centroid of the reinforcement (None = 30 mm), unbonded post-tensioning and the
+    # effective prestress fpc in the two directions (None = not prestressed)
+    rebar_cover: Optional[float] = q("length", None)
+    post_tensioned: bool = False
+    fpc1: Optional[float] = q("stress", None)
+    fpc2: Optional[float] = q("stress", None)
 
     @property
     def bending_thickness_value(self) -> float:

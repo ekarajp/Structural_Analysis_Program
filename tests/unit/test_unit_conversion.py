@@ -44,7 +44,7 @@ DIMENSIONLESS = {
     "FrameModifiers": {"A", "As2", "As3", "J", "I22", "I33", "mass", "weight"},
     "GridSystem": {"rotation"},
     "LinearBucklingCase": {"loads"},
-    "LinearStaticCase": {"loads", "acceleration_loads"},  # pattern factors; accelerations in g
+    "LinearStaticCase": {"loads", "acceleration_loads", "cd", "ie"},  # pattern factors; accelerations in g
     "LinkObject": {"angle"},
     "LoadPattern": {"self_weight_multiplier", "auto_load"},
     "MassSource": {"load_patterns"},
@@ -55,7 +55,8 @@ DIMENSIONLESS = {
     "PanelLoad": {"points", "span_dir"},  # points: Model.convert_units; span_dir: a direction
     "Point": {"local_axes"},  # angles
     "ResponseSpectrumCase": {"directional_abs_factor", "damping", "angle", "eccentricity_ratio",
-                             "rigid_response"},
+                             "rigid_response", "cd", "ie"},
+    "SlabColumnDriftPrefs": {"phi", "lam"},
     "ShellModifiers": {"f11", "f22", "f12", "m11", "m22", "m12", "v13", "v23", "mass", "weight"},
     "TendonLoad": {"curvature"},  # per radian
     "TimeHistoryCase": {"dt", "damping_ratio", "damping_periods", "mass_coefficient", "stiffness_coefficient",
