@@ -135,6 +135,7 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
         # one place for every modify command (CAD style; numbers can be typed in the window)
         ("Move  (MV)", "edit.move"),  # Ctrl+M and M V: the action's own shortcuts
         ("Copy  (CO)", "tool.copy"),
+        ("Reshape - drag joints  (RS)", "tool.reshape"),
         ("Rotate  (RO)", "tool.rotate"),
         ("Mirror  (MM)", "tool.mirror"),
         ("Offset  (OF)", "tool.offset"),

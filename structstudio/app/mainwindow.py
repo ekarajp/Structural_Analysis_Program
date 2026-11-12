@@ -65,6 +65,7 @@ DRAW_TOOLS = [
 MODIFY_TOOLS = [
     ("move", "Move (base point, destination)", "M, V", "move"),
     ("copy", "Copy (base point, destinations)", "C, O", "copy"),
+    ("reshape", "Reshape (drag the joints of the selection)", "R, S", "reshape"),
     ("rotate", "Rotate (centre, start, end / typed angle)", "R, O", "rotate"),
     ("mirror", "Mirror (draw the axis)", "M, M", "mirror"),
     ("offset", "Offset (parallel copy of a frame)", "O, F", "offset"),
@@ -85,7 +86,7 @@ DRAW_PALETTE = [
     ("Draw Floors", ["slab", "rect_slab", "quick_slab"]),
     ("Draw Walls", ["wall", "quick_wall"]),
     ("Draw Openings", ["opening"]),
-    ("Modify", ["move", "copy", "rotate", "mirror", "offset", "trim", "extend"]),
+    ("Modify", ["move", "copy", "reshape", "rotate", "mirror", "offset", "trim", "extend"]),
 ]
 # the load tools are on the top Loads toolbar (the left palette: select, draw, modify only)
 LOAD_PALETTE = ["area_load", "frame_load", "joint_load", "panel_load"]
@@ -1313,6 +1314,10 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             return
         menu = QtWidgets.QMenu(self)
         ma = self.menu_actions
+        if self.state.frames or self.state.areas or self.state.points:
+            # the selection first (the window was right-clicked beside it)
+            menu.addAction(self.tool_actions["reshape"])
+            menu.addSeparator()
         for cid in ("draw.grids", "-", "view.show_selected", "view.invert_visibility", "view.hide_selected",
                     "view.restore_visibility", "view.show_all", "-", "draw.snap_options", "options.colors_display"):
             if cid == "-":

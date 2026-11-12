@@ -489,6 +489,7 @@ class ModelViewport(QtWidgets.QWidget):
             self.state.preview_shown.connect(self._on_shared_preview)
         self.state.tool_changed.connect(lambda _n: self._on_shared_preview(None, None))
         self.state.tool_changed.connect(self._panels_for_tool)
+        self.state.tool_changed.connect(self._grips_for_tool)
         self._watch_header()
         self._last_cursor = None  # last snapped cursor point (typed distances follow its direction)
         self._last_xy = (0, 0)
@@ -998,6 +999,12 @@ class ModelViewport(QtWidgets.QWidget):
         sel_only = menu.addAction("Show only the selected objects") if (st.frames or st.areas or st.points) else None
         hide = menu.addAction("Hide this object")
         show_all = menu.addAction("Show all objects") if any(self.hidden) else None
+        reshape = None
+        if kind in ("frame", "area", "point"):
+            menu.addSeparator()
+            n_sel = len(st.frames) + len(st.areas) + len(st.points)
+            reshape = menu.addAction(f"Reshape - drag the joints of the {n_sel} selected object(s)" if n_sel
+                                     else f"Reshape this {what.lower()} - drag its joints")
         axes = None
         if kind == "frame":  # joints / supports have no member axes; areas: Display Options
             menu.addSeparator()
@@ -1021,6 +1028,10 @@ class ModelViewport(QtWidgets.QWidget):
             self.hide_object(kind, name)
         elif show_all is not None and a is show_all:
             self.show_all_objects()
+        elif reshape is not None and a is reshape:
+            if not (st.frames or st.areas or st.points):
+                st.toggle(kind, name, True)
+            st.set_tool("reshape")
         elif axes is not None and a is axes:
             self.toggle_member_axes(name)
 
@@ -1250,28 +1261,75 @@ class ModelViewport(QtWidgets.QWidget):
             names = [n for n in names if pl.contains(m.points[n].xyz, tol)]
         return names
 
-    def _draw_grips(self):
-        if self._grip_actor is not None:
-            self.renderer.RemoveActor(self._grip_actor)
-            self._grip_actor = None
-        names = self._grip_points()
-        if not names:
-            return
+    def _reshape_grips(self):
+        """Reshape: the grips of the selection this window shows (its plane only in a
+        plan / elevation; a floor edge only where it can move square to itself)."""
+        st = self.state
+        tool = st.tool
+        if tool.name != "reshape" or getattr(tool, "selecting", False) or self.config.kind not in tool.views:
+            return []
+        items = tool.grips()
+        if len(items) > self.GRIP_LIMIT:
+            return []
         m = self.doc.model
-        pts = vtk.vtkPoints()
-        verts = vtk.vtkCellArray()
-        for k, n in enumerate(names):
-            pts.InsertNextPoint(*m.points[n].xyz)
-            verts.InsertNextCell(1)
-            verts.InsertCellPoint(k)
-        poly = vtk.vtkPolyData()
-        poly.SetPoints(pts)
-        poly.SetVerts(verts)
-        actor = scene._actor_from_polydata(poly, scene.COLORS["select_box"], lighting=False)
-        actor.GetProperty().SetPointSize(9)
-        actor.GetProperty().SetRenderPointsAsSpheres(False)
-        self._grip_actor = actor
-        self.renderer.AddActor(actor)
+        if self.config.kind != "3d":
+            from .reshape import edge_normal, plane_normal_of
+            pl = self.plane()
+            tol = max(m.options.merge_tolerance, 1e-6) * 10
+            nrm = plane_normal_of(self.config.kind)
+            keep = []
+            for key, xyz in items:
+                if not pl.contains(xyz, tol):
+                    continue
+                if key[0] == "edge":
+                    e = edge_normal(m, key[1], key[2])
+                    if e is None or abs(float(np.dot(e, nrm))) > 0.99:
+                        continue
+                keep.append((key, xyz))
+            items = keep
+        return items
+
+    def _reshape_grip_at(self, x: int, y: int):
+        best, best_d = None, self.GRIP_PIXELS * 1.5 * view_dpr(self)
+        for key, xyz in self._reshape_grips():
+            dx, dy = self._display(xyz)
+            d = math.hypot(dx - x, dy - y)
+            if d < best_d:
+                best, best_d = key, d
+        return best
+
+    def _draw_grips(self):
+        for a in (self._grip_actor, getattr(self, "_grip_hot_actor", None)):
+            if a is not None:
+                self.renderer.RemoveActor(a)
+        self._grip_actor = self._grip_hot_actor = None
+        m = self.doc.model
+        if self.state.tool.name == "reshape":
+            items = self._reshape_grips()
+            hot = getattr(self.state.tool, "hot", None)
+            coords = [xyz for k, xyz in items if k != hot]
+            hot_xyz = [xyz for k, xyz in items if k == hot]
+        else:
+            coords = [m.points[n].xyz for n in self._grip_points()]
+            hot_xyz = []
+        for which, pts_xyz, color, size in (("_grip_actor", coords, scene.COLORS["select_box"], 9),
+                                            ("_grip_hot_actor", hot_xyz, (0.92, 0.15, 0.15), 11)):
+            if not pts_xyz:
+                continue
+            pts = vtk.vtkPoints()
+            verts = vtk.vtkCellArray()
+            for k, xyz in enumerate(pts_xyz):
+                pts.InsertNextPoint(*xyz)
+                verts.InsertNextCell(1)
+                verts.InsertCellPoint(k)
+            poly = vtk.vtkPolyData()
+            poly.SetPoints(pts)
+            poly.SetVerts(verts)
+            actor = scene._actor_from_polydata(poly, color, lighting=False)
+            actor.GetProperty().SetPointSize(size)
+            actor.GetProperty().SetRenderPointsAsSpheres(False)
+            setattr(self, which, actor)
+            self.renderer.AddActor(actor)
 
     def _grip_at(self, x: int, y: int) -> Optional[str]:
         m = self.doc.model
@@ -1408,6 +1466,17 @@ class ModelViewport(QtWidgets.QWidget):
         if shown and (rd.deformed or rd.display_mode is not None):
             hide += ("releases",)  # the pin symbols are drawn on the deflected members instead
         self._hide_scene(hide)
+
+    def _grips_for_tool(self, _name=None):
+        """Reshape on / off: its grips shown / removed."""
+        if getattr(self, "_finalized", False):
+            return
+        self._reshape_drag = False
+        try:
+            self._draw_grips()
+            self.render()
+        except Exception:
+            pass
 
     def _panels_for_tool(self, _name=None):
         """Panel commands show the load panels even when they are hidden (Display Options)."""
@@ -1962,7 +2031,8 @@ class ModelViewport(QtWidgets.QWidget):
         if self._cube_event("press", x, y):
             return
         mode = getattr(self.state, "nav_mode", None)
-        if self.interactor.GetShiftKey() or mode in ("rotate", "pan", "zoom_window"):
+        hot_reshape = self.state.tool.name == "reshape" and getattr(self.state.tool, "hot", None) is not None
+        if (self.interactor.GetShiftKey() and not hot_reshape) or mode in ("rotate", "pan", "zoom_window"):
             # Shift + left drag rotates the 3D view in every tool; toolbar navigation modes
             kind = {"rotate": "orbit", "pan": "pan", "zoom_window": "zoom_window"}.get(mode, "orbit")
             self._start_nav(kind, x, y)
@@ -1984,6 +2054,23 @@ class ModelViewport(QtWidgets.QWidget):
                     self._press = (x, y)
                     self._dragging = False
                     return
+        if st.tool.name == "reshape" and not getattr(st.tool, "selecting", False) and st.tool.hot is None:
+            # Reshape: press on a grip and drag it (or click it, then click the new place)
+            if self.config.kind not in st.tool.views:
+                return
+            grip = self._reshape_grip_at(x, y)
+            if grip is None:
+                st.status.emit("Reshape: press on a grip (a square on the selection) and drag it - Esc = done")
+                return
+            st.tool.set_plane(self.plane())
+            st.tool.tolerance = self._world_tolerance() * 2.0
+            if st.tool.pick_grip(grip):
+                self._press = (x, y)
+                self._reshape_drag = True
+                self._dragging = False
+                self._draw_grips()
+                self._update_preview(x, y)
+            return
         if st.tool.name in ("select", "select_line") or getattr(st.tool, "picks", None) \
                 or getattr(st.tool, "selecting", False):
             # select tools, load commands picking their objects, and modify commands asking
@@ -2054,6 +2141,28 @@ class ModelViewport(QtWidgets.QWidget):
             self._end_nav()
             return
         st = self.state
+        if getattr(self, "_reshape_drag", False):
+            self._reshape_drag = False
+            p0, self._press = self._press, None
+            x, y = self.interactor.GetEventPosition()
+            tool = st.tool
+            if tool.name == "reshape" and tool.hot is not None and p0 is not None and \
+                    (self._dragging or abs(x - p0[0]) > 4 or abs(y - p0[1]) > 4):
+                tool.shift_lock = bool(self.interactor.GetShiftKey())
+                pt, snap = self._snapped(x, y)
+                if pt is not None:
+                    try:
+                        tool.click(pt, snap)
+                    except Exception as exc:
+                        st.report(exc)
+                        tool.cancel()
+                    st.snap_override = None
+                    self._typed = ""
+            self._dragging = False
+            st.update_hint()
+            self._draw_grips()
+            self._update_preview(x, y)
+            return
         if self._press is None:
             return
         x, y = self.interactor.GetEventPosition()
@@ -2113,6 +2222,13 @@ class ModelViewport(QtWidgets.QWidget):
             self._drag_nav(x, y)
             return
         self._last_xy = (x, y)
+        if st.tool.name == "reshape":
+            st.tool.shift_lock = bool(self.interactor.GetShiftKey())
+        if self._press is not None and getattr(self, "_reshape_drag", False):
+            if abs(x - self._press[0]) > 4 or abs(y - self._press[1]) > 4:
+                self._dragging = True
+            self._update_preview(x, y)
+            return
         if self._press is not None and self._drag is not None:
             dx, dy = x - self._press[0], y - self._press[1]
             if self._drag["moved"] or abs(dx) > 4 or abs(dy) > 4:
@@ -2537,6 +2653,10 @@ class ModelViewport(QtWidgets.QWidget):
         st = self.state
         if True:  # (kept as a block: the body was the key handler's)
             st.snap_override = None
+            if getattr(self, "_reshape_drag", False):
+                self._reshape_drag = False
+                self._press = None
+                self._dragging = False
             if self._drag is not None:
                 self._drag = None
                 self._press = None
@@ -2830,6 +2950,9 @@ class ModelViewport(QtWidgets.QWidget):
         if getattr(pv, "guides", None):
             self._preview_actors.append(scene._dashed_lines_actor(
                 self.doc.model, [p for seg in pv.guides for p in seg], scene.COLORS["grid_text"], 1.2))
+        if getattr(pv, "detach", None):  # reshape: unselected members that stay where they are
+            self._preview_actors.append(scene._dashed_lines_actor(
+                self.doc.model, [p for seg in pv.detach for p in seg], (0.95, 0.55, 0.10), 3.0))
         if len(pv.polygon) >= 2:
             n = len(pv.polygon)
             coords = [tuple(p) for p in pv.polygon]

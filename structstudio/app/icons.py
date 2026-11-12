@@ -274,6 +274,21 @@ def _draw(name: str, p: QtGui.QPainter):
                         ((3, 16), (8, 12), (8, 20)), ((29, 16), (24, 12), (24, 20))):
             p.setBrush(INK)
             p.drawPolygon(QtGui.QPolygonF([q(*a), q(*b), q(*c)]))
+    elif name == "reshape":
+        p.setPen(_pen(BEAM, 3))
+        p.drawLine(q(5, 26), q(5, 12))
+        p.drawLine(q(5, 12), q(17, 12))
+        p.setPen(_pen(BEAM, 3, QtCore.Qt.DotLine))
+        p.drawLine(q(5, 12), q(24, 6))
+        p.setPen(_pen(INK, 1.2))
+        p.setBrush(QtGui.QColor(70, 130, 230))
+        p.drawRect(QtCore.QRectF(14.5, 9.5, 5, 5))
+        p.setBrush(RED)
+        p.drawRect(QtCore.QRectF(21.5, 3.5, 5, 5))
+        p.setPen(_pen(INK, 1.6))
+        p.drawLine(q(19, 14), q(25, 22))
+        p.setBrush(INK)
+        p.drawPolygon(QtGui.QPolygonF([q(27, 25), q(22, 22.5), q(25.5, 19.5)]))
     elif name == "copy":
         p.setPen(_pen(BEAM, 3))
         p.drawLine(q(4, 22), q(16, 10))
@@ -755,7 +770,7 @@ ICON_NAMES = ("joint_load", "frame_load", "area_load", "select", "select_window"
               "view_xz", "view_yz", "layout_1", "layout_2", "layout_2v", "layout_3", "layout_4", "snap_grid",
               "snap_point", "snap_mid", "snap_line", "snap_perp", "snap_int", "snap_ortho", "snap_options", "theme", "colors", "extrude", "display", "rotate3d", "pan", "zoom_in",
               "zoom_out", "zoom_window", "zoom_full", "grid", "select_all", "select_previous", "select_clear", "palette",
-              "tables", "properties_panel", "copy", "rotate", "mirror", "offset", "trim", "extend",
+              "tables", "properties_panel", "copy", "reshape", "rotate", "mirror", "offset", "trim", "extend",
               "file_new", "file_open", "file_save", "materials", "frame_sections", "slab_sections", "wall_sections",
               "load_patterns", "load_cases", "combos", "undeformed", "deformed", "reactions", "frame_forces",
               "lock", "unlock", "check_mesh", "check_model")

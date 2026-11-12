@@ -549,6 +549,7 @@ class Preview:
     text: str = ""
     guides: List[Tuple[XYZ, XYZ]] = field(default_factory=list)  # thin dashed helper lines (base -> cursor)
     remove: List[Tuple[XYZ, XYZ]] = field(default_factory=list)  # what the command removes (trim), drawn red
+    detach: List[Tuple[XYZ, XYZ]] = field(default_factory=list)  # members left where they are (reshape), dashed orange
 
 
 class Tool:
