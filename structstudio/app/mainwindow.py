@@ -2185,8 +2185,10 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         lines = [it.message for it in issues[:6]] + ([f"... and {len(issues) - 6} more"] if len(issues) > 6 else [])
         box = QtWidgets.QMessageBox(self)
         box.setIcon(QtWidgets.QMessageBox.Warning)
-        box.setWindowTitle("Duplicate members")
-        box.setText("The last command put members on top of existing ones:")
+        twice = all(it.code in ("DUPLICATE_FRAME", "OVERLAPPING_FRAMES", "DUPLICATE_AREA") for it in issues)
+        box.setWindowTitle("Duplicate members" if twice else "Check what was drawn")
+        box.setText("The last command put members on top of existing ones:" if twice else
+                    "The last command made something that is probably not what was meant:")
         box.setInformativeText("\n".join(lines) + "\n\nUndo removes what the command made. "
                                "Keep leaves both (Analyze > Check Model lists them).")
         undo = box.addButton("Undo", QtWidgets.QMessageBox.AcceptRole)

@@ -125,13 +125,13 @@ class Document:
         if before is None:
             return
         try:
-            from ..model.checks import duplicates_of
+            from ..model.checks import drawing_issues
             fb, ab = before
             fa, aa = self._geometry()
             frames = [n for n, v in fa.items() if fb.get(n) != v]
             areas = [n for n, v in aa.items() if ab.get(n) != v]
             if frames or areas:
-                self.duplicates = duplicates_of(self.model, frames, areas)
+                self.duplicates = drawing_issues(self.model, frames, areas)
         except Exception:  # a check must never break an edit
             self.duplicates = []
 

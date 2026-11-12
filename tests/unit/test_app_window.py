@@ -1569,7 +1569,7 @@ def _wait_analysis(window, app, timeout=240.0):
 
 
 @gui
-def test_run_analysis_shows_progress_and_lists_problems_with_their_place(window, app):
+def test_run_analysis_shows_progress_and_lists_problems_with_their_place(window, app, monkeypatch):
     m = _with_objects(window, app)
     window.run_analysis()
     dlg = window._progress_dlg
@@ -1594,7 +1594,11 @@ def test_run_analysis_shows_progress_and_lists_problems_with_their_place(window,
     bm = next(n for n in m.frame_sections if n.startswith("B"))
     lone = m.add_frame(m.add_point(50, 0, 3), m.add_point(55, 0, 3), bm, type="Beam")
     window.doc.replace_model(m)
+    asked = []  # (the beam 50 m out is far from the grid: Check Model asks first - run anyway)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question",
+                        lambda *a, **k: asked.append(a[2]) or QtWidgets.QMessageBox.Yes)
     window.run_analysis()
+    assert asked and "far outside the grid" in asked[0]
     _wait_analysis(window, app)
     issues = window._last_issues
     err = next(i for i in issues if i.severity == "error")

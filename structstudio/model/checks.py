@@ -157,6 +157,23 @@ def duplicates_of(model, frames: Iterable[str] = (), areas: Iterable[str] = ()) 
     return out
 
 
+def drawing_issues(model, frames: Iterable[str] = (), areas: Iterable[str] = ()) -> List[GeometryIssue]:
+    """What the last command made that is probably not what was meant (shown right after
+    it): members / shells on top of others, a member end left hanging just beside a joint
+    or member (a missed snap), a floor / wall overlapping another."""
+    tol = max(model.options.merge_tolerance, 1e-9)
+    frames = [n for n in frames if n in model.frames]
+    areas = [n for n in areas if n in model.areas]
+    out = duplicates_of(model, frames, areas)
+    for check, names in ((_near_misses, frames), (_area_overlaps, areas)):
+        if names:
+            try:
+                out += check(model, tol, set(names))
+            except Exception:
+                pass
+    return out
+
+
 def geometry_issues(model) -> List[GeometryIssue]:
     """Every geometry problem of the model (Check Model)."""
     tol = max(model.options.merge_tolerance, 1e-9)
@@ -192,7 +209,338 @@ def geometry_issues(model) -> List[GeometryIssue]:
         out.append(GeometryIssue("info", "UNUSED_JOINTS",
                                  f"{len(lonely)} joint(s) are used by nothing and carry nothing "
                                  f"({', '.join(lonely[:8])}{'...' if len(lonely) > 8 else ''})", points=lonely))
+    for check in (_near_misses, _area_overlaps, _base_without_support, _far_away, _section_sizes,
+                  _material_moduli, _self_weight, _upward_gravity_loads):
+        try:
+            out += check(model, tol)
+        except Exception:  # a check must never stop Check Model / the analysis
+            pass
     return out
 
 
-__all__ = ["GeometryIssue", "geometry_issues", "duplicates_of", "area_size"]
+# ------------------------------------------------------------------ the mistakes of a new user
+def _metre(model) -> float:
+    """One metre in model length units."""
+    try:
+        return 1.0 / model.units.factor("length")
+    except Exception:
+        return 1.0
+
+
+def _near_misses(model, tol, only: Optional[Set[str]] = None) -> List[GeometryIssue]:
+    """A member end left hanging just beside a joint or a member (a snap missed): the two
+    are not joined, so the load goes another way than drawn.  Only free ends - an end
+    joint used by that one member and nothing else, with no support - are looked at."""
+    near = 0.12 * _metre(model)
+    use: Dict[str, int] = {}
+    for f in model.frames.values():
+        for q in (f.point_i, f.point_j):
+            use[q] = use.get(q, 0) + 1
+    for a in model.areas.values():
+        for q in a.points:
+            use[q] = use.get(q, 0) + 2
+    for s in getattr(model, "line_springs", {}).values():
+        for q in (s.point_i, s.point_j):
+            use[q] = use.get(q, 0) + 2
+    for lk in getattr(model, "links", {}).values():
+        for q in (lk.point_i, lk.point_j):
+            use[q] = use.get(q, 0) + 2
+    ends = []
+    for f in model.frames.values():
+        if f.type == "Null" or (only is not None and f.name not in only):
+            continue
+        for q in (f.point_i, f.point_j):
+            p = model.points.get(q)
+            if p is not None and use.get(q) == 1 and not any(p.restraints) and not any(p.springs) \
+                    and not any(getattr(p, "rotational_springs", (0, 0, 0))):
+                ends.append((f, q))
+    if not ends:
+        return []
+    names = [n for n in model.points if n in use]
+    X = np.array([model.points[n].xyz for n in names], float)
+    frames = [g for g in model.frames.values() if g.type != "Null" and g.point_i in model.points and g.point_j in model.points]
+    A = np.array([model.points[g.point_i].xyz for g in frames], float)
+    B = np.array([model.points[g.point_j].xyz for g in frames], float)
+    out = []
+    for f, q in ends:
+        x = np.array(model.points[q].xyz, float)
+        other = f.point_j if q == f.point_i else f.point_i
+        d = np.linalg.norm(X - x, axis=1)
+        best = None
+        for k in np.argsort(d)[:6]:
+            if names[k] in (q, other) or not (tol < d[k] <= near):
+                continue
+            best = (float(d[k]), f"joint {names[k]}")
+            break
+        if best is None and len(frames):
+            ab = B - A
+            L2 = np.maximum(np.einsum("ij,ij->i", ab, ab), 1e-30)
+            t = np.clip(np.einsum("ij,ij->i", x - A, ab) / L2, 0.0, 1.0)
+            dist = np.linalg.norm(A + t[:, None] * ab - x, axis=1)
+            for k in np.argsort(dist)[:6]:
+                g = frames[k]
+                if g.name == f.name or q in (g.point_i, g.point_j) or other in (g.point_i, g.point_j):
+                    continue
+                if tol < dist[k] <= near:
+                    best = (float(dist[k]), f"{g.type.lower()} {g.name}")
+                break
+        if best is not None:
+            out.append(GeometryIssue(
+                "warning", "NEAR_MISS",
+                f"the end of {f.name} at joint {q} is {best[0]:.3f} from {best[1]} but not joined to it - "
+                f"it hangs free, the load does not go into {best[1].split()[-1]} (a missed snap?). Move the end onto "
+                f"it, or merge the joints (Edit > Merge Joints)", [f.name], points=[q]))
+    return out
+
+
+def _plane_key(model, a, tol):
+    P = np.array([model.points[q].xyz for q in a.points], float)
+    if len(P) < 3:
+        return None, None
+    c = P.mean(axis=0)
+    n = np.zeros(3)
+    for i in range(len(P)):  # Newell's normal
+        p0, p1 = P[i], P[(i + 1) % len(P)]
+        n += np.cross(p0 - c, p1 - c)
+    L = np.linalg.norm(n)
+    if L <= 1e-12:
+        return None, None
+    n = n / L
+    k = int(np.argmax(np.abs(n)))
+    if n[k] < 0:
+        n = -n
+    return n, P
+
+
+def _inside_2d(pt, poly, eps) -> int:
+    """1 strictly inside, 0 on the boundary (within eps), -1 outside."""
+    x, y = pt
+    m = len(poly)
+    for i in range(m):
+        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % m]
+        dx, dy = x2 - x1, y2 - y1
+        L2 = dx * dx + dy * dy
+        t = 0.0 if L2 <= 0 else max(0.0, min(1.0, ((x - x1) * dx + (y - y1) * dy) / L2))
+        if math.hypot(x1 + t * dx - x, y1 + t * dy - y) <= eps:
+            return 0
+    inside = False
+    for i in range(m):
+        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % m]
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+            inside = not inside
+    return 1 if inside else -1
+
+
+def _cross_properly(p1, p2, q1, q2, eps) -> bool:
+    def orient(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    d1, d2 = orient(q1, q2, p1), orient(q1, q2, p2)
+    d3, d4 = orient(p1, p2, q1), orient(p1, p2, q2)
+    s = eps * max(1.0, math.dist(p1, p2), math.dist(q1, q2))
+    return ((d1 > s and d2 < -s) or (d1 < -s and d2 > s)) and ((d3 > s and d4 < -s) or (d3 < -s and d4 > s))
+
+
+def _area_overlaps(model, tol, only: Optional[Set[str]] = None) -> List[GeometryIssue]:
+    """Two floors (or two walls) in one plane covering part of the same surface: that
+    part has twice the slab - its weight, its loads and its stiffness counted twice.
+    (Exactly the same corners is the duplicate check's.)"""
+    groups: Dict[tuple, list] = {}
+    for a in model.areas.values():
+        if a.type not in ("Floor", "Wall") or len(a.points) < 3 or any(q not in model.points for q in a.points):
+            continue
+        n, P = _plane_key(model, a, tol)
+        if n is None:
+            continue
+        d = float(n @ P.mean(axis=0))
+        key = (a.type, tuple(np.round(n, 3)), round(d / max(tol * 10, 1e-9)))
+        groups.setdefault(key, []).append((a, n, P))
+    out = []
+    eps = max(tol, 1e-9)
+    for items in groups.values():
+        if len(items) < 2 or (only is not None and not any(a.name in only for a, _, _ in items)):
+            continue
+        n = items[0][1]
+        u = np.cross(n, [0.0, 0.0, 1.0]) if abs(n[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+        u = u / np.linalg.norm(u)
+        v = np.cross(n, u)
+        polys = [(a, [(float(p @ u), float(p @ v)) for p in P]) for a, _, P in items]
+        boxes = [(min(x for x, _ in pg), min(y for _, y in pg), max(x for x, _ in pg), max(y for _, y in pg))
+                 for _, pg in polys]
+        for i in range(len(polys)):
+            for j in range(i + 1, len(polys)):
+                bi, bj = boxes[i], boxes[j]
+                if bi[0] >= bj[2] - eps or bj[0] >= bi[2] - eps or bi[1] >= bj[3] - eps or bj[1] >= bi[3] - eps:
+                    continue
+                (a, pa), (b, pb) = polys[i], polys[j]
+                if only is not None and a.name not in only and b.name not in only:
+                    continue
+                if set(a.points) == set(b.points):
+                    continue  # (drawn twice: the duplicate check says so)
+                hit = any(_inside_2d(p, pb, eps) == 1 for p in pa) or any(_inside_2d(p, pa, eps) == 1 for p in pb)
+                if not hit:
+                    ca = (sum(x for x, _ in pa) / len(pa), sum(y for _, y in pa) / len(pa))
+                    cb = (sum(x for x, _ in pb) / len(pb), sum(y for _, y in pb) / len(pb))
+                    hit = (_inside_2d(ca, pb, eps) == 1 and _inside_2d(ca, pa, eps) == 1) or \
+                          (_inside_2d(cb, pa, eps) == 1 and _inside_2d(cb, pb, eps) == 1)
+                if not hit:
+                    hit = any(_cross_properly(pa[k], pa[(k + 1) % len(pa)], pb[l], pb[(l + 1) % len(pb)], 1e-9)
+                              for k in range(len(pa)) for l in range(len(pb)))
+                if hit:
+                    what = "floors" if a.type == "Floor" else "walls"
+                    out.append(GeometryIssue(
+                        "warning", "AREAS_OVERLAP",
+                        f"{what} {a.name} and {b.name} overlap: where they overlap the {a.type.lower()} is there twice "
+                        f"- its weight, loads and stiffness counted twice. Reshape one so they only meet at their edges",
+                        areas=[a.name, b.name]))
+    return out
+
+
+def _base_without_support(model, tol) -> List[GeometryIssue]:
+    """A column or wall standing on a joint at the lowest level that has no support."""
+    used = [q for f in model.frames.values() for q in (f.point_i, f.point_j)] + \
+        [q for a in model.areas.values() for q in a.points]
+    zs = [model.points[q].z for q in used if q in model.points]
+    if not zs:
+        return []
+    z0 = min(zs)
+    if not any(any(p.restraints) or any(p.springs) for p in model.points.values()):
+        return []  # nothing supported at all: the analysis says so plainly
+    bad: Dict[str, str] = {}
+    for f in model.frames.values():
+        if f.type != "Column":
+            continue
+        for q in (f.point_i, f.point_j):
+            p = model.points.get(q)
+            if p is not None and abs(p.z - z0) <= tol and not any(p.restraints) and not any(p.springs) \
+                    and not any(getattr(p, "rotational_springs", (0, 0, 0))):
+                bad.setdefault(q, f.name)
+    for a in model.areas.values():
+        if a.type != "Wall":
+            continue
+        for q in a.points:
+            p = model.points.get(q)
+            if p is not None and abs(p.z - z0) <= tol and not any(p.restraints) and not any(p.springs):
+                bad.setdefault(q, a.name)
+    if not bad:
+        return []
+    pts = sorted(bad)
+    return [GeometryIssue("warning", "BASE_NOT_SUPPORTED",
+                          f"{len(pts)} joint(s) at the base level carry a column / wall but have no support: "
+                          + ", ".join(f"{q} ({bad[q]})" for q in pts[:6]) + ("..." if len(pts) > 6 else "")
+                          + " - the member hangs from the rest of the structure. Assign > Joint > Restraints",
+                          frames=[bad[q] for q in pts if bad[q] in model.frames][:1], points=pts)]
+
+
+def _far_away(model, tol) -> List[GeometryIssue]:
+    """Joints far outside the grid (a slip of the mouse, or a length in the wrong units)."""
+    xs = [g.ordinate for g in model.grid_lines if g.direction == "X"]
+    ys = [g.ordinate for g in model.grid_lines if g.direction == "Y"]
+    if len(xs) < 2 or len(ys) < 2:
+        return []
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+    margin = max(math.hypot(x1 - x0, y1 - y0), 20.0 * _metre(model))
+    used = {q for f in model.frames.values() for q in (f.point_i, f.point_j)} | \
+        {q for a in model.areas.values() for q in a.points}
+    far = [q for q in used if q in model.points and (
+        model.points[q].x < x0 - margin or model.points[q].x > x1 + margin or
+        model.points[q].y < y0 - margin or model.points[q].y > y1 + margin)]
+    if not far:
+        return []
+    owners = [f.name for f in model.frames.values() if f.point_i in far or f.point_j in far]
+    return [GeometryIssue("warning", "FAR_FROM_GRID",
+                          f"{len(far)} joint(s) lie far outside the grid ({', '.join(sorted(far)[:5])}) - "
+                          f"a click that slipped, or a length typed in other units?"
+                          + (f" Used by {', '.join(owners[:4])}" if owners else ""), owners[:1], points=sorted(far))]
+
+
+def _section_sizes(model, tol) -> List[GeometryIssue]:
+    """A frame section of a catalogue shape whose dimensions are not valid (zero depth
+    ...): its properties are not those of any real section."""
+    from .section_shapes import SHAPES, check_dims
+    used = {f.section for f in model.frames.values()}
+    out = []
+    for s in model.frame_sections.values():
+        sh = SHAPES.get(getattr(s, "shape", "General"))
+        if sh is None or s.name not in used:
+            continue
+        dims = {k: getattr(s, k, None) for k in ("t3", "t2", "tf", "tw", "t2b", "tfb", "dis", "lip", "r", "r2")}
+        dims.update({k: v for k, v in (getattr(s, "params", None) or {}).items() if k == "slope"})
+        try:
+            errs = check_dims(sh, dims)
+        except Exception:
+            errs = []
+        if errs:
+            out.append(GeometryIssue("error", "INVALID_SECTION",
+                                     f"section {s.name}: " + "; ".join(errs) + " - Define > Section Properties",
+                                     [f.name for f in model.frames.values() if f.section == s.name][:1]))
+    return out
+
+
+_E_RANGE = {"Concrete": (5e9, 6e10), "Steel": (1.5e11, 2.5e11), "Rebar": (1.5e11, 2.5e11),
+            "Tendon": (1.5e11, 2.5e11), "Aluminum": (5e10, 9e10), "Masonry": (1e9, 3e10)}
+
+
+def _material_moduli(model, tol) -> List[GeometryIssue]:
+    """E far from that of the material type (a value typed in other units: MPa for kN/m2 ...)."""
+    try:
+        to_pa = model.units.factor("stress")
+    except Exception:
+        return []
+    used = {getattr(s, "material", None) for s in model.frame_sections.values()} | \
+        {getattr(s, "material", None) for s in model.shell_sections.values()}
+    out = []
+    for m in model.materials.values():
+        r = _E_RANGE.get(m.type)
+        if r is None or m.name not in used or m.E <= 0:
+            continue
+        e = m.E * to_pa
+        if not (r[0] <= e <= r[1]):
+            ratio = e / math.sqrt(r[0] * r[1])
+            hint = f" ({ratio:.3g} times the usual)" if ratio < 0.05 or ratio > 20 else ""
+            out.append(GeometryIssue("warning", "UNUSUAL_E",
+                                     f"material {m.name} ({m.type}): E = {m.E:.6g} is far from a {m.type.lower()}'s "
+                                     f"{r[0] / to_pa:.4g} - {r[1] / to_pa:.4g}{hint}: typed in other units? "
+                                     f"Define > Materials"))
+    return out
+
+
+def _self_weight(model, tol) -> List[GeometryIssue]:
+    sw = [p for p in model.load_patterns.values() if abs(getattr(p, "self_weight_multiplier", 0.0)) > 0]
+    if len(sw) > 1:
+        return [GeometryIssue("warning", "SELF_WEIGHT_TWICE",
+                              f"self weight is in {len(sw)} load patterns ({', '.join(p.name for p in sw)}): "
+                              f"combined, it is counted {len(sw)} times. Keep the multiplier 1 in one pattern "
+                              f"(Dead) only - Define > Load Patterns")]
+    if not sw and (model.frames or model.areas) and model.load_patterns:
+        used = {getattr(x, "material", None) for x in model.frame_sections.values()} | \
+            {getattr(x, "material", None) for x in model.shell_sections.values()}
+        if any(getattr(m, "weight_density", 0.0) > 0 for n, m in model.materials.items() if n in used):
+            # (a note, not a warning: test models leave it out on purpose)
+            return [GeometryIssue("info", "NO_SELF_WEIGHT",
+                                  "no load pattern includes the self weight, though the materials have weight: "
+                                  "the members' own weight is in no load. Usually the Dead pattern has self "
+                                  "weight multiplier 1 - Define > Load Patterns")]
+    return []
+
+
+def _upward_gravity_loads(model, tol) -> List[GeometryIssue]:
+    """Gravity loads with a negative value act upward: usually a sign typed by mistake."""
+    frames = sorted({f.name for f in model.frames.values() for ld in getattr(f, "loads", ())
+                     if getattr(ld, "direction", "") == "Gravity"
+                     and (getattr(ld, "value_a", 0.0) < 0 or getattr(ld, "value_b", 0.0) < 0)})
+    panels = sorted({p.area or p.name for p in getattr(model, "panel_loads", {}).values() for c in p.loads
+                     if getattr(c, "direction", "") == "Gravity" and getattr(c, "value", 0.0) < 0})
+    pts = sorted({n for n, p in model.points.items() for ld in getattr(p, "loads", ())
+                  if getattr(ld, "direction", "Gravity") == "Gravity" and getattr(ld, "value", 0.0) < 0})
+    out = []
+    if frames or panels or pts:
+        where = ", ".join(frames[:4] + panels[:4] + pts[:4])
+        out.append(GeometryIssue("warning", "UPWARD_GRAVITY_LOAD",
+                                 f"gravity loads with a negative value push UP on {where}"
+                                 f"{'...' if len(frames) + len(panels) + len(pts) > 12 else ''} - a minus typed by "
+                                 f"mistake? (a downward load is positive)", frames[:1],
+                                 areas=[a for a in panels if a in model.areas][:1]))
+    return out
+
+
+__all__ = ["GeometryIssue", "geometry_issues", "duplicates_of", "drawing_issues", "area_size"]
