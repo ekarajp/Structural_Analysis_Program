@@ -96,6 +96,9 @@ class MeshOptions:
     # areas assigned the fine mesh (Assign > Floor / Wall Auto Mesh) use it; off for the
     # mesh refinement check (it looks for the fine mesh) and the legacy global fine mesh
     area_fine: bool = True
+    # membrane floors on auto mesh: no element in a rigid diaphragm, no slab-column rigid
+    # zones (False: meshed like a shell - the reference of the tests)
+    membrane_coarse: bool = True
 
 
 class Mesher:
@@ -107,6 +110,9 @@ class Mesher:
         self.am = AnalysisModel()
         self._node_index: Dict[Tuple[int, int, int], int] = {}
         self._frame_cuts: Dict[str, List[float]] = {}  # frame name -> parameters t of extra nodes
+        self._unmeshed_membranes: set = set()  # membrane floors in a rigid diaphragm: no elements
+        self._membrane_nodes: Dict[str, set] = {}  # their joints (in their diaphragm)
+
         self._frame_geom: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
         self._diaphragm_nodes: Dict[Tuple[str, Optional[str], float], set] = {}
         # per diaphragm key: list of (polygon pts, mass per area, {pattern: force per area (gravity)},
@@ -387,6 +393,61 @@ class Mesher:
         am.mass_vertical = ms.include_vertical
         am.mass_from_loads = {k: float(v) for k, v in ms.load_patterns.items()}
         am.mass_lump_at_stories = bool(getattr(ms, "lump_at_stories", False))
+
+    MEMBRANE_BEAM_DIVISION = 0.75  # m: beams under a membrane floor without elements, divided (mass)
+
+    def _frames_at_levels(self):
+        """(level key -> frame end points there, level key -> horizontal frames there):
+        found once (membrane floors without elements look for what is under them)."""
+        c = self.__dict__.get("_levels_cache")
+        if c is None:
+            ends: Dict[int, list] = {}
+            flat: Dict[int, list] = {}
+            for f in self.model.frames.values():
+                ga, gb = self._frame_geom[f.name]
+                ka, kb = round(float(ga[2]) / self.tol), round(float(gb[2]) / self.tol)
+                ends.setdefault(ka, []).append(ga)
+                ends.setdefault(kb, []).append(gb)
+                if ka == kb and f.type not in ("Rigid", "Null"):
+                    flat.setdefault(ka, []).append(f.name)
+            c = self._levels_cache = (ends, flat)
+        return c
+
+    def _column_joints(self) -> set:
+        c = self.__dict__.get("_col_joints")
+        if c is None:
+            c = self._col_joints = {p for g in self.model.frames.values() if g.type == "Column"
+                                    for p in (g.point_i, g.point_j)}
+        return c
+
+    def _end_offsets_of(self, f) -> Tuple[float, float]:
+        cache = self.__dict__.setdefault("_end_off_cache", {})
+        if f.name not in cache:
+            m = self.model
+            try:
+                ga, gb = self._frame_geom[f.name]
+                cache[f.name] = (self._auto_end_offsets(f, ga, gb) if m.frame_auto_end_offsets(f)
+                                 else (f.end_offset_i * self.U.factor("length"), f.end_offset_j * self.U.factor("length")))
+            except Exception:
+                cache[f.name] = (0.0, 0.0)
+        return cache[f.name]
+
+    def _membrane_auto(self, a: Area) -> bool:
+        """A horizontal membrane floor on auto mesh (no element in a rigid diaphragm,
+        coarse elsewhere - see _mesh_area)."""
+        if not self.opts.membrane_coarse or a.type != "Floor" or not a.auto_mesh or a.max_mesh_size \
+                or getattr(a, "fine_mesh", False) or a.mesh_divisions is not None:
+            return False
+        if a.name not in getattr(self, "_membrane_floors", ()):
+            return False
+        sec = self.model.shell_sections.get(a.section)
+        if sec is None or sec.model_type != "Membrane":
+            return False
+        try:
+            P = np.array([self._xyz(self.model.points[p]) for p in a.points])
+            return abs(polygon_normal(P)[2]) > 1 - 1e-6
+        except Exception:
+            return False
 
     # ------------------------------------------------------------ frame cuts
     def _cut_frames_at_points(self):
@@ -1229,6 +1290,15 @@ class Mesher:
             weight_pa = 0.0
         own_loads = [] if membrane_floor else list(a.loads)
         modarr = np.array([mods.f11, mods.f22, mods.f12, mods.m11, mods.m22, mods.m12, mods.v13, mods.v23])
+        # a membrane floor on auto mesh carries nothing out of its plane (its loads went to
+        # the frames): in a rigid diaphragm it is no element at all (the diaphragm holds its
+        # plane; its mass goes to the joints under it; the beams in it keep the rigid part
+        # inside the columns its slab-column rigid zones gave them).  In a semi-rigid
+        # diaphragm or none it is meshed as before (its in-plane stiffness: the chord /
+        # collector forces of the beams need the mesh)
+        membrane_auto = self._membrane_auto(a)
+        dia = m.diaphragms.get(a.diaphragm) if a.diaphragm else None
+        membrane_rigid = membrane_auto and a.diaphragm is not None and (dia.rigid if dia is not None else True)
 
         # mesh size
         if a.auto_mesh and a.max_mesh_size:
@@ -1256,6 +1326,9 @@ class Mesher:
         if self._openings and fr is not None:
             holes = self._openings.holes(pts, fr, self.tol, exclude=(a.name,))
         Q2 = pg.to_2d(pts, fr) if fr is not None else None
+        if membrane_rigid and planar and fr is not None and self._membrane_without_elements(a, pts, fr, Q2, holes,
+                                                                                            mass_pa):
+            return
         # columns, loaded joints, beams, null lines, wall edges, neighbouring mesh nodes
         feats = self._area_features(a, pts, fr, Q2) if planar and a.auto_mesh else am_.Features()
         if (not size and self.opts.auto_size and planar and a.auto_mesh
@@ -1455,6 +1528,136 @@ class Mesher:
                 self._diaphragm_areas.setdefault(key, []).append((exact_pieces, mass_pa, weight_pa, gravity_loads, trib))
         self.am.object_to_shells[a.name] = elem_ids
 
+    def _membrane_without_elements(self, a: Area, pts: np.ndarray, fr, Q2: np.ndarray, holes, mass_pa: float) -> bool:
+        """A membrane floor in a rigid diaphragm, as no element: the joints of the frames /
+        walls on it join the diaphragm and take its mass (each part of the floor to the
+        nearest of them; total mass exact, the rotational inertia corrected exactly by the
+        diaphragm).  False (meshed after all) when no joint is under it."""
+        m = self.model
+        tol = self.tol
+        normal = fr[3]
+        o = fr[0]
+        # joints of everything standing on / framing into the floor, in its plane
+        cand: Dict[int, np.ndarray] = {}
+
+        def take(xyz):
+            xyz = np.asarray(xyz, float)
+            if abs(float((xyz - o) @ normal)) > tol:
+                return
+            nid = self._node_at(xyz)
+            cand[nid] = self.am.nodes[nid].xyz
+        h = self.MEMBRANE_BEAM_DIVISION
+        ends_at, flat_at = self._frames_at_levels()
+        zk = round(float(np.mean(pts[:, 2])) / tol)
+        for dz in (-1, 0, 1):
+            for xyz in ends_at.get(zk + dz, ()):
+                take(xyz)
+        for f in (m.frames[n] for dz in (-1, 0, 1) for n in flat_at.get(zk + dz, ())):
+            ga, gb = self._frame_geom[f.name]
+            if abs(float((ga - o) @ normal)) > tol or abs(float((gb - o) @ normal)) > tol:
+                continue
+            for t in self._frame_cuts.get(f.name, ()):
+                take(ga + t * (gb - ga))
+            # a beam under the floor is divided as the floor's mesh would divide it: the
+            # floor's mass (and the beam's own) spread along it, its nodes in the diaphragm
+            mid2 = pg.to_2d(((ga + gb) / 2)[None], fr)[0]
+            if not pg.inside(mid2, Q2, edge_tol=tol):
+                continue
+            L = float(np.linalg.norm(gb - ga))
+            ei, ej = self._end_offsets_of(f)
+            if m.options.slab_column_rigid_zone:
+                # a node on the column face (the floor's slab-column rigid zone holds the
+                # beam inside the column there, as with a meshed floor)
+                cols = self._column_joints()
+                for t, e, p in ((ei / L, ei, f.point_i), (1 - ej / L, ej, f.point_j)):
+                    if p in cols and e > tol and 0.0 < t < 1.0:
+                        xyz = ga + t * (gb - ga)
+                        self._cut_frames_at_node(xyz)
+                        take(xyz)
+            n = int(math.ceil(L / h - 1e-9))
+            if n < 2:
+                continue
+            for k in range(1, n):
+                t = k / n
+                if t * L <= ei + tol or (1 - t) * L <= ej + tol:
+                    continue  # inside the joint zone: not a node of the member
+                xyz = ga + t * (gb - ga)
+                self._cut_frames_at_node(xyz)
+                take(xyz)
+        for w in m.areas.values():
+            if w.name == a.name or w.is_opening or w.type == "Floor":
+                continue
+            for q in w.points:
+                take(self._xyz(m.points[q]))
+        if not cand:
+            return False
+        ids = list(cand)
+        X2 = pg.to_2d(np.array([cand[n] for n in ids]), fr)
+        ok = np.array([pg.inside(x, Q2, edge_tol=tol) and not any(pg.inside(x, H) for _, H in holes)
+                       for x in X2], bool)
+        ids = [n for n, k in zip(ids, ok) if k]
+        X2 = X2[ok]
+        if len(ids) < 2:
+            return False
+        # each part of the floor (less its openings) to the nearest joint
+        from .panel_loads import _inside_many
+        g = 96
+        lo, hi = Q2.min(axis=0), Q2.max(axis=0)
+        span = hi - lo
+        ii, jj = np.meshgrid(np.arange(g), np.arange(g), indexing="ij")
+        C = lo + span * np.column_stack(((ii.ravel() + 0.5) / g, (jj.ravel() + 0.5) / g))
+        keep = _inside_many(C, Q2)
+        for _, H in holes:
+            keep &= ~_inside_many(C, H, edge_tol=0.0)
+        C = C[keep]
+        area = abs(pg.signed_area(Q2)) - sum(abs(pg.signed_area(H)) for _, H in holes)
+        if not len(C) or area <= 0:
+            return False
+        d2 = ((C[:, None, :] - X2[None, :, :]) ** 2).sum(axis=2)
+        near = np.argmin(d2, axis=1)
+        w = np.bincount(near, minlength=len(ids)).astype(float)
+        w *= area / w.sum()
+        # first moment exact (the centre of mass of the floor where it is - the sampling puts
+        # it within a cell): the least change of the shares, in proportion to them
+        def first_moment(P):
+            A2 = pg.signed_area(P)
+            cx = cy = 0.0
+            for k in range(len(P)):
+                x0, y0 = P[k]
+                x1, y1 = P[(k + 1) % len(P)]
+                cr = x0 * y1 - x1 * y0
+                cx += (x0 + x1) * cr
+                cy += (y0 + y1) * cr
+            sgn = 1.0 if A2 >= 0 else -1.0
+            return np.array([cx, cy]) / 6.0 * sgn
+        S = first_moment(Q2) - sum((first_moment(H) for _, H in holes), np.zeros(2))
+        X = np.column_stack([np.ones(len(ids)), X2])  # rows: 1, u, v
+        r = np.array([0.0, S[0] - float(w @ X2[:, 0]), S[1] - float(w @ X2[:, 1])])
+        Wd = np.maximum(w, 1e-12 * area)
+        G = (X.T * Wd) @ X
+        try:
+            lam = np.linalg.solve(G, r)
+            dw = Wd * (X @ lam)
+            if np.all(w + dw >= 0):
+                w = w + dw
+        except np.linalg.LinAlgError:
+            pass  # joints on one line: the shares stay as sampled
+        trib = {int(n): float(wi) for n, wi in zip(ids, w)}
+        for n, wi in trib.items():
+            self.am.area_node_mass[n] = self.am.area_node_mass.get(n, 0.0) + mass_pa * wi
+        z = float(np.mean(pts[:, 2]))
+        key = (a.diaphragm, a.story, round(z / self.tol))
+        self._diaphragm_nodes.setdefault(key, set()).update(trib)
+        hole_pieces = [pg.to_3d(H, fr) for _, H in holes]
+        self._diaphragm_areas.setdefault(key, []).append(([pts], mass_pa, 0.0, {}, trib))
+        if hole_pieces:
+            self._diaphragm_areas[key].append((hole_pieces, -mass_pa, 0.0, {}, {}))
+        self._area_order[a.name] = len(self._area_order)
+        self.am.object_to_shells[a.name] = []
+        self._unmeshed_membranes.add(a.name)
+        self._membrane_nodes[a.name] = set(trib)
+        return True
+
     # ------------------------------------------- auto edge constraints (ETABS)
     def _check_beams_beside_floors(self):
         """A beam whose real axis (joint offsets / insertion point in the analysis, or the
@@ -1464,13 +1667,15 @@ class Mesher:
         so it is said."""
         m, am = self.model, self.am
         floors = [a for a in m.areas.values() if a.type == "Floor" and all(p in m.points for p in a.points)]
-        if not floors or not am.shells:
+        if not floors or not (am.shells or self._unmeshed_membranes):
             return
         Lf = self.U.factor("length")
         tol = max(self.tol, 1e-6)
         shell_nodes: Dict[str, set] = {}
         for sh in am.shells:
             shell_nodes.setdefault(sh.object, set()).update(sh.nodes)
+        for name, nodes in self._membrane_nodes.items():  # membrane floors without elements
+            shell_nodes.setdefault(name, set()).update(nodes)
         tied = {t.node for t in am.ties}
         polys = {}
         for a in floors:
@@ -2038,7 +2243,7 @@ class Mesher:
         """Tie the slab nodes inside each column's cross-section to the column
         joint (out-of-plane DOFs, rigid body)."""
         am = self.am
-        if not am.shells:
+        if not am.shells and not self._membrane_nodes:
             return
         tied = {t.node for t in am.ties}
         floor_nodes = set()
@@ -2046,6 +2251,8 @@ class Mesher:
             ar = self.model.areas.get(sh.object)
             if ar is not None and ar.type == "Floor":
                 floor_nodes.update(sh.nodes)
+        for nodes in self._membrane_nodes.values():  # membrane floors without elements: their joints
+            floor_nodes.update(nodes)
         if not floor_nodes:
             return
         ids = np.array(sorted(floor_nodes))
@@ -2236,8 +2443,51 @@ class Mesher:
         return quads
 
     # ------------------------------------------------------------ constraints
+    def _drop_loose_area_nodes(self):
+        """Nodes a membrane floor without elements gave its mass to that no element uses
+        after all (a cut the member did not take): their mass to the nearest used node of
+        the same diaphragm, and out of the diaphragm."""
+        am = self.am
+        if not self._unmeshed_membranes:
+            return
+        used = set()
+        for fe in am.frames:
+            used.update((fe.node_i, fe.node_j))
+        for sh in am.shells:
+            used.update(sh.nodes)
+        for rl in am.rigid_links:
+            used.update((rl.node_i, rl.node_j))
+        for lk in getattr(am, "links", ()) or ():
+            used.update(getattr(lk, "nodes", ()) or ())
+        # the corners of such a floor that nothing else uses: held quietly
+        for name in self._unmeshed_membranes:
+            for q in self.model.areas[name].points:
+                nid = am.point_to_node.get(q)
+                p = self.model.points[q]
+                if nid is not None and nid not in used and not (p.loads or any(p.restraints) or any(p.springs)
+                                                                or any(p.mass)):
+                    am.quiet_nodes.append(nid)
+        used.update(n.id for n in am.nodes if n.point is not None)
+        for key, nodes in self._diaphragm_nodes.items():
+            loose = [n for n in nodes if n not in used]
+            if not loose:
+                continue
+            keep = [n for n in nodes if n in used]
+            for n in loose:
+                nodes.discard(n)
+                mass = am.area_node_mass.pop(n, 0.0)
+                if mass and keep:
+                    d = [float(np.linalg.norm(am.nodes[k].xyz - am.nodes[n].xyz)) for k in keep]
+                    tgt = keep[int(np.argmin(d))]
+                    am.area_node_mass[tgt] = am.area_node_mass.get(tgt, 0.0) + mass
+                    for entry in self._diaphragm_areas.get(key, []):
+                        trib = entry[4]
+                        if n in trib:
+                            trib[tgt] = trib.get(tgt, 0.0) + trib.pop(n)
+
     def _build_constraints(self):
         am = self.am
+        self._drop_loose_area_nodes()
         for (name, story, _zkey), nodes in self._diaphragm_nodes.items():
             node_list = sorted(nodes)
             if len(node_list) < 2:

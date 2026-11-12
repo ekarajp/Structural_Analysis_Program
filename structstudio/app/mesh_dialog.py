@@ -29,6 +29,12 @@ AUTO_MESH_HELP = (
     "elements: each span between columns, beams and walls is split into equal elements no larger "
     "than the default maximum (0.5 m, or the size of Analyze &gt; Automatic Mesh Settings).  Columns, beams, walls, point loads and openings inside the area are joined to the "
     "mesh (their joints become mesh nodes).  Quick, and accurate enough for most models.<br><br>"
+    "<b>Membrane floors</b> (shell section type Membrane) in a <b>rigid diaphragm</b>: auto mesh means "
+    "<b>no mesh</b>.  A membrane carries nothing out of its plane - its loads go two-way to the beams - "
+    "and the diaphragm holds its plane, so it is no element at all (its mass goes to the joints under "
+    "it).  In a semi-rigid diaphragm or without one it is meshed: its in-plane stiffness gives the "
+    "beams their chord / collector forces.  Manual or fine mesh meshes it like a slab."
+    "<br><br>"
     "<b>Manual maximum mesh size</b>: your own largest element size for these areas instead of the "
     "default.<br><br>"
     "<b>No mesh</b>: each area is one element as drawn.  Joints, columns or lines inside it are "
@@ -127,7 +133,8 @@ class AreaMeshDialog(QtWidgets.QDialog):
         self.default = QtWidgets.QLineEdit(f"Default = max {default_max_size(model, kind):.4g} {u}")
         self.default.setReadOnly(True)
         self.default.setFocusPolicy(QtCore.Qt.NoFocus)
-        self.default.setToolTip("Largest element of the automatic mesh (Analyze > Automatic Mesh Settings)")
+        self.default.setToolTip("Largest element of the automatic mesh (Analyze > Automatic Mesh Settings); "
+                                "a membrane floor in a rigid diaphragm is not meshed (see ?)")
         self.default.setStyleSheet("QLineEdit { background: palette(window); color: palette(mid); }")
         gl.addWidget(self.default, 0, 1, 1, 2)
         gl.addWidget(help_button(AUTO_MESH_HELP, "Auto mesh", self), 0, 3)

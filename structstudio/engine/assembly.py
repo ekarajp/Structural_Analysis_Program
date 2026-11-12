@@ -118,6 +118,8 @@ class Assembler:
             for se in self.shells:
                 for nid, m in zip(se.el.nodes, se.lumped_mass()):
                     M[nid] += m
+            for nid, m in getattr(am, "area_node_mass", {}).items():
+                M[nid] += m
             for lk in self.links:
                 for nid in lk.nodes:
                     M[nid] += getattr(lk, "mass", 0.0) / len(lk.nodes)
@@ -527,7 +529,13 @@ class Assembler:
         singular.  Like SAP2000/ETABS they are automatically restrained and
         reported as warnings."""
         d = np.asarray(K_red.diagonal()).ravel()
-        null = [i for i in self.dofs.free if d[i] == 0.0]
+        # "no stiffness": exactly zero, or round-off left by the transformations (a membrane's
+        # out-of-plane / drilling terms ~1e-22 beside ~1e+8: numerically a mechanism).  Measured
+        # against the median diagonal term (not the largest: a penalty / rigid term ~1e+26
+        # would take real stiffnesses with it)
+        free_d = np.abs(d[self.dofs.free]) if len(self.dofs.free) else np.zeros(0)
+        floor = 1e-18 * float(np.median(free_d[free_d > 0])) if np.any(free_d > 0) else 0.0
+        null = [i for i in self.dofs.free if abs(d[i]) <= floor]
         if not null:
             return
         dofs = self.dofs
@@ -540,6 +548,8 @@ class Assembler:
         for fe in self.frames:
             other.update((fe.el.node_i, fe.el.node_j))
         quiet = 0
+        loose_corners = set(getattr(self.am, "quiet_nodes", ()) or ())
+        quiet_corners = set()
         for i in null:
             full = int(keep[i])
             node, comp = divmod(full, 6)
@@ -547,12 +557,18 @@ class Assembler:
             if comp in (2, 3, 4) and node in membrane and node not in other and n.point is None:
                 quiet += 1
                 continue
+            if node in loose_corners:
+                quiet_corners.add(node)
+                continue
             label = n.point or f"node {node}"
             self.am.warnings.append(f"Null DOF {('UX','UY','UZ','RX','RY','RZ')[comp]} at {label} has no stiffness; "
                                     f"automatically restrained")
         if quiet:
             self.am.info.append(f"Membrane floors: {quiet} out-of-plane DOF(s) of their inner mesh nodes held "
                                 f"(a membrane has no bending stiffness; its loads go to the supporting frames)")
+        if quiet_corners:
+            self.am.info.append(f"Membrane floors without elements (rigid diaphragm): {len(quiet_corners)} corner "
+                                f"joint(s) that nothing else uses held (the floor's loads and mass are on the frames)")
         null_set = set(null)
         dofs.free = np.array([i for i in dofs.free if i not in null_set], dtype=int)
         dofs.free_of_reduced[:] = -1
@@ -573,6 +589,8 @@ class Assembler:
                 ms = se.lumped_mass()
                 for nid, m in zip(se.el.nodes, ms):
                     M[6 * nid:6 * nid + 3] += m
+            for nid, m in getattr(am, "area_node_mass", {}).items():
+                M[6 * nid:6 * nid + 3] += m
             for lk in self.links:  # link mass: equal shares at its joints (CSI)
                 for nid in lk.nodes:
                     M[6 * nid:6 * nid + 3] += getattr(lk, "mass", 0.0) / len(lk.nodes)

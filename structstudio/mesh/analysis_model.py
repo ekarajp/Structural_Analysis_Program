@@ -189,6 +189,11 @@ class AnalysisModel:
     nodal_loads: Dict[str, Dict[int, np.ndarray]] = field(default_factory=dict)  # pattern -> node -> (6,)
     object_to_frames: Dict[str, List[int]] = field(default_factory=dict)
     object_to_shells: Dict[str, List[int]] = field(default_factory=dict)
+    # mass of areas that are no elements (membrane floors in a rigid diaphragm), lumped at
+    # the joints under them: node -> mass (kg); element mass (Mass Source "element")
+    area_node_mass: Dict[int, float] = field(default_factory=dict)
+    # joints of such floors that no element uses (a free corner): held without a warning
+    quiet_nodes: List[int] = field(default_factory=list)
     point_to_node: Dict[str, int] = field(default_factory=dict)
     story_elevations: Dict[str, float] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
