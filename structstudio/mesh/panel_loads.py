@@ -60,6 +60,23 @@ class PanelResult:
     # the whole area is loaded) and the loaded part of each area (area units)
     shell_regions: Dict[str, Optional[np.ndarray]] = field(default_factory=dict)
     shell_loaded_area: Dict[str, float] = field(default_factory=dict)
+    # two-way with ``overhang``: load beyond the bar it goes to with nothing on the far side
+    # (a cantilever part of a membrane floor) - its moment about that bar, per station
+    overhangs: List["BarOverhang"] = field(default_factory=list)
+
+
+@dataclass
+class BarOverhang:
+    """The cantilever part of a two-way load on one bar: per station bin, ``S`` = sum of
+    force x lever (force along ``direction``, lever >= 0 from the bar), ``outward`` = the
+    (global) unit direction from the bar to that load."""
+
+    frame: str
+    stations: np.ndarray
+    S: np.ndarray
+    outward: np.ndarray  # (n, 3)
+    direction: np.ndarray
+    F: Optional[np.ndarray] = None  # the cantilever force per bin
 
 
 @dataclass
@@ -216,7 +233,8 @@ def distribute(poly: Sequence[XYZ], distribution: str, span_dir: Optional[XYZ], 
                direction: XYZ, frame_ends: Dict[str, Tuple[np.ndarray, np.ndarray]],
                receivers_allowed: Optional[set] = None, strips: int = 60, plane_tol: float = 1e-3,
                areas: Optional[Dict[str, np.ndarray]] = None, n_stations: int = 11,
-               within: Optional[Sequence[XYZ]] = None) -> PanelResult:
+               within: Optional[Sequence[XYZ]] = None, overhang: bool = False,
+               supports: Sequence[Tuple[np.ndarray, np.ndarray]] = ()) -> PanelResult:
     """Distribute one load (``load``: {"value"} or {"varying": True, "value_lower",
     "value_upper", "z0", "z1"}) of a panel.  ``direction``: global unit vector of
     the load (e.g. (0, 0, -1) for gravity, the panel normal for wind)."""
@@ -278,6 +296,9 @@ def distribute(poly: Sequence[XYZ], distribution: str, span_dir: Optional[XYZ], 
     # accumulated load per receiver at fixed stations
     stations = np.linspace(0.0, 1.0, n_stations)
     acc: Dict[str, np.ndarray] = {r.name: np.zeros(n_stations) for r in recs}  # force per station bin
+    ov_S: Dict[str, np.ndarray] = {}
+    ov_o: Dict[str, np.ndarray] = {}
+    ov_F: Dict[str, np.ndarray] = {}
     if distribution == "one_way":
         if span_dir is None:
             raise ValueError("one-way panel needs a span direction")
@@ -368,6 +389,9 @@ def distribute(poly: Sequence[XYZ], distribution: str, span_dir: Optional[XYZ], 
                     else:
                         _add(acc, right[0], q, stations)
     elif distribution == "two_way":
+        sup2 = [(to2(a), to2(b)) for a, b in supports
+                if abs((np.asarray(a, float) - origin) @ normal) <= plane_tol
+                and abs((np.asarray(b, float) - origin) @ normal) <= plane_tol]
         g = 64
         lo, hi = poly2.min(axis=0), poly2.max(axis=0)
         cell = np.prod(hi - lo) / (g * g)
@@ -403,6 +427,19 @@ def distribute(poly: Sequence[XYZ], distribution: str, span_dir: Optional[XYZ], 
                     if best is None or dist < best[0]:
                         best = (dist, r, uc)
                 _add(acc, (0.0, best[1], best[2]), force, stations)
+                if overhang and best[0] > 1e-9 and force != 0.0:
+                    foot = best[1].a + best[2] * (best[1].b - best[1].a)
+                    v = (q2 - foot) / best[0]
+                    if _overhangs(foot, v, best[0], best[1].name, recs, sup2, host2 if host2 is not None else poly2):
+                        o3 = v[0] * e1 + v[1] * e2
+                        if best[1].name not in ov_S:
+                            ov_S[best[1].name] = np.zeros(n_stations)
+                            ov_o[best[1].name] = np.zeros((n_stations, 3))
+                            ov_F[best[1].name] = np.zeros(n_stations)
+                        _add(ov_S, (0.0, best[1], best[2]), force * best[0], stations)
+                        _add(ov_F, (0.0, best[1], best[2]), force, stations)
+                        k = int(round(best[2] * (n_stations - 1)))
+                        ov_o[best[1].name][k] += o3 * abs(force * best[0])
     else:
         raise ValueError(f"unknown panel distribution {distribution!r}")
     out = []
@@ -421,7 +458,59 @@ def distribute(poly: Sequence[XYZ], distribution: str, span_dir: Optional[XYZ], 
         carried += float(forces.sum())
     if host2 is not None:
         applied = carried  # the part inside the host
-    return PanelResult(out, {}, applied, carried)
+    ovs = []
+    for name, S in ov_S.items():
+        if not np.any(S):
+            continue
+        O = ov_o[name]
+        # a bin with no sample of its own takes the direction of its neighbours
+        for k in range(n_stations):
+            if np.linalg.norm(O[k]) < 1e-15:
+                near = [j for j in range(n_stations) if np.linalg.norm(O[j]) > 1e-15]
+                if near:
+                    O[k] = O[min(near, key=lambda j: abs(j - k))]
+        O = O / np.maximum(np.linalg.norm(O, axis=1), 1e-300)[:, None]
+        ovs.append(BarOverhang(name, stations.copy(), S, O, dvec, ov_F[name]))
+    return PanelResult(out, {}, applied, carried, overhangs=ovs)
+
+
+def _ray_hits(p, v, a, b) -> Optional[float]:
+    """Distance along the ray p + t v (t > 0) to the segment a-b, or None."""
+    e = b - a
+    den = v[0] * e[1] - v[1] * e[0]
+    if abs(den) < 1e-14:
+        return None
+    w = a - p
+    t = (w[0] * e[1] - w[1] * e[0]) / den
+    s = (w[0] * v[1] - w[1] * v[0]) / den
+    if t > 0 and -1e-9 <= s <= 1 + 1e-9:
+        return t
+    return None
+
+
+def _overhangs(foot, v, d0, own, recs, sup2, poly2) -> bool:
+    """A load at ``foot + d0 v`` that went to the bar at ``foot``: True when there is no
+    bar / support beyond it inside the floor (the floor is cantilevered there)."""
+    exit_t = None
+    m = len(poly2)
+    for i in range(m):
+        t = _ray_hits(foot, v, poly2[i], poly2[(i + 1) % m])
+        if t is not None and t > d0 * (1 - 1e-9) and (exit_t is None or t < exit_t):
+            exit_t = t
+    if exit_t is None:
+        exit_t = d0
+    reach = exit_t * (1 + 1e-6) + 1e-9
+    for r in recs:
+        if r.name == own:
+            continue
+        t = _ray_hits(foot, v, r.a, r.b)
+        if t is not None and d0 * 0.5 < t <= reach:
+            return False
+    for a, b in sup2:
+        t = _ray_hits(foot, v, a, b)
+        if t is not None and d0 * 0.5 < t <= reach:
+            return False
+    return True
 
 
 def _add(acc: Dict[str, np.ndarray], sup, force: float, stations: np.ndarray):
@@ -504,10 +593,17 @@ def membrane_floors(model) -> Dict[str, float]:
     return out
 
 
-def panel_loads_to_members(model, strips: int = 60):
+def panel_loads_to_members(model, strips: int = 60, notes: Optional[list] = None):
     """Convert every load panel of ``model`` into frame loads (model units, object
     relative coordinates) and area loads.  Returns ({frame: [FrameLoad]},
-    {area: [AreaLoad]}, report) where report[panel][pattern] = (applied, carried)."""
+    {area: [AreaLoad]}, report) where report[panel][pattern] = (applied, carried).
+
+    A cantilever part of a membrane floor (load beyond the bar it goes to, nothing on
+    the far side) also gives its moment about that bar: with a floor behind the bar
+    it is balanced by that floor - a couple of vertical forces on the bar and the next
+    support behind it (the span behind as simply supported); with no floor behind it
+    the bar takes it as torsion.  ``notes`` (a list) receives one tuple per case:
+    (floor, bar, "balanced" | "torsion", support behind or None, moment, pattern, force)."""
     from ..model.area_panels import area_items
     from ..model.objects import AreaLoad, FrameLoad
 
@@ -517,6 +613,15 @@ def panel_loads_to_members(model, strips: int = 60):
     membranes = membrane_floors(model)
     if not getattr(model, "panel_loads", None) and not membranes:
         return frame_loads, area_loads, report
+    wall_edges = []
+    for a in model.areas.values():
+        if a.type == "Wall" and not a.is_opening and len(a.points) >= 3:
+            W = [np.asarray(model.points[p].xyz, float) for p in a.points]
+            wall_edges += [(W[k], W[(k + 1) % len(W)]) for k in range(len(W))]
+    try:
+        metre = 1.0 / model.units.factor("length")
+    except Exception:
+        metre = 1.0
     pts = model.points
     from .geometry import beam_axis_shift
     tol_model = max(getattr(model.options, "merge_tolerance", 1e-3), 1e-9)
@@ -566,6 +671,126 @@ def panel_loads_to_members(model, strips: int = 60):
             hole_cache[aname] = out
         return hole_cache[aname]
 
+    floor_frames = {}
+    cant_cache: Dict[str, bool] = {}
+
+    def may_cantilever(aname) -> bool:
+        """A corner of the floor away from every frame / wall in its plane (a supported
+        floor has its corners on its beams): only such floors are looked at for an
+        overhang (the test costs time)."""
+        if aname not in cant_cache:
+            cant_cache[aname] = floor_may_cantilever(model, area_polys[aname], frame_ends, wall_edges, 0.15 * metre,
+                                                     tol * 5)
+        return cant_cache[aname]
+
+    def behind_floor(aname, p3, o3) -> bool:
+        """A floor (not an opening) just behind the bar, on the side away from the load."""
+        probe = p3 - o3 * 0.5 * metre
+        for name, P in area_polys.items():
+            ar = model.areas[name]
+            if ar.is_opening or ar.type == "Wall" or len(P) < 3:
+                continue
+            if name not in floor_frames:
+                try:
+                    floor_frames[name] = polygon_frame(P)
+                except ValueError:
+                    floor_frames[name] = None
+            fr = floor_frames[name]
+            if fr is None:
+                continue
+            o, e1, e2, n = fr
+            if abs(float((probe - o) @ n)) > tol * 5:
+                continue
+            P2 = np.array([[(q - o) @ e1, (q - o) @ e2] for q in P])
+            d = probe - o
+            if point_in_poly2(np.array([d @ e1, d @ e2]), P2):
+                return True
+        return False
+
+    def support_behind(own, p3, o3, n):
+        """The nearest bar behind ``p3`` (direction -o3, in the plane of normal n):
+        (frame, u, distance) or None."""
+        best = None
+        v = -o3
+        for name, (a3, b3) in frame_ends.items():
+            if name == own or model.frames[name].type == "Rigid":
+                continue
+            if abs(float((a3 - p3) @ n)) > tol * 5 or abs(float((b3 - p3) @ n)) > tol * 5:
+                continue
+            e = b3 - a3
+            w = a3 - p3
+            # p3 + t v = a3 + s e  (in the plane): least squares on the 3D vectors
+            M = np.column_stack([v, -e])
+            sol, *_ = np.linalg.lstsq(M, w, rcond=None)
+            t, sv = float(sol[0]), float(sol[1])
+            if t <= 0.25 * metre or not (-1e-6 <= sv <= 1 + 1e-6):
+                continue
+            if np.linalg.norm(p3 + t * v - (a3 + sv * e)) > tol * 5:
+                continue
+            if best is None or t < best[2]:
+                best = (name, min(max(sv, 0.0), 1.0), t)
+        return best
+
+    def overhang_loads(aname, ovs, pattern):
+        if not ovs:
+            return
+        _, _, _, n = polygon_frame(area_polys[aname])
+        forces: Dict[str, np.ndarray] = {}
+        torques: Dict[str, np.ndarray] = {}
+        dvec = None
+        for ov in ovs:
+            dvec = ov.direction
+            a3, b3 = frame_ends[ov.frame]
+            ns = len(ov.stations)
+            eh = (b3 - a3) / (np.linalg.norm(b3 - a3) or 1.0)
+            for k in range(ns):
+                S = float(ov.S[k])
+                if S == 0.0:
+                    continue
+                u = float(ov.stations[k])
+                p3 = a3 + u * (b3 - a3)
+                o3 = ov.outward[k]
+                sup = support_behind(ov.frame, p3, o3, n) if behind_floor(aname, p3, o3) else None
+                if sup is not None:
+                    far, uf, Lb = sup
+                    forces.setdefault(ov.frame, np.zeros(ns))[k] += S / Lb
+                    x = uf * (ns - 1)
+                    i = min(int(math.floor(x)), ns - 2)
+                    f = x - i
+                    arr = forces.setdefault(far, np.zeros(ns))
+                    arr[i] -= S / Lb * (1 - f)
+                    arr[i + 1] -= S / Lb * f
+                    mode = ("balanced", far)
+                else:
+                    torques.setdefault(ov.frame, np.zeros(ns))[k] += S * float(np.cross(o3, ov.direction) @ eh)
+                    mode = ("torsion", None)
+                if notes is not None:
+                    notes.append((aname, ov.frame, mode[0], mode[1], S, pattern,
+                                  float(ov.F[k]) if ov.F is not None else 0.0))
+        for name, arr in forces.items():
+            a3, b3 = frame_ends[name]
+            L = float(np.linalg.norm(b3 - a3))
+            ns = len(arr)
+            widths = np.full(ns, L / (ns - 1))
+            widths[0] *= 0.5
+            widths[-1] *= 0.5
+            st = np.linspace(0.0, 1.0, ns)
+            for ra, rb, va, vb in simplify(arr / widths, st):
+                frame_loads.setdefault(name, []).append(
+                    FrameLoad(pattern, "distributed", _direction_text(dvec), "Force", ra, rb, False, va, vb))
+        for name, arr in torques.items():
+            a3, b3 = frame_ends[name]
+            L = float(np.linalg.norm(b3 - a3))
+            ns = len(arr)
+            eh = (b3 - a3) / (L or 1.0)
+            widths = np.full(ns, L / (ns - 1))
+            widths[0] *= 0.5
+            widths[-1] *= 0.5
+            st = np.linspace(0.0, 1.0, ns)
+            for ra, rb, va, vb in simplify(arr / widths, st):
+                frame_loads.setdefault(name, []).append(
+                    FrameLoad(pattern, "distributed", _direction_text(eh), "Moment", ra, rb, False, va, vb))
+
     def membrane_load(aname, pattern, value, direction, rep):
         """A load on a membrane floor: its part normal to the floor goes two-way to
         the frames (the membrane cannot carry it); a load in its plane stays on it."""
@@ -576,14 +801,18 @@ def panel_loads_to_members(model, strips: int = 60):
             area_loads.setdefault(aname, []).append(AreaLoad(pattern, value, direction))
             return
         ends = ends_for(A)
-        res = distribute(A, "two_way", None, {"value": value}, tuple(dvec), ends, None, strips, tol, area_polys)
+        ov = may_cantilever(aname)
+        res = distribute(A, "two_way", None, {"value": value}, tuple(dvec), ends, None, strips, tol, area_polys,
+                         overhang=ov, supports=wall_edges)
         to_frames(res, pattern, dvec)
+        overhang_loads(aname, res.overhangs, pattern)
         applied, carried = res.applied_total, res.carried_total
         if res.carried_total:
             for H in holes_of(aname):  # openings carry nothing: their share is taken back
                 cut = distribute(H, "two_way", None, {"value": -value}, tuple(dvec), ends, None, strips, tol,
-                                 area_polys, within=A)
+                                 area_polys, within=A, overhang=ov, supports=wall_edges)
                 to_frames(cut, pattern, dvec)
+                overhang_loads(aname, cut.overhangs, pattern)
                 applied += cut.applied_total
                 carried += cut.carried_total
         old = rep.get(pattern, (0.0, 0.0))
@@ -675,6 +904,79 @@ def panel_loads_to_members(model, strips: int = 60):
             rep[case.pattern] = (old[0] + res.applied_total, old[1] + carried)
         report[panel.name] = rep
     return frame_loads, area_loads, report
+
+
+def floor_may_cantilever(model, P, frame_ends, wall_edges, reach: float, plane_tol: float) -> bool:
+    """True when a corner of the floor polygon ``P`` is farther than ``reach`` from every
+    frame (and wall edge) in the floor's plane."""
+    P = np.asarray(P, float)
+    try:
+        o, _, _, n = polygon_frame(P)
+    except ValueError:
+        return False
+    segs = []
+    for name, (a3, b3) in frame_ends.items():
+        if model.frames[name].type == "Rigid":
+            continue
+        if abs(float((a3 - o) @ n)) <= plane_tol and abs(float((b3 - o) @ n)) <= plane_tol:
+            segs.append((a3, b3))
+    for a3, b3 in wall_edges:
+        if abs(float((a3 - o) @ n)) <= plane_tol and abs(float((b3 - o) @ n)) <= plane_tol:
+            segs.append((a3, b3))
+    for c in P:
+        best = float("inf")
+        for a3, b3 in segs:
+            e = b3 - a3
+            L2 = float(e @ e)
+            t = 0.0 if L2 <= 0 else min(max(float((c - a3) @ e) / L2, 0.0), 1.0)
+            best = min(best, float(np.linalg.norm(a3 + t * e - c)))
+            if best <= reach:
+                break
+        if best > reach:
+            return True
+    return False
+
+
+def membrane_cantilever_notes(model) -> list:
+    """Where the root moment of each cantilevered membrane floor goes (Check Model):
+    the notes of :func:`panel_loads_to_members` for a unit gravity load on just the
+    membrane floors that may cantilever (fast: the others are not distributed)."""
+    import copy
+    from ..model.objects import AreaLoad
+    floors = membrane_floors(model)
+    if not floors:
+        return []
+    m = copy.deepcopy(model)
+    m.panel_loads = {}
+    keep = None
+    for p in list(m.load_patterns.values()):
+        p.self_weight_multiplier = 0.0
+        keep = keep or p.name
+    if keep is None:
+        return []
+    pts = m.points
+    wall_edges = []
+    for a in m.areas.values():
+        if a.type == "Wall" and not a.is_opening and len(a.points) >= 3:
+            W = [np.asarray(pts[q].xyz, float) for q in a.points]
+            wall_edges += [(W[k], W[(k + 1) % len(W)]) for k in range(len(W))]
+    ends = {f.name: (np.asarray(pts[f.point_i].xyz, float), np.asarray(pts[f.point_j].xyz, float))
+            for f in m.frames.values()}
+    try:
+        metre = 1.0 / m.units.factor("length")
+    except Exception:
+        metre = 1.0
+    tol = max(getattr(m.options, "merge_tolerance", 1e-3), 1e-6) * 2.0
+    for a in m.areas.values():
+        a.loads = []
+        if a.name in floors and floor_may_cantilever(m, [pts[q].xyz for q in a.points], ends, wall_edges,
+                                                     0.15 * metre, tol * 5):
+            a.loads = [AreaLoad(keep, 1.0, "Gravity")]
+    if not any(a.loads for a in m.areas.values()):
+        return []
+    notes: list = []
+    panel_loads_to_members(m, notes=notes)
+    return notes
 
 
 def _direction_text(d: np.ndarray) -> str:

@@ -210,7 +210,7 @@ def geometry_issues(model) -> List[GeometryIssue]:
                                  f"{len(lonely)} joint(s) are used by nothing and carry nothing "
                                  f"({', '.join(lonely[:8])}{'...' if len(lonely) > 8 else ''})", points=lonely))
     for check in (_near_misses, _area_overlaps, _base_without_support, _far_away, _section_sizes,
-                  _material_moduli, _self_weight, _upward_gravity_loads):
+                  _material_moduli, _self_weight, _upward_gravity_loads, _membrane_cantilevers):
         try:
             out += check(model, tol)
         except Exception:  # a check must never stop Check Model / the analysis
@@ -521,6 +521,39 @@ def _self_weight(model, tol) -> List[GeometryIssue]:
                                   "the members' own weight is in no load. Usually the Dead pattern has self "
                                   "weight multiplier 1 - Define > Load Patterns")]
     return []
+
+
+def _membrane_cantilevers(model, tol) -> List[GeometryIssue]:
+    """Membrane floors that cantilever past a beam: where the moment at the root goes
+    (a membrane has no bending stiffness - the analysis puts it on the frames)."""
+    from ..mesh.panel_loads import membrane_cantilever_notes
+    notes = membrane_cantilever_notes(model)
+    agg: Dict[tuple, list] = {}
+    for floor, bar, mode, far, S, pattern, F in notes:
+        k = (floor, bar, mode, far)
+        a = agg.setdefault(k, [0.0, 0.0])
+        a[0] += abs(S)
+        a[1] += abs(F)
+    out = []
+    m = _metre(model)
+    for (floor, bar, mode, far), (S, F) in sorted(agg.items(), key=lambda kv: str(kv[0])):
+        lever = S / F if F > 0 else 0.0
+        if lever < 0.15 * m:  # a slab edge a little past the beam: nothing worth saying
+            continue
+        if mode == "torsion":
+            out.append(GeometryIssue(
+                "info", "MEMBRANE_CANTILEVER_TORSION",
+                f"Membrane floor {floor} cantilevers about {2 * lever / m:.2f} m past {bar} with no floor behind it: "
+                f"the moment at the root goes into {bar} as torsion (design {bar} for torsion, or make {floor} a "
+                f"shell / add a beam at its free edge)", frames=[bar], areas=[floor]))
+        else:
+            out.append(GeometryIssue(
+                "info", "MEMBRANE_CANTILEVER",
+                f"Membrane floor {floor} cantilevers about {2 * lever / m:.2f} m past {bar}: the moment at the root is "
+                f"balanced by the floor behind it - more load on {bar}, less on {far} (the span behind as simply "
+                f"supported). The floor's own moments come from a shell model (Slab Design Model)",
+                frames=[bar, far] if far else [bar], areas=[floor]))
+    return out
 
 
 def _upward_gravity_loads(model, tol) -> List[GeometryIssue]:
