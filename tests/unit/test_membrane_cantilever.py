@@ -157,3 +157,20 @@ def test_array_two_way_equals_the_sample_by_sample_rule(seed, monkeypatch):
             assert (la.rel_a, la.rel_b) == pytest.approx((lb.rel_a, lb.rel_b), abs=1e-12)
             assert (la.value_a, la.value_b) == pytest.approx((lb.value_a, lb.value_b), rel=1e-10, abs=1e-12)
     assert [n[:4] for n in na] == [n[:4] for n in nb]
+
+
+def test_membrane_floor_without_beams_is_an_error():
+    """A flat slab without beams as a membrane: its loads would go nowhere."""
+    m = new_building(x_spacings=(8, 8), y_spacings=(8,), story_heights=(Z,), grid_only=False)
+    for s in m.shell_sections.values():
+        if s.name.startswith("S"):
+            s.model_type = "Membrane"
+    assert not [i for i in geometry_issues(m) if i.code == "MEMBRANE_NO_BEAMS"]
+    for f in [f for f in m.frames.values() if f.type == "Beam"]:
+        del m.frames[f.name]
+    bad = [i for i in geometry_issues(m) if i.code == "MEMBRANE_NO_BEAMS"]
+    assert {a for i in bad for a in i.areas} == {a.name for a in m.areas.values() if a.type == "Floor"}
+    assert all(i.severity == "error" for i in bad)
+    for s in m.shell_sections.values():  # as a shell it is fine
+        s.model_type = "ShellThick"
+    assert not [i for i in geometry_issues(m) if i.code == "MEMBRANE_NO_BEAMS"]

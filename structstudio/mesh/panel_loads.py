@@ -772,6 +772,51 @@ def membrane_floors(model) -> Dict[str, float]:
     return out
 
 
+def load_frame_ends(model) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
+    """The frames that take panel / membrane floor loads -> their ends (model units)."""
+    from .geometry import beam_axis_shift
+    pts = model.points
+    tol_model = max(getattr(model.options, "merge_tolerance", 1e-3), 1e-9)
+    frame_ends = {}
+    for f in model.frames.values():
+        if f.type == "Rigid":
+            continue  # a rigid link carries no load
+        a, b = np.asarray(pts[f.point_i].xyz, float), np.asarray(pts[f.point_j].xyz, float)
+        sh = beam_axis_shift(model, f, tol_model)
+        # a beam meshed on its true axis takes loads where that axis is: under the panel /
+        # floor or not (its axis outside the floor: not under it - the mesher warns),
+        # the same as that beam moved there (Move Beams to Real Axis)
+        frame_ends[f.name] = (a + sh[0], b + sh[1]) if sh is not None else (a, b)
+    return frame_ends
+
+
+def membrane_floors_without_beams(model) -> List[str]:
+    """Membrane floors no frame lies under (in their plane, some part inside them): their
+    loads and self weight have nowhere to go (a membrane carries nothing out of its
+    plane - a flat slab without beams has to be a shell)."""
+    floors = membrane_floors(model)
+    if not floors:
+        return []
+    frame_ends = load_frame_ends(model)
+    tol = max(getattr(model.options, "merge_tolerance", 1e-3), 1e-6) * 2.0
+    out = []
+    for name in floors:
+        a = model.areas[name]
+        P = np.array([model.points[p].xyz for p in a.points], float)
+        try:
+            o, e1, e2, n = polygon_frame(P)
+        except ValueError:
+            continue
+
+        def to2(q, o=o, e1=e1, e2=e2):
+            d = np.asarray(q, float) - o
+            return np.array([d @ e1, d @ e2])
+        P2 = np.array([to2(q) for q in P])
+        if not receivers_in_panel(P2, frame_ends, to2, tol, n, o):
+            out.append(name)
+    return out
+
+
 def panel_loads_to_members(model, strips: int = 60, notes: Optional[list] = None):
     """Convert every load panel of ``model`` into frame loads (model units, object
     relative coordinates) and area loads.  Returns ({frame: [FrameLoad]},
@@ -802,18 +847,7 @@ def panel_loads_to_members(model, strips: int = 60, notes: Optional[list] = None
     except Exception:
         metre = 1.0
     pts = model.points
-    from .geometry import beam_axis_shift
-    tol_model = max(getattr(model.options, "merge_tolerance", 1e-3), 1e-9)
-    frame_ends = {}
-    for f in model.frames.values():
-        if f.type == "Rigid":
-            continue  # a rigid link carries no load
-        a, b = np.asarray(pts[f.point_i].xyz, float), np.asarray(pts[f.point_j].xyz, float)
-        sh = beam_axis_shift(model, f, tol_model)
-        # a beam meshed on its true axis takes loads where that axis is: under the panel /
-        # floor or not (its axis outside the floor: not under it - the mesher warns),
-        # the same as that beam moved there (Move Beams to Real Axis)
-        frame_ends[f.name] = (a + sh[0], b + sh[1]) if sh is not None else (a, b)
+    frame_ends = load_frame_ends(model)
 
     def ends_for(P):
         return frame_ends

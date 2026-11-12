@@ -210,7 +210,8 @@ def geometry_issues(model) -> List[GeometryIssue]:
                                  f"{len(lonely)} joint(s) are used by nothing and carry nothing "
                                  f"({', '.join(lonely[:8])}{'...' if len(lonely) > 8 else ''})", points=lonely))
     for check in (_near_misses, _area_overlaps, _base_without_support, _far_away, _section_sizes,
-                  _material_moduli, _self_weight, _upward_gravity_loads, _membrane_cantilevers):
+                  _material_moduli, _self_weight, _upward_gravity_loads, _membrane_cantilevers,
+                  _membrane_without_beams):
         try:
             out += check(model, tol)
         except Exception:  # a check must never stop Check Model / the analysis
@@ -521,6 +522,22 @@ def _self_weight(model, tol) -> List[GeometryIssue]:
                                   "the members' own weight is in no load. Usually the Dead pattern has self "
                                   "weight multiplier 1 - Define > Load Patterns")]
     return []
+
+
+def _membrane_without_beams(model, tol) -> List[GeometryIssue]:
+    """A membrane floor with no beam under it: its loads would be lost (an error)."""
+    from ..mesh.panel_loads import membrane_floors_without_beams
+    names = membrane_floors_without_beams(model)
+    out = []
+    for name in names:
+        a = model.areas[name]
+        out.append(GeometryIssue(
+            "error", "MEMBRANE_NO_BEAMS",
+            f"Membrane floor {name} (section {a.section}) has no beam under it: a membrane carries nothing out "
+            f"of its plane, so its loads and self weight would go nowhere. A flat slab / post-tensioned slab "
+            f"without beams must be a shell (Define > Shell Sections: Shell-Thin / Shell-Thick), or draw the "
+            f"beams under it", areas=[name]))
+    return out
 
 
 def _membrane_cantilevers(model, tol) -> List[GeometryIssue]:
