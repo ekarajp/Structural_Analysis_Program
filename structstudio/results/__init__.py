@@ -652,7 +652,11 @@ class Results:
             return self._combine(self._combo(case), lambda n: self._signed_envelope(n, value_of_u, value_of_case))
         r = self._case(case)
         if r.is_envelope and r.modal_displacements is not None:
-            return Envelope.symmetric(self._rs_combine(r, value_of_u))
+            self._asm_case = case  # (the modes: the stiffness set of that case)
+            try:
+                return Envelope.symmetric(self._rs_combine(r, value_of_u))
+            finally:
+                self._asm_case = None
         if r.is_envelope:
             raise ModelError("NOT_AVAILABLE", f"Case {case!r}: the signed response is not available")
         if value_of_case is not None:
@@ -776,6 +780,9 @@ class Results:
         case ``r``, or without any (a spectrum mode) when ``r`` is None."""
         asm = self.engine.asm
         frames = asm.frames
+        # shells: the stiffness of the case's set (gravity / lateral modifiers)
+        shell_asm = self.engine.asm_for_case(r.case if r is not None else getattr(self, "_asm_case", None)) \
+            if hasattr(self.engine, "asm_for_case") else asm
         ZA, ZB = self._frame_end_z()
         ZLO, ZHI = np.minimum(ZA, ZB), np.maximum(ZA, ZB)
         out = np.zeros((len(z_cuts), 3))
@@ -796,7 +803,7 @@ class Results:
                 out[k] += sign * (fe.kin.axes.T @ f)
         # shells crossing a cut: the nodal forces of the element at its nodes above the cut
         # (same sign convention as the frames: + along the load applied above the cut)
-        shells = asm.shells
+        shells = shell_asm.shells
         if shells:
             nz = np.array([n.xyz[2] for n in self.am.nodes], float)
             pats = {}

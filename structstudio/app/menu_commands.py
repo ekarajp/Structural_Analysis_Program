@@ -941,18 +941,37 @@ class MenuCommandsMixin:
                          fields=fields)
 
     def assign_shell_modifiers(self, kind: str = "Shell"):
+        """Stiffness modifiers of the selected slabs / walls, and the other modifiers of
+        the lateral load cases (stiffness set "lateral": a post-tensioned flat slab that
+        is to take no part in the lateral system - Define > Load Cases: Stiffness)."""
         from ..model.properties import ShellModifiers
         keys = ("f11", "f22", "f12", "m11", "m22", "m12", "v13", "v23", "mass", "weight")
+        stiff = keys[:8]
+
+        def label(n):
+            return {"mass": "Mass", "weight": "Weight"}.get(
+                n, f"{n[0].upper()}{n[1:]} {'membrane' if n[0] == 'f' else 'bending' if n[0] == 'm' else 'shear'}")
 
         def fields(a):
             cur = a.modifiers or ShellModifiers()
-            return [(n, {"mass": "Mass", "weight": "Weight"}.get(
-                n, f"{n[0].upper()}{n[1:]} {'membrane' if n[0] == 'f' else 'bending' if n[0] == 'm' else 'shear'}")
-                + " [x section value]", float(getattr(cur, n))) for n in keys]
-        self.assign_form(f"{kind.lower()}.modifiers", f"{kind} Stiffness Modifiers", ("area",),
-                         lambda names, v: C.assign(self.doc, "area", self._of_kind(names, kind),
-                                                   modifiers=ShellModifiers(**v)),
-                         fields=fields)
+            lat = a.lateral_modifiers
+            out = [(n, label(n) + " [x section value]", float(getattr(cur, n))) for n in keys]
+            out.append(("-", "Lateral load cases (earthquake, wind, modal, spectrum)"))
+            out.append(("lat_on", "Other stiffness in the lateral cases", lat is not None))
+            src = lat or cur
+            out += [(f"lat_{n}", label(n) + " [x section value]", float(getattr(src, n))) for n in stiff]
+            return out
+
+        def apply(names, v):
+            mods = ShellModifiers(**{n: v[n] for n in keys})
+            lat = None
+            if v.get("lat_on"):
+                lat = ShellModifiers(**{n: v[f"lat_{n}"] for n in stiff}, mass=mods.mass, weight=mods.weight)
+            C.assign(self.doc, "area", self._of_kind(names, kind), modifiers=mods, lateral_modifiers=lat)
+        self.assign_form(f"{kind.lower()}.modifiers", f"{kind} Stiffness Modifiers", ("area",), apply,
+                         fields=fields,
+                         note="Lateral cases: e.g. 0.01-0.25 for m11, m22, m12 of a post-tensioned flat slab that "
+                              "takes no part in the lateral system; the gravity cases keep the values above")
 
     def _of_kind(self, names, kind: str):
         """The picked areas a Slab / Wall command changes: walls for Wall, the others

@@ -288,6 +288,10 @@ class ShellSection:
     thickness: float = q("length", 0.0)  # membrane thickness
     bending_thickness: Optional[float] = q("length", None)  # defaults to thickness
     modifiers: ShellModifiers = field(default_factory=ShellModifiers)
+    # the modifiers of the lateral load cases (earthquake, wind, modal, response spectrum)
+    # when they differ (a post-tensioned flat slab that is to take no part in the lateral
+    # system): None = the same as ``modifiers``.  Mass / weight stay ``modifiers``'.
+    lateral_modifiers: Optional[ShellModifiers] = None
     mass_per_area: float = q("mass_per_area", 0.0)  # additional
     weight_per_area: float = q("force_per_area", 0.0)  # additional
     color: Optional[str] = None

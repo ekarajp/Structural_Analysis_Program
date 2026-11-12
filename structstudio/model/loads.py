@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-from .base import q
+from .base import ModelError, q
 
 PATTERN_TYPES = (
     "Dead", "SuperDead", "Live", "ReducibleLive", "RoofLive", "Snow", "Wind", "Seismic",
@@ -96,6 +96,8 @@ class LinearStaticCase:
     stiffness_from: Optional[str] = None  # name of nonlinear case providing stiffness (P-Delta)
     design_type: Optional[str] = None
     type: str = "LinearStatic"
+    # stiffness set: auto | gravity | lateral (see stiffness_set_of)
+    stiffness: str = "auto"
     # CSI nonlinear static case without geometric nonlinearity: solved iteratively when
     # members have tension / compression limits, otherwise identical to a linear case
     nonlinear: bool = False
@@ -114,6 +116,7 @@ class ModalCase:
     stiffness_from: Optional[str] = None
     ritz_vectors: List[str] = field(default_factory=lambda: ["UX", "UY", "UZ"])
     type: str = "Modal"
+    stiffness: str = "auto"  # stiffness set: auto (= lateral) | gravity | lateral
 
 
 @dataclass
@@ -136,6 +139,36 @@ class ResponseSpectrumCase:
     eccentricity_ratio: float = 0.0  # accidental eccentricity (later)
     rigid_response: Optional[Tuple[float, float]] = None  # (f1, f2) Gupta; None = all periodic
     type: str = "ResponseSpectrum"
+
+
+LATERAL_PATTERN_TYPES = ("Wind", "Seismic", "Notional")
+STIFFNESS_SETS = ("auto", "gravity", "lateral")
+
+
+def stiffness_set_of(model, name: str) -> str:
+    """The stiffness set a load case is solved with: "gravity" (the shells' modifiers)
+    or "lateral" (their lateral modifiers - a slab that is to take no part in the
+    lateral system).  ``stiffness`` auto: modal -> lateral, a response spectrum -> its
+    modal case's, a linear static case -> lateral when it loads only lateral patterns
+    (wind / seismic / notional) or accelerations in X / Y, P-Delta / nonlinear / time
+    history -> gravity."""
+    case = model.load_cases[name]
+    s = (getattr(case, "stiffness", "auto") or "auto").lower()
+    if s not in STIFFNESS_SETS:
+        raise ModelError("BAD_STIFFNESS_SET", f"Load case {name!r}: stiffness set {s!r} - use auto, gravity or lateral")
+    if s != "auto":
+        return s
+    if isinstance(case, ModalCase):
+        return "lateral"
+    if isinstance(case, ResponseSpectrumCase):
+        return stiffness_set_of(model, case.modal_case) if case.modal_case in model.load_cases else "lateral"
+    if isinstance(case, LinearStaticCase):
+        types = {model.load_patterns[p].type for p, f in case.loads.items() if f and p in model.load_patterns}
+        acc = {d for d, f in (case.acceleration_loads or {}).items() if f}
+        lateral = bool(types & set(LATERAL_PATTERN_TYPES)) or bool(acc & {"UX", "UY"})
+        gravity = bool(types - set(LATERAL_PATTERN_TYPES) - {"Temperature", "Other"}) or "UZ" in acc
+        return "lateral" if lateral and not gravity else "gravity"
+    return "gravity"
 
 
 @dataclass

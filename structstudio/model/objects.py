@@ -236,6 +236,9 @@ class Area:
     diaphragm: Optional[str] = None
     angle: float = 0.0  # local axes rotation (degrees)
     modifiers: Optional["ShellModifiers"] = None
+    # object-level modifiers of the lateral load cases (see ShellSection.lateral_modifiers):
+    # None = the same as ``modifiers``
+    lateral_modifiers: Optional["ShellModifiers"] = None
     mass_per_area: float = q("mass_per_area", 0.0)
     auto_mesh: bool = True
     mesh_type: str = "Rectangular"  # Rectangular | General | None

@@ -1290,6 +1290,13 @@ class Mesher:
             weight_pa = 0.0
         own_loads = [] if membrane_floor else list(a.loads)
         modarr = np.array([mods.f11, mods.f22, mods.f12, mods.m11, mods.m22, mods.m12, mods.v13, mods.v23])
+        modarr_lat = None
+        if sec.lateral_modifiers is not None or a.lateral_modifiers is not None:
+            lm = (sec.lateral_modifiers or sec.modifiers).combined(
+                a.lateral_modifiers if a.lateral_modifiers is not None else a.modifiers)
+            modarr_lat = np.array([lm.f11, lm.f22, lm.f12, lm.m11, lm.m22, lm.m12, lm.v13, lm.v23])
+            if np.allclose(modarr_lat, modarr):
+                modarr_lat = None
         # a membrane floor on auto mesh carries nothing out of its plane (its loads went to
         # the frames): in a rigid diaphragm it is no element at all (the diaphragm holds its
         # plane; its mass goes to the joints under it; the beams in it keep the rigid part
@@ -1472,7 +1479,7 @@ class Mesher:
             el = ShellElement(
                 id=len(self.am.shells), object=a.name, nodes=n_ids, E=E, nu=mat.nu, G=G,
                 thickness=t, bending_thickness=tb, model_type=sec.model_type, mass_per_area=mass_pa,
-                weight_per_area=weight_pa, modifiers=modarr, axes=axes,
+                weight_per_area=weight_pa, modifiers=modarr, axes=axes, modifiers_lateral=modarr_lat,
             )
             for ld in own_loads + self._panel_area_loads.get(a.name, []):
                 direction, projected = _parse_direction(ld.direction)

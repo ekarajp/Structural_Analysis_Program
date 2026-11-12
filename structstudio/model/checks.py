@@ -211,7 +211,7 @@ def geometry_issues(model) -> List[GeometryIssue]:
                                  f"({', '.join(lonely[:8])}{'...' if len(lonely) > 8 else ''})", points=lonely))
     for check in (_near_misses, _area_overlaps, _base_without_support, _far_away, _section_sizes,
                   _material_moduli, _self_weight, _upward_gravity_loads, _membrane_cantilevers,
-                  _membrane_without_beams):
+                  _membrane_without_beams, _stiffness_sets):
         try:
             out += check(model, tol)
         except Exception:  # a check must never stop Check Model / the analysis
@@ -522,6 +522,51 @@ def _self_weight(model, tol) -> List[GeometryIssue]:
                                   "the members' own weight is in no load. Usually the Dead pattern has self "
                                   "weight multiplier 1 - Define > Load Patterns")]
     return []
+
+
+def _stiffness_sets(model, tol) -> List[GeometryIssue]:
+    """Shells with other modifiers in the lateral load cases: which cases use them."""
+    from .loads import (LATERAL_PATTERN_TYPES, LinearStaticCase, ModalCase, ResponseSpectrumCase,
+                        stiffness_set_of)
+    from .nonlinear import NonlinearStaticCase, TimeHistoryCase
+    secs = {n for n, s in model.shell_sections.items() if s.lateral_modifiers is not None}
+    areas = [a.name for a in model.areas.values()
+             if not a.is_opening and (a.lateral_modifiers is not None or a.section in secs)]
+    if not areas:
+        return []
+    out = []
+    lateral, gravity = [], []
+    for name, case in model.load_cases.items():
+        if isinstance(case, (NonlinearStaticCase, TimeHistoryCase)):
+            gravity.append(name)
+            continue
+        try:
+            s = stiffness_set_of(model, name)
+        except Exception as exc:
+            out.append(GeometryIssue("error", "BAD_STIFFNESS_SET", str(exc)))
+            continue
+        (lateral if s == "lateral" else gravity).append(name)
+        if isinstance(case, LinearStaticCase) and s == "gravity" and (case.stiffness or "auto") == "auto":
+            types = {model.load_patterns[p].type for p, f in case.loads.items() if f and p in model.load_patterns}
+            if types & set(LATERAL_PATTERN_TYPES):
+                out.append(GeometryIssue(
+                    "warning", "MIXED_STIFFNESS_CASE",
+                    f"Load case {name} has both gravity and lateral load patterns: it is solved with the gravity "
+                    f"stiffness (the shells' modifiers, not their lateral ones). Split it, or set its Stiffness "
+                    f"(Define > Load Cases) to lateral"))
+        if s == "gravity" and isinstance(case, (ModalCase, ResponseSpectrumCase)):
+            out.append(GeometryIssue(
+                "info", "GRAVITY_SET_DYNAMIC",
+                f"Load case {name} ({case.type}) is set to the gravity stiffness: the shells' lateral modifiers "
+                f"are not used in it"))
+    nl = [n for n, c in model.load_cases.items() if isinstance(c, (NonlinearStaticCase, TimeHistoryCase))]
+    out.append(GeometryIssue(
+        "info", "STIFFNESS_SETS",
+        f"{len(areas)} slab / wall object(s) have other stiffness modifiers in the lateral cases: "
+        f"lateral stiffness: {', '.join(lateral) or '(no case)'}; gravity stiffness: {', '.join(gravity) or '-'}"
+        + (f" (nonlinear / time history cases {', '.join(nl)} always use the gravity stiffness)" if nl else "")
+        + ". The combinations add the results of both (linear superposition)", areas=areas[:50]))
+    return out
 
 
 def _membrane_without_beams(model, tol) -> List[GeometryIssue]:

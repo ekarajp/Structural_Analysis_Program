@@ -29,10 +29,74 @@ class Engine:
             from .nonlinear.builder import NonlinearBuilder
             links = NonlinearBuilder(model, am, None).linear_links()
         self.asm = Assembler(am, links)
+        self._links = links
         self._K_red: Optional[sparse.csr_matrix] = None
         self._factor = None
         self._pdelta_K: Dict[str, sparse.csr_matrix] = {}
+        self._pdelta_K_full: Dict[str, sparse.csr_matrix] = {}
         self.results: Dict[str, CaseResult] = {}
+        # stiffness sets (gravity / lateral shell modifiers): the matrices of the other set
+        self.stiffness_set = "gravity"
+        self._sets: Dict[str, dict] = {}
+
+    # ------------------------------------------------------------ stiffness sets
+    _SET_STATE = ("asm", "_K_red", "_factor", "_pdelta_K", "_pdelta_K_full", "_mass_cache")
+
+    def has_lateral_set(self) -> bool:
+        """Some shells have other modifiers in the lateral load cases."""
+        return any(sh.modifiers_lateral is not None for sh in self.am.shells)
+
+    def use_stiffness_set(self, name: str):
+        """Solve the next cases with the matrices of the stiffness set ``name``."""
+        if name == self.stiffness_set or (name == "lateral" and not self.has_lateral_set()):
+            return
+        self._sets[self.stiffness_set] = {k: self.__dict__.get(k) for k in self._SET_STATE}
+        state = self._sets.get(name)
+        if state is None:
+            import copy
+            import dataclasses
+            am = copy.copy(self.am)  # the same mesh, nodes, constraints: the shells' lateral modifiers
+            am.shells = [dataclasses.replace(sh, modifiers=sh.modifiers_lateral) if sh.modifiers_lateral is not None
+                         else sh for sh in self.am.shells]
+            state = {"asm": Assembler(am, self._links), "_K_red": None, "_factor": None, "_pdelta_K": {},
+                     "_pdelta_K_full": {}, "_mass_cache": None}
+        for k, v in state.items():
+            if v is None and k == "_mass_cache":
+                self.__dict__.pop(k, None)
+            else:
+                self.__dict__[k] = v
+        self.stiffness_set = name
+
+    def asm_for_case(self, case: Optional[str]) -> Assembler:
+        """The assembler (shell stiffness) a case was solved with."""
+        if not case or case not in self.model.load_cases or not self.has_lateral_set():
+            return self.asm
+        from ..model.loads import stiffness_set_of
+        c = self.model.load_cases[case]
+        name = "gravity" if isinstance(c, (NonlinearStaticCase, TimeHistoryCase)) else stiffness_set_of(self.model,
+                                                                                                         case)
+        if name == self.stiffness_set:
+            return self.asm
+        if name not in self._sets:
+            prev = self.stiffness_set
+            self.use_stiffness_set(name)
+            self.use_stiffness_set(prev)
+        return self._sets[name]["asm"]
+
+    def _pdelta_into_set(self, pd_case: str):
+        """The stiffness of P-Delta case ``pd_case`` (run with the gravity set) for the
+        current set: its geometric stiffness added to this set's elastic stiffness."""
+        if pd_case in self._pdelta_K or self.stiffness_set == "gravity":
+            return
+        grav = self._sets.get("gravity") or {}
+        K_full_g = (grav.get("_pdelta_K_full") or {}).get(pd_case)
+        if K_full_g is None:
+            return
+        Kg = (K_full_g - grav["asm"].stiffness_full()).tocsr()
+        K_full = (self.asm.stiffness_full() + Kg).tocsr()
+        dofs = self.asm.dofs
+        self._pdelta_K[pd_case] = (dofs.T.T @ K_full @ dofs.T).tocsr()
+        self._pdelta_K_full[pd_case] = K_full
 
     @property
     def nonlinear(self):
@@ -180,10 +244,27 @@ class Engine:
         """Run the cases; ``progress(done, total, case name)`` is called before each."""
         names = cases or list(self.model.load_cases)
         ordered = self._order_cases(names)
+        from ..model.loads import stiffness_set_of
+        try:
+            self._run_ordered(ordered, progress, stiffness_set_of)
+        finally:
+            self.use_stiffness_set("gravity")  # results read the gravity set's matrices (frames: the same)
+            for lst in (self.am.warnings, self.am.info):
+                lst[:] = list(dict.fromkeys(lst))  # (a message of both sets once)
+        return self.results
+
+    def _run_ordered(self, ordered, progress, stiffness_set_of):
         for k, name in enumerate(ordered):
             if progress is not None:
                 progress(k, len(ordered), name)
             case = self.model.load_cases[name]
+            if isinstance(case, (NonlinearStaticCase, TimeHistoryCase)):
+                self.use_stiffness_set("gravity")
+            else:
+                self.use_stiffness_set(stiffness_set_of(self.model, name))
+                sf = getattr(case, "stiffness_from", None)
+                if sf:
+                    self._pdelta_into_set(sf)
             if isinstance(case, LinearStaticCase):
                 self.results[name] = self.linear_static(case)
             elif isinstance(case, ModalCase):

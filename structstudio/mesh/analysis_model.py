@@ -116,6 +116,8 @@ class ShellElement:
     modifiers: np.ndarray  # (8,) f11,f22,f12,m11,m22,m12,v13,v23
     axes: Optional[np.ndarray] = None  # (3,3) rows = local 1,2,3 (3 = normal); None => default
     loads: List[ShellLoad] = field(default_factory=list)
+    # the modifiers of the lateral load cases (stiffness set "lateral"); None = modifiers
+    modifiers_lateral: Optional[np.ndarray] = None
 
 
 @dataclass
