@@ -2988,7 +2988,7 @@ class ModelViewport(QtWidgets.QWidget):
         if snapped:
             label = getattr(snap, "label", snap.kind)
             n = len(self._snap_hits)
-            tip.append(label + (f"   [{self._snap_index % n + 1}/{n}  N]" if n > 1 else ""))
+            tip.append(label + (f"  ({self._snap_index % n + 1}/{n}, N next)" if n > 1 else ""))
             txt = (txt + "   " if txt else "") + f"snap: {label}" + (f"  [{self._snap_index % n + 1}/{n}, N = next]"
                                                                         if n > 1 else "")
         elif snap is not None and getattr(snap, "text", ""):
@@ -2999,27 +2999,32 @@ class ModelViewport(QtWidgets.QWidget):
             # where the point is, in full: two candidates can overlap on the screen (D04 / D14)
             p = res.xyz
             st_ = self.doc.model.story_at(p[2], max(self.doc.model.options.merge_tolerance, 1e-6))
-            where = f"X {p[0] * uf:.3f}  Y {p[1] * uf:.3f}  Z {p[2] * uf:.3f} {unit}"
-            where += f"  [{st_.name}]" if st_ is not None else ""
+            where = f"{p[0] * uf:.3f}, {p[1] * uf:.3f}, {p[2] * uf:.3f} {unit}"
+            where += f"  {st_.name}" if st_ is not None else ""
             if not snapped and res.plane:
-                where += f"  (free point on {res.plane})"
+                where += f"  (free, {res.plane})"
             tip.append(where)
         if pv.text:
             import re
             # lengths of the tools are in model units: show them in the display unit, with the unit
-            pv.text = re.sub(r"\b(L =|dX|dY|dZ|trim)\s+([-+]?\d+(?:\.\d+)?)",
+            # (the unit once, after the length; dX dY dZ in the same unit)
+            pv.text = re.sub(r"\b(L =|trim|extend)\s+([-+]?\d+(?:\.\d+)?)",
                              lambda m: f"{m.group(1)} {float(m.group(2)) * uf:.4g} {unit}", pv.text)
-            tip.append(pv.text)
+            pv.text = re.sub(r"\b(dX|dY|dZ)\s+([-+]?\d+(?:\.\d+)?)",
+                             lambda m: f"{m.group(1)} {float(m.group(2)) * uf:.4g}", pv.text)
         dyn = self._dyn_text(unit, uf)
+        if pv.text and not (dyn and self._box_mode() == "polar"
+                            and re.fullmatch(r"L = \S+ \S+(\s+\u2220\s*\S+)?", pv.text.strip())):
+            tip.append(pv.text)  # (a bare length / angle: the Length and Angle boxes show it)
         if dyn:
             tip += dyn
         elif self._typed:
-            tip.append(f"> {self._typed}_ {unit}   (Enter)")
+            tip.append(f"> {self._typed}_ {unit}  Enter")
         elif self._accepts_typing():
             if getattr(self.state.tool, "points", None):
-                tip.append(f"type a length in {unit}: 6 or 6<30 (angle °) or 3,4  (#x,y,z = absolute)")
+                tip.append(f"type 6 · 6<30 (°) · 3,4 · #x,y,z  ({unit})")
             else:
-                tip.append(f"or type the point: x,y,z in {unit}")
+                tip.append(f"or type x,y,z ({unit})")
         self.text.SetInput(txt)
         if tip and (x or y):
             self.tip.SetInput("\n".join(tip))
@@ -3330,20 +3335,25 @@ class ModelViewport(QtWidgets.QWidget):
         else:
             na, nb = self._axis_names()
             ua = ub = f" {unit}"
-            head = f"From {self._ref[1]}:  " if self._ref is not None else "From the last point:  "
+            head = f"From {self._ref[1]}:  " if self._ref is not None else "From last:  "
         lock = " (locked)"
-        fa = f"[{a}_]{ua}" if not second else (f"{a}{ua}{lock}" if a else f"{la:.3f}{ua}")
-        fb = f"[{b}_]{ub}" if second else (f"{held}{ub}{lock}" if held else
-                                           (f"{lb:.1f}{ub}" if ub == "°" else f"{lb:.3f}{ub}"))
+        # the box being typed in: [typed_] - empty: [the cursor's value]; the other box: its
+        # typed (locked) value or the cursor's
+        live_a = f"{la:.3f}"
+        live_b = f"{lb:.1f}" if ub == "°" else f"{lb:.3f}"
+        fa = (f"[{a}_]{ua}" if a else f"[{live_a}]{ua}") if not second else \
+            (f"{a}{ua}{lock}" if a else f"{live_a}{ua}")
+        fb = (f"[{b}_]{ub}" if b else f"[{live_b}]{ub}") if second else \
+            (f"{held}{ub}{lock}" if held else f"{live_b}{ub}")
         lines = [f"{head}{na} {fa}   {nb} {fb}"]
         if second:
-            lines.append("Enter: place   Tab: back to " + na)
+            lines.append(f"Enter place · Tab {na}")
         elif mode == "polar":
-            lines.append("Type the length, Enter (towards the cursor)   Tab: angle   (@dx,dy or #x,y,z also)")
+            lines.append("type length, Enter · Tab angle · @dx,dy · #x,y,z")
         elif mode == "abs":
-            lines.append(f"Type {na}, Tab, {nb}, Enter   (or click a point)")
+            lines.append(f"type {na}, Tab, {nb}, Enter · or click")
         else:
-            lines.append("Tab: next box   Enter: place   (one value: distance towards the cursor; #x,y,z absolute)")
+            lines.append("Tab next · Enter place · 1 value = toward cursor · #x,y,z")
         return lines
 
     def _fill_boxes(self, text: str) -> str:

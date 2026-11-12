@@ -594,7 +594,10 @@ class ModifyTool(Tool):
     @staticmethod
     def _measure(a, b) -> str:
         d = np.subtract(b, a)
-        return f"L = {float(np.linalg.norm(d)):.3f}   dX {d[0]:.3f}  dY {d[1]:.3f}  dZ {d[2]:.3f}"
+        L = float(np.linalg.norm(d))
+        parts = [f"{n} {v:.3f}" for n, v in zip(("dX", "dY", "dZ"), d) if abs(v) > 1e-9 * max(L, 1.0)]
+        # (a zero component is left out; one component only: it is L)
+        return f"L = {L:.3f}" + (f"  ({'  '.join(parts)})" if len(parts) > 1 else "")
 
 
 class MoveTool(ModifyTool):

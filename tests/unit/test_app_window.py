@@ -1120,7 +1120,7 @@ def test_cad_rotate_mirror_trim_extend_paste_and_shortcuts(window, app):
     st.set_tool("beam")
     _click(vp2, 0.0, 0.0, z2)
     _move_to(vp2, 3.0, 0.02, z2)
-    assert vp2.tip.GetVisibility() and "L = " in vp2.tip.GetInput()
+    assert vp2.tip.GetVisibility() and "Length [" in vp2.tip.GetInput()
     _key(vp2, "Escape")
     _key(vp2, "Escape")
 
@@ -1388,7 +1388,7 @@ def test_reference_point_dimensions_and_dynamic_input(window, app):
     vp.interactor.SetKeySym("BackSpace")
     vp._on_key(None, None)
     assert vp._typed == "1.5,"
-    assert any("[_]" in line for line in vp._dyn_text("m", 1.0))
+    assert any(line.startswith("From ") and "dy [" in line for line in vp._dyn_text("m", 1.0))  # typing dy
     for key in ("0", "period", "8"):
         vp.interactor.SetKeySym(key)
         vp._on_key(None, None)

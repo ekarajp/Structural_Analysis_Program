@@ -473,7 +473,7 @@ class ReshapeTool(ModifyTool):
             a, b = P(f.point_i), P(f.point_j)
             lines.append((a, b))
             if len(dims) < 4:
-                dims.append(f"{f.name} {_length(m, f):.3f}>{math.dist(a, b):.3f}")
+                dims.append(f"{f.name} {_length(m, f):.3f}→{math.dist(a, b):.3f}")
         for a in m.areas.values():
             if a.name in stay or not (set(a.points) & set(mv)):
                 continue
@@ -488,11 +488,11 @@ class ReshapeTool(ModifyTool):
             dash += [(q[k], q[(k + 1) % len(q)]) for k in range(len(q))]
         base = self.points[0]
         to = tuple((np.array(base) + d).tolist())
-        text = f"Reshape  {self._measure(base, to)}"
+        text = self._measure(base, to)
         if dims:
             text += "   " + "  ".join(dims)
         if stay:
-            text += f"   ({len(stay)} unselected stay: dashed)"
+            text += f"   {len(stay)} stay (dashed)"
         pv = Preview(lines=lines, marker=to, text=text, guides=[(base, to)], detach=dash)
         return pv
 
