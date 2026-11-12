@@ -392,54 +392,8 @@ def distribute(poly: Sequence[XYZ], distribution: str, span_dir: Optional[XYZ], 
         sup2 = [(to2(a), to2(b)) for a, b in supports
                 if abs((np.asarray(a, float) - origin) @ normal) <= plane_tol
                 and abs((np.asarray(b, float) - origin) @ normal) <= plane_tol]
-        g = 64
-        lo, hi = poly2.min(axis=0), poly2.max(axis=0)
-        cell = np.prod(hi - lo) / (g * g)
-        sub = 4  # sub-samples per cell: the fraction of a boundary cell inside the panel
-        offs = [((a + 0.5) / sub, (b + 0.5) / sub) for a in range(sub) for b in range(sub)]
-        for i in range(g):
-            for j in range(g):
-                corners_in = [point_in_poly2(lo + (hi - lo) * ((i + a) / g, (j + b) / g), poly2)
-                              for a in (0, 1) for b in (0, 1)]
-                if not any(corners_in):
-                    q2 = lo + (hi - lo) * ((i + 0.5) / g, (j + 0.5) / g)
-                    if not point_in_poly2(q2, poly2):
-                        continue
-                    frac = 1.0
-                elif all(corners_in):
-                    frac = 1.0
-                else:
-                    frac = sum(point_in_poly2(lo + (hi - lo) * ((i + a) / g, (j + b) / g), poly2)
-                               for a, b in offs) / len(offs)
-                    if frac == 0.0:
-                        continue
-                q2 = lo + (hi - lo) * ((i + 0.5) / g, (j + 0.5) / g)
-                if host2 is not None and not point_in_poly2(q2, host2):
-                    continue
-                force = _height_value(to3(q2), load) * cell * frac
-                best = None
-                for r in recs:
-                    e = r.b - r.a
-                    L2 = float(e @ e)
-                    u = float((q2 - r.a) @ e) / L2
-                    uc = min(max(u, 0.0), 1.0)
-                    dist = float(np.linalg.norm(r.a + uc * e - q2))
-                    if best is None or dist < best[0]:
-                        best = (dist, r, uc)
-                _add(acc, (0.0, best[1], best[2]), force, stations)
-                if overhang and best[0] > 1e-9 and force != 0.0:
-                    foot = best[1].a + best[2] * (best[1].b - best[1].a)
-                    v = (q2 - foot) / best[0]
-                    if _overhangs(foot, v, best[0], best[1].name, recs, sup2, host2 if host2 is not None else poly2):
-                        o3 = v[0] * e1 + v[1] * e2
-                        if best[1].name not in ov_S:
-                            ov_S[best[1].name] = np.zeros(n_stations)
-                            ov_o[best[1].name] = np.zeros((n_stations, 3))
-                            ov_F[best[1].name] = np.zeros(n_stations)
-                        _add(ov_S, (0.0, best[1], best[2]), force * best[0], stations)
-                        _add(ov_F, (0.0, best[1], best[2]), force, stations)
-                        k = int(round(best[2] * (n_stations - 1)))
-                        ov_o[best[1].name][k] += o3 * abs(force * best[0])
+        _two_way(poly2, host2, recs, sup2, load, origin, e1, e2, stations, acc,
+                 (ov_S, ov_o, ov_F) if overhang else None)
     else:
         raise ValueError(f"unknown panel distribution {distribution!r}")
     out = []
@@ -472,6 +426,231 @@ def distribute(poly: Sequence[XYZ], distribution: str, span_dir: Optional[XYZ], 
         O = O / np.maximum(np.linalg.norm(O, axis=1), 1e-300)[:, None]
         ovs.append(BarOverhang(name, stations.copy(), S, O, dvec, ov_F[name]))
     return PanelResult(out, {}, applied, carried, overhangs=ovs)
+
+
+def _inside_many(Q: np.ndarray, poly2: np.ndarray, edge_tol: float = 1e-9) -> np.ndarray:
+    """:func:`point_in_poly2` for many points (N, 2) at once (same rule)."""
+    x, y = Q[:, 0], Q[:, 1]
+    inside = np.zeros(len(Q), bool)
+    n = len(poly2)
+    for i in range(n):
+        x1, y1 = poly2[i]
+        x2, y2 = poly2[(i + 1) % n]
+        if y1 == y2:
+            continue
+        cross = (y1 > y) != (y2 > y)
+        xi = x1 + (y - y1) * (x2 - x1) / (y2 - y1)
+        inside ^= cross & (x < xi)
+    if edge_tol <= 0:
+        return inside
+    rest = ~inside
+    if not rest.any():
+        return inside
+    near = np.zeros(len(Q), bool)
+    for i in range(n):
+        a, b = poly2[i], poly2[(i + 1) % n]
+        e = b - a
+        L2 = float(e @ e)
+        if L2 <= 0:
+            continue
+        t = np.clip(((x - a[0]) * e[0] + (y - a[1]) * e[1]) / L2, 0.0, 1.0)
+        near |= np.hypot(a[0] + t * e[0] - x, a[1] + t * e[1] - y) <= edge_tol
+    return inside | (rest & near)
+
+
+def _ray_hits_many(P: np.ndarray, V: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """:func:`_ray_hits` for many rays (N, 2) against one segment: t (inf when none)."""
+    e = b - a
+    den = V[:, 0] * e[1] - V[:, 1] * e[0]
+    ok = np.abs(den) >= 1e-14
+    den = np.where(ok, den, 1.0)
+    w = a - P
+    t = (w[:, 0] * e[1] - w[:, 1] * e[0]) / den
+    sp = (w[:, 0] * V[:, 1] - w[:, 1] * V[:, 0]) / den
+    hit = ok & (t > 0) & (sp >= -1e-9) & (sp <= 1 + 1e-9)
+    return np.where(hit, t, np.inf)
+
+
+def _two_way(poly2, host2, recs, sup2, load, origin, e1, e2, stations, acc, ov):
+    """Two-way (nearest bar) distribution of the load on the polygon: a 64 x 64 grid of
+    cells (a cell partly inside counts by 4 x 4 sub-samples), each cell's load to the
+    nearest point of the nearest bar.  ``ov`` = (S, outward, F) dicts: the cantilever
+    part (nothing beyond the load inside the floor) is collected there too."""
+    n_stations = len(stations)
+    g = 64
+    lo, hi = poly2.min(axis=0), poly2.max(axis=0)
+    span = hi - lo
+    cell = float(np.prod(span)) / (g * g)
+    sub = 4
+    ii, jj = np.meshgrid(np.arange(g), np.arange(g), indexing="ij")
+    ii, jj = ii.ravel(), jj.ravel()
+    corner = [_inside_many(lo + span * np.column_stack(((ii + a) / g, (jj + b) / g)), poly2)
+              for a in (0, 1) for b in (0, 1)]
+    n_in = sum(c.astype(int) for c in corner)
+    centre = lo + span * np.column_stack(((ii + 0.5) / g, (jj + 0.5) / g))
+    frac = np.zeros(len(ii))
+    frac[n_in == 4] = 1.0
+    none = n_in == 0
+    if none.any():
+        idx = np.nonzero(none)[0]
+        frac[idx[_inside_many(centre[idx], poly2)]] = 1.0
+    part = (n_in > 0) & (n_in < 4)
+    if part.any():
+        idx = np.nonzero(part)[0]
+        cnt = np.zeros(len(idx))
+        for a in range(sub):
+            for b in range(sub):
+                q = lo + span * np.column_stack(((ii[idx] + (a + 0.5) / sub) / g, (jj[idx] + (b + 0.5) / sub) / g))
+                cnt += _inside_many(q, poly2)
+        frac[idx] = cnt / (sub * sub)
+    keep = frac > 0.0
+    if host2 is not None:
+        keep &= _inside_many(centre, host2)
+    if not keep.any():
+        return
+    Q = centre[keep]
+    frac = frac[keep]
+    if load.get("varying"):
+        z0, z1, v0, v1 = load["z0"], load["z1"], load["value_lower"], load["value_upper"]
+        if abs(z1 - z0) < 1e-12:
+            val = np.full(len(Q), 0.5 * (v0 + v1))
+        else:
+            z = origin[2] + Q[:, 0] * e1[2] + Q[:, 1] * e2[2]
+            val = v0 + (v1 - v0) * np.clip((z - z0) / (z1 - z0), 0.0, 1.0)
+    else:
+        val = np.full(len(Q), float(load["value"]))
+    force = val * cell * frac
+    # nearest bar (the first one on a tie, as the sample-by-sample rule)
+    best_d = np.full(len(Q), np.inf)
+    best_r = np.zeros(len(Q), int)
+    best_u = np.zeros(len(Q))
+    for k, r in enumerate(recs):
+        e = r.b - r.a
+        L2 = float(e @ e)
+        u = ((Q - r.a) @ e) / L2
+        uc = np.clip(u, 0.0, 1.0)
+        d = np.linalg.norm(r.a + uc[:, None] * e - Q, axis=1)
+        better = d < best_d
+        best_d = np.where(better, d, best_d)
+        best_r = np.where(better, k, best_r)
+        best_u = np.where(better, uc, best_u)
+    x = best_u * (n_stations - 1)
+    i0 = np.minimum(np.floor(x).astype(int), n_stations - 1)
+    f = np.where(i0 >= n_stations - 1, 0.0, x - i0)
+    i1 = np.minimum(i0 + 1, n_stations - 1)
+    A = np.zeros((len(recs), n_stations))
+    np.add.at(A, (best_r, i0), force * (1 - f))
+    np.add.at(A, (best_r, i1), force * f)
+    for k, r in enumerate(recs):
+        acc[r.name] += A[k]
+    if ov is None:
+        return
+    ov_S, ov_o, ov_F = ov
+    sel = (best_d > 1e-9) & (force != 0.0)
+    if not sel.any():
+        return
+    idx = np.nonzero(sel)[0]
+    ends_a = np.array([recs[k].a for k in best_r[idx]])
+    ends_b = np.array([recs[k].b for k in best_r[idx]])
+    foot = ends_a + best_u[idx][:, None] * (ends_b - ends_a)
+    d0 = best_d[idx]
+    V = (Q[idx] - foot) / d0[:, None]
+    P = host2 if host2 is not None else poly2
+    exit_t = np.full(len(idx), np.inf)
+    m = len(P)
+    for i in range(m):
+        t = _ray_hits_many(foot, V, P[i], P[(i + 1) % m])
+        t = np.where(t > d0 * (1 - 1e-9), t, np.inf)
+        exit_t = np.minimum(exit_t, t)
+    exit_t = np.where(np.isinf(exit_t), d0, exit_t)
+    reach = exit_t * (1 + 1e-6) + 1e-9
+    supported = np.zeros(len(idx), bool)
+    for k, r in enumerate(recs):
+        t = _ray_hits_many(foot, V, r.a, r.b)
+        supported |= (best_r[idx] != k) & (t > d0 * 0.5) & (t <= reach)
+    for a, b in sup2:
+        t = _ray_hits_many(foot, V, a, b)
+        supported |= (t > d0 * 0.5) & (t <= reach)
+    over = ~supported
+    if not over.any():
+        return
+    oi = idx[over]
+    Fo = force[oi]
+    So = Fo * best_d[oi]
+    O3 = V[over][:, :1] * e1 + V[over][:, 1:2] * e2
+    k_near = np.rint(best_u[oi] * (n_stations - 1)).astype(int)
+    for k in np.unique(best_r[oi]):
+        name = recs[k].name
+        mk = best_r[oi] == k
+        if name not in ov_S:
+            ov_S[name] = np.zeros(n_stations)
+            ov_o[name] = np.zeros((n_stations, 3))
+            ov_F[name] = np.zeros(n_stations)
+        np.add.at(ov_S[name], i0[oi][mk], So[mk] * (1 - f[oi][mk]))
+        np.add.at(ov_S[name], i1[oi][mk], So[mk] * f[oi][mk])
+        np.add.at(ov_F[name], i0[oi][mk], Fo[mk] * (1 - f[oi][mk]))
+        np.add.at(ov_F[name], i1[oi][mk], Fo[mk] * f[oi][mk])
+        np.add.at(ov_o[name], k_near[mk], O3[mk] * np.abs(So[mk])[:, None])
+
+
+def _two_way_reference(poly2, host2, recs, sup2, load, origin, e1, e2, stations, acc, ov):
+    """The sample-by-sample two-way distribution (kept as the reference of
+    :func:`_two_way`, which does the same with arrays)."""
+    n_stations = len(stations)
+
+    def to3(q):
+        return origin + q[0] * e1 + q[1] * e2
+    overhang = ov is not None
+    if overhang:
+        ov_S, ov_o, ov_F = ov
+    g = 64
+    lo, hi = poly2.min(axis=0), poly2.max(axis=0)
+    cell = np.prod(hi - lo) / (g * g)
+    sub = 4  # sub-samples per cell: the fraction of a boundary cell inside the panel
+    offs = [((a + 0.5) / sub, (b + 0.5) / sub) for a in range(sub) for b in range(sub)]
+    for i in range(g):
+        for j in range(g):
+            corners_in = [point_in_poly2(lo + (hi - lo) * ((i + a) / g, (j + b) / g), poly2)
+                          for a in (0, 1) for b in (0, 1)]
+            if not any(corners_in):
+                q2 = lo + (hi - lo) * ((i + 0.5) / g, (j + 0.5) / g)
+                if not point_in_poly2(q2, poly2):
+                    continue
+                frac = 1.0
+            elif all(corners_in):
+                frac = 1.0
+            else:
+                frac = sum(point_in_poly2(lo + (hi - lo) * ((i + a) / g, (j + b) / g), poly2)
+                           for a, b in offs) / len(offs)
+                if frac == 0.0:
+                    continue
+            q2 = lo + (hi - lo) * ((i + 0.5) / g, (j + 0.5) / g)
+            if host2 is not None and not point_in_poly2(q2, host2):
+                continue
+            force = _height_value(to3(q2), load) * cell * frac
+            best = None
+            for r in recs:
+                e = r.b - r.a
+                L2 = float(e @ e)
+                u = float((q2 - r.a) @ e) / L2
+                uc = min(max(u, 0.0), 1.0)
+                dist = float(np.linalg.norm(r.a + uc * e - q2))
+                if best is None or dist < best[0]:
+                    best = (dist, r, uc)
+            _add(acc, (0.0, best[1], best[2]), force, stations)
+            if overhang and best[0] > 1e-9 and force != 0.0:
+                foot = best[1].a + best[2] * (best[1].b - best[1].a)
+                v = (q2 - foot) / best[0]
+                if _overhangs(foot, v, best[0], best[1].name, recs, sup2, host2 if host2 is not None else poly2):
+                    o3 = v[0] * e1 + v[1] * e2
+                    if best[1].name not in ov_S:
+                        ov_S[best[1].name] = np.zeros(n_stations)
+                        ov_o[best[1].name] = np.zeros((n_stations, 3))
+                        ov_F[best[1].name] = np.zeros(n_stations)
+                    _add(ov_S, (0.0, best[1], best[2]), force * best[0], stations)
+                    _add(ov_F, (0.0, best[1], best[2]), force, stations)
+                    k = int(round(best[2] * (n_stations - 1)))
+                    ov_o[best[1].name][k] += o3 * abs(force * best[0])
 
 
 def _ray_hits(p, v, a, b) -> Optional[float]:

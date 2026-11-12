@@ -124,3 +124,36 @@ def test_check_model_says_where_the_root_moment_goes_and_analysis_balances():
     assert r.base_reactions("Dead")[2] == pytest.approx(Q * 9, rel=1e-6)
     m, name = _model(interior=True)
     assert "MEMBRANE_CANTILEVER" in {i.code for i in geometry_issues(m)}
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_array_two_way_equals_the_sample_by_sample_rule(seed, monkeypatch):
+    """The two-way distribution with arrays (fast) gives the same loads and the same
+    cantilever notes as the sample-by-sample reference."""
+    import structstudio.mesh.panel_loads as PL
+    r = np.random.default_rng(seed)
+    m = new_building(x_spacings=(6, 4.5), y_spacings=(5,), story_heights=(Z,), grid_only=False)
+    for p in m.load_patterns.values():
+        p.self_weight_multiplier = 0.0
+    sec = next(a.section for a in m.areas.values() if a.type == "Floor")
+    c = [(0, 5), (10.5, 5), (10.5 + r.uniform(-1, 1), 5 + r.uniform(0.5, 2.5)), (r.uniform(-1, 1), 5 + r.uniform(0.5, 2.5))]
+    a = m.add_area([m.add_point(x, y, Z).name for x, y in c], sec, type="Floor")
+    m.add_area_load(a.name, "Dead", float(r.uniform(1, 5)))
+    if seed % 2:
+        m.add_area([m.add_point(x, y, Z).name for x, y in ((2, 5.3), (3, 5.3), (3, 5.8), (2, 5.8))], None, type="Opening")
+    if seed % 3 == 0:
+        for k in [k for k, v in m.areas.items() if v.type == "Floor" and k != a.name]:
+            del m.areas[k]
+    m.shell_sections[sec].model_type = "Membrane"
+    na, nb = [], []
+    fa, _, _ = PL.panel_loads_to_members(m, notes=na)
+    monkeypatch.setattr(PL, "_two_way", PL._two_way_reference)
+    fb, _, _ = PL.panel_loads_to_members(m, notes=nb)
+    assert set(fa) == set(fb)
+    for f in fa:
+        assert len(fa[f]) == len(fb[f])
+        for la, lb in zip(fa[f], fb[f]):
+            assert (la.pattern, la.direction, la.load_type) == (lb.pattern, lb.direction, lb.load_type)
+            assert (la.rel_a, la.rel_b) == pytest.approx((lb.rel_a, lb.rel_b), abs=1e-12)
+            assert (la.value_a, la.value_b) == pytest.approx((lb.value_a, lb.value_b), rel=1e-10, abs=1e-12)
+    assert [n[:4] for n in na] == [n[:4] for n in nb]
