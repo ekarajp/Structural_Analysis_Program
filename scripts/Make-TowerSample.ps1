@@ -44,7 +44,7 @@ try {
     Rc 'SetRectangle C40' $m.PropFrame.SetRectangle('C40', 'CONC', 0.4, 0.4, -1, '', '') | Out-Null
     Rc 'SetRectangle B30x50' $m.PropFrame.SetRectangle('B30x50', 'CONC', 0.5, 0.3, -1, '', '') | Out-Null
     Rc 'SetSlab S15 (ShellThin)' $m.PropArea.SetSlab('S15', (E 'eSlabType' 0), (E 'eShellType' 1), 'CONC', 0.15, -1, '', '') | Out-Null
-    Rc 'SetDiaphragm D1' $m.Diaphragm.SetDiaphragm('D1', $false) | Out-Null
+    Rc 'SetDiaphragm D1 (rc=1: it exists already)' $m.Diaphragm.SetDiaphragm('D1', $false) | Out-Null
     Rc 'SetDiaphragm D2' $m.Diaphragm.SetDiaphragm('D2', $false) | Out-Null
     Rc 'LoadPatterns.Add EQX' $m.LoadPatterns.Add('EQX', (E 'eLoadPatternType' 8), 0, $true) | Out-Null
     # ---- towers
@@ -68,9 +68,12 @@ try {
                 $rc = $m.FrameObj.AddByCoord($x, $y, $z0, $x, $y, $z1, [ref]$name, 'C40', '', 'Global')
                 if ($rc -ne 0) { $bad++ }
                 if ($k -eq 1) {
-                    $p1 = ''; $p2 = ''; $null = $m.FrameObj.GetPoints($name, [ref]$p1, [ref]$p2)
-                    [bool[]]$fix = @($true, $true, $true, $true, $true, $true)
-                    $null = $m.PointObj.SetRestraint($p1, [ref]$fix, (E 'eItemType' 0))
+                    try {
+                        $p1 = ''; $p2 = ''; $null = $m.FrameObj.GetPoints($name, [ref]$p1, [ref]$p2)
+                        [bool[]]$fix = @($true, $true, $true, $true, $true, $true)
+                        $rc = $m.PointObj.SetRestraint($p1, [ref]$fix, (E 'eItemType' 0))
+                        if ($rc -ne 0) { Say "  SetRestraint $p1 -> $rc" }
+                    } catch { Say "  restraint: $($_.Exception.Message)" }
                 }
             } }
             foreach ($y in $ys) { for ($i = 1; $i -lt $xs.Count; $i++) {
@@ -83,13 +86,17 @@ try {
                 [double[]]$Z = @($z1, $z1, $z1, $z1)
                 $name = ''
                 if ($m.AreaObj.AddByCoord(4, [ref]$X, [ref]$Y, [ref]$Z, [ref]$name, 'S15', '', 'Global') -ne 0) { $bad++; continue }
-                $null = $m.AreaObj.SetDiaphragm($name, $dia, (E 'eItemType' 0))
+                try { $rc = $m.AreaObj.SetDiaphragm($name, $dia) } catch { $rc = "error: $($_.Exception.Message)" }
+                if ($rc -ne 0) { Say "  AreaObj.SetDiaphragm $name -> $rc" }
             } }
             # lateral load at the corner joint (last x, first y) of this level
-            $pn = ''
-            $null = $m.PointObj.AddCartesian($xs[-1], $ys[0], $z1, [ref]$pn, '', 'Global', $false, 0)  # (merges with the joint there)
-            [double[]]$f = @(($fx * $z1 / $zs[-1]), (0.25 * $fx * $z1 / $zs[-1]), 0, 0, 0, 0)
-            $null = $m.PointObj.SetLoadForce($pn, 'EQX', [ref]$f, $false, 'Global', (E 'eItemType' 0))
+            try {
+                $pn = ''
+                $null = $m.PointObj.AddCartesian($xs[-1], $ys[0], $z1, [ref]$pn, '', 'Global', $false, 0)  # (merges with the joint there)
+                [double[]]$f = @(($fx * $z1 / $zs[-1]), (0.25 * $fx * $z1 / $zs[-1]), 0, 0, 0, 0)
+                $rc = $m.PointObj.SetLoadForce($pn, 'EQX', [ref]$f, $false, 'Global', (E 'eItemType' 0))
+                Say "  EQX at $pn (z = $z1): rc=$rc"
+            } catch { Say "  load: $($_.Exception.Message)" }
         }
         Say "  $tower built ($bad failed object calls)"
     }
