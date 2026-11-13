@@ -14,8 +14,8 @@ from ..design.slab_model import build_slab_model, membrane_stories
 from ..model.base import ModelError
 
 HELP = ("A membrane floor only hands its loads to the beams and columns of the building model, so it has no "
-        "slab moments of its own.  The Slab Design Model takes the floor out of the building (as ETABS sends a "
-        "floor to SAFE): its slabs as plates, the beams of the level, the columns and walls one story up and down "
+        "slab moments of its own.  The Slab Design Model takes the floor out of the building (a separate "
+        "slab model): its slabs as plates, the beams of the level, the columns and walls one story up and down "
         "fixed at their far ends, the gravity loads and combinations.  Each story opens in its own window and is "
         "analysed; the building model is not changed.  Shell floors are designed with the forces of the "
         "building model.")
@@ -49,7 +49,7 @@ class SlabModelDialog(QtWidgets.QDialog):
                                            "forces of the building model."))
         form = QtWidgets.QFormLayout()
         self.beams = QtWidgets.QComboBox()
-        self.beams.addItem("Flexible - the beams' own stiffness (as SAFE)", "flexible")
+        self.beams.addItem("Flexible - the beams' own stiffness", "flexible")
         self.beams.addItem("Rigid - unyielding line supports (coefficient method)", "rigid")
         self.beams.setCurrentIndex(0 if p.beams == "flexible" else 1)
         self.columns = QtWidgets.QComboBox()

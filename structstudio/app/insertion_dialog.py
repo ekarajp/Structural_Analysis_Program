@@ -22,7 +22,7 @@ SHIFT_HELP = (
     "<b>dx, dy from the cardinal point</b>: both ends of the member move by dx along its local 3 axis "
     "and dy along local 2 - a free shift for positions the 11 cardinal points do not give (a beam set "
     "down from the slab, a member flush with an edge that is not its own).  "
-    "<b>Each end - global X, Y, Z</b>: every end its own vector (ETABS / SAP2000 joint offsets).<br><br>"
+    "<b>Each end - global X, Y, Z</b>: every end its own vector (joint offsets).<br><br>"
     "A joint offset is always in the analysis: the member's axis lies that far from its joints and "
     "the analysis joins them by rigid arms.  Moderate offsets are fine.  A shift larger than "
     "the section itself makes long rigid arms: an axial force then gives moments at the joints "
@@ -49,8 +49,8 @@ TRANSFORM_TIP = ("On: the member's axis lies off its joints by the cardinal poin
                  "analysis joins them by rigid arms (stiffness transformed to the joints).  For a beam this is "
                  "right only inside the rigid zone of its joints (inside the column, the joint's level within "
                  "the beam's depth): beyond it the form asks to move the beam instead.\n"
-                 "Off: the member is only drawn at that position; the analysis takes it on its joints, like ETABS "
-                 "'Do not transform frame stiffness for offsets from centroid'.")
+                 "Off: the member is only drawn at that position; the analysis takes it on its joints (stiffness "
+                 "not transformed for the offsets).")
 
 
 def section_pieces(model, section: Optional[str]):

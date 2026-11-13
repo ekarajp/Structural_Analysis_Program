@@ -323,7 +323,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         self.act_use_fine = self._make("Use Fine Mesh", self.set_fine_mesh, checkable=True,
                                        tip="Analyse with the fine mesh found by Check Mesh")
         self.act_lock = self._make("Lock Model", self.toggle_lock, checkable=True, icon_name="unlock",
-                                   tip="Lock / Unlock Model: after an analysis the model is locked (ETABS); "
+                                   tip="Lock / Unlock Model: after an analysis the model is locked; "
                                        "unlocking deletes the analysis results")
         self.act_tension_side = self._make(
             "Moment Diagrams on Tension Side", self.set_moment_tension_side, checkable=True,

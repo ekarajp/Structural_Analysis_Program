@@ -499,7 +499,7 @@ class NonlinearRunner:
             dom = NonlinearDomain(self.asm, {}, links, geometry="None")
         if any(getattr(f, "hinges", None) or getattr(f, "nonlinear", None) for f in self.model.frames.values()):
             self.am.warnings.append(f"Case {case.name}: FNA treats frame hinges and fiber members as linear "
-                                    "(only links are nonlinear), as CSI FNA")
+                                    "(only links are nonlinear)")
         if not dom.links:
             self.am.warnings.append(f"Case {case.name}: FNA without nonlinear links is a linear modal time history")
         ground, tloads = self._ground_and_loads(case)

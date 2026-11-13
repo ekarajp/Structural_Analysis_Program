@@ -712,8 +712,8 @@ class Engine:
                             f"{skipped} semi-rigid diaphragm(s) get no accidental torsion")
         if not n_diaph:
             warnings.append(f"Spectrum {case.name}: eccentricity ratio {case.eccentricity_ratio:g} has no effect - "
-                            "the model has no rigid diaphragm with lateral mass (CSI applies accidental torsion "
-                            "at diaphragms only)")
+                            "the model has no rigid diaphragm with lateral mass (accidental torsion "
+                            "is applied at diaphragms only)")
             return None
         stiff = getattr(self.model.load_cases.get(case.modal_case), "stiffness_from", None)
         u = self._solve_static(F, stiff)

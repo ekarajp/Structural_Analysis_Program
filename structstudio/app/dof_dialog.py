@@ -136,7 +136,7 @@ class DofDialog(QtWidgets.QDialog):
             pv.addWidget(btn)
         right.addWidget(pre)
         note = QtWidgets.QLabel("Inactive DOFs are fixed at every joint: a plane frame in X-Z needs only "
-                                "UX, UZ and RY; a slab (SAFE) UZ, RX and RY.")
+                                "UX, UZ and RY; a slab UZ, RX and RY.")
         note.setWordWrap(True)
         right.addWidget(note)
         right.addStretch(1)

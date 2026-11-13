@@ -1067,7 +1067,7 @@ class MenuCommandsMixin:
             note="Used for every frame / slab that does not set its own value (Assign > Frame > End Length "
                  "Offsets sets one per frame).  Recommended: concrete 0.5; steel 0, or 1.0 only together "
                  "with panel zones; rigid zones over columns on (deflections and slab reinforcement lower, "
-                 "punching ratios higher).  Imported ETABS / SAP2000 / SAFE models start with no automatic "
+                 "punching ratios higher).  Imported models start with no automatic "
                  "offsets and factor 0, as in the original file.")
         if not v:
             return

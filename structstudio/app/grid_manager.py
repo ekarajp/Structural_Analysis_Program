@@ -364,8 +364,7 @@ class GridSystemsManager(QtWidgets.QDialog):
         # --- lists
         left = QtWidgets.QVBoxLayout()
         self.allow = QtWidgets.QCheckBox("Allow multiple towers")
-        self.allow.setToolTip("Several buildings in one model, each with its own stories and grid systems "
-                              "(ETABS Options > Allow Multiple Towers)")
+        self.allow.setToolTip("Several buildings in one model, each with its own stories and grid systems")
         self.allow.toggled.connect(self._allow_toggled)
         left.addWidget(self.allow)
         self.tbox = QtWidgets.QGroupBox("Towers")
@@ -678,13 +677,13 @@ class GridSystemsManager(QtWidgets.QDialog):
             u = ""
         tw = self.selected_tower()
         if xyz:
-            self.levels_label.setText("Levels from the Z grid lines (SAP2000 mode)")
+            self.levels_label.setText("Levels from the Z grid lines (X · Y · Z mode)")
             levels = list(reversed(m.levels()))
             self.stories.setColumnCount(2)
             self.stories.setHorizontalHeaderLabels(["Z line", f"Z [{u}]"])
             rows = [(n, f"{z:g}") for n, z in levels]
         else:
-            self.levels_label.setText("Stories (ETABS mode), top down" + (f" - tower {tw}" if tw else ""))
+            self.levels_label.setText("Stories (X · Y · Story mode), top down" + (f" - tower {tw}" if tw else ""))
             ss = list(reversed(m.stories_of(tw) if tw else m.stories_bottom_up()))
             self.stories.setColumnCount(3)
             self.stories.setHorizontalHeaderLabels(["Story", f"Height [{u}]", f"Elevation [{u}]"])
