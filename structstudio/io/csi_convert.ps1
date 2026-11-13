@@ -316,12 +316,17 @@ function Write-Tables($sap, [string]$path, [string]$program, [string]$label) {
     $written = 0; $failed = @(); $repaired = 0; $merged = 0; $springsFixed = 0; $springsMissed = 0
     for ($i = 0; $i -lt $n; $i++) {
         $key = $keys[$i]
-        if ($imp[$i] -le 0) { continue }          # results / design / non-importable tables
+        # results / design / non-importable tables - but the story and tower tables always (ETABS
+        # marks them not importable in a model with several towers, and they define its levels)
+        if ($imp[$i] -le 0 -and $key -notmatch '^(Story Definitions|Tower and Base Story Definitions|Tower Definitions|Tower Story Definitions)$') { continue }
         if ($key -match '^(Program Control|PROGRAM CONTROL)$') { continue }
         $t = $null
-        try { $t = Get-TableRows $db $key $route } catch { $failed += $key; continue }
+        try { $t = Get-TableRows $db $key $route } catch { if ($imp[$i] -gt 0) { $failed += $key; continue } }
         if ($null -eq $t -and $route -ne 'EditArray') {   # a route may not serve every table
             try { $t = Get-TableRows $db $key 'EditArray' } catch { }
+        }
+        if ($null -eq $t -and $imp[$i] -le 0) {   # (a display-only story / tower table)
+            try { $t = Get-TableRows $db $key 'DisplayArray' } catch { }
         }
         if ($null -eq $t -or $t.Rows.Count -eq 0) { continue }
         if ($route -ne 'EditArray') {   # decimals at full precision from the editing route

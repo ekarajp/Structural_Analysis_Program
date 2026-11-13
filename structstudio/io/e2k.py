@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from ..model import (FIXED, FREE, Area, Diaphragm, Frame, FrameModifiers, FrameSection, LoadPattern, MassSource,
                      Material, Model, ModelError, Point, ShellModifiers, ShellSection, Story)
+from ..model.objects import Tower
 from ..model.loads import (ComboItem, LinearStaticCase, LoadCombination, ModalCase, ResponseSpectrumCase,
                            ResponseSpectrumFunction, SpectrumLoad)
 from ..units import UnitSystem
@@ -96,6 +97,13 @@ class E2KImporter:
     # ETABS story-based points: label -> (x, y) and generated point names
     _plan_points: Dict[str, Tuple[float, float]] = field(default_factory=dict)
     _story_order: List[Tuple[str, Optional[float], Optional[float]]] = field(default_factory=list)
+    # ETABS multiple towers: "$ TOWERS" names, the tower of each story line, and the
+    # names the file uses for stories / grid systems ("T2-Story1", "T2-G1") -> ours
+    _towers: List[str] = field(default_factory=list)
+    _story_towers: List[Optional[str]] = field(default_factory=list)
+    _story_alias: Dict[str, str] = field(default_factory=dict)
+    _system_alias: Dict[str, str] = field(default_factory=dict)
+    _point_dz: Dict[str, float] = field(default_factory=dict)
     _rs_functions: Dict[str, dict] = field(default_factory=dict)
     _pending_cases: Dict[str, dict] = field(default_factory=dict)
     _pending_combos: Dict[str, list] = field(default_factory=dict)
@@ -140,6 +148,7 @@ class E2KImporter:
         # pass 1: definitions that others depend on
         handlers_pass1 = {
             "CONTROLS": self._controls, "STORIES - IN SEQUENCE FROM TOP": self._story,
+            "STORIES - IN SEQUENCE FROM TOP - FOR EACH TOWER": self._story, "TOWERS": self._tower,
             "GRIDS": self._grid, "DIAPHRAGM NAMES": self._diaphragm, "MATERIAL PROPERTIES": self._material,
             "FRAME SECTIONS": self._frame_section, "SLAB PROPERTIES": self._shell_prop,
             "WALL PROPERTIES": self._shell_prop, "DECK PROPERTIES": self._shell_prop,
@@ -202,43 +211,80 @@ class E2KImporter:
             if "MERGETOL" in d:
                 self.model.options.merge_tolerance = float(d["MERGETOL"])
 
+    def _tower(self, toks):
+        if toks[0][0].upper() == "TOWER" and len(toks) > 1 and toks[1][0] not in self._towers:
+            self._towers.append(toks[1][0])
+
     def _story(self, toks):
         if toks[0][0].upper() != "STORY":
             return
         name = toks[1][0]
         d = _kv(toks, 2)
-        if "TOWER" in d and not getattr(self, "_tower_warned", False):
-            self._tower_warned = True
-            self.warnings.append("The e2k file defines multiple towers: they are read as one tower (story names "
-                                 "must be unique) - check the stories and define the towers in Edit > Edit Towers, "
-                                 "Stories and Grid Systems")
+        # ETABS multiple towers ("FOR EACH TOWER"): each tower's stories top-down, the first
+        # one naming the tower, down to that tower's base
+        tower = str(d["TOWER"]) if "TOWER" in d else (self._story_towers[-1] if self._story_towers else None)
+        if tower is not None and tower not in self._towers:
+            self._towers.append(tower)
+        self._story_towers.append(tower)
         self._story_order.append((name, d.get("HEIGHT"), d.get("ELEV")))
 
     def _finish_stories(self):
-        # list is top -> bottom; compute elevations bottom-up
-        order = list(reversed(self._story_order))
-        z = 0.0
-        for k, (name, height, elev) in enumerate(order):
-            if elev is not None:
-                z = float(elev)
-                h = 0.0
-            else:
-                h = float(height or 0.0)
-                z = z + h
-            self.model.stories[name] = Story(name=name, elevation=z, height=h)
+        # each tower's list is top -> bottom (the base, ELEV, last); elevations bottom-up.
+        # Several towers: our stories are named as ETABS names them in its assignments and
+        # results ("T2-Story1"); with one tower the plain names stay
+        groups: Dict[Optional[str], list] = {}
+        for tower, rec in zip(self._story_towers, self._story_order):
+            groups.setdefault(tower, []).append(rec)
+        multi = len([t for t in groups if t is not None]) > 1
+        if multi:
+            for t in self._towers:
+                if t in groups:
+                    self.model.towers.setdefault(t, Tower(t))
+        for tower, recs in groups.items():
+            z = 0.0
+            for name, height, elev in reversed(recs):
+                if elev is not None:
+                    z = float(elev)
+                    h = 0.0
+                else:
+                    h = float(height or 0.0)
+                    z = z + h
+                full = f"{tower}-{name}" if multi else name
+                self.model.stories[full] = Story(name=full, elevation=z, height=h, tower=tower if multi else None)
+                if tower is not None:
+                    self._story_alias[f"{tower}-{name}"] = full
+                    if not multi:
+                        self._story_alias[name] = full
+        if multi:
+            self.warnings.append(f"Towers {', '.join(t for t in self._towers if t in groups)}: the stories are named "
+                                 "as ETABS names them in its tables (tower-story)")
+
+    def _st(self, ref: str) -> str:
+        """Our story for a story name used in an assignment (ETABS writes "T1-Story1"
+        when the model has towers)."""
+        return self._story_alias.get(ref, ref)
 
     def _grid(self, toks):
         from ..model.objects import GridLine, GridSystem
         kind = toks[0][0].upper()
         if kind == "GRIDSYSTEM":
             d = _kv(toks, 2)
-            self.model.grid_systems[toks[1][0]] = GridSystem(name=toks[1][0], type=str(d.get("TYPE", "Cartesian")).title(),
-                                                             bubble_size=float(d.get("BUBBLESIZE", 1.0)),
-                                                             origin=(float(d.get("UX", 0.0)), float(d.get("UY", 0.0))),
-                                                             rotation=float(d.get("ROTATION", d.get("ROTZ", 0.0))))
+            name = toks[1][0]
+            tower = str(d["TOWER"]) if "TOWER" in d else None
+            multi = len(self._towers) > 1
+            # several towers: the system of each tower is "T1-G1" (as the GRID lines name it)
+            sname = f"{tower}-{name}" if (tower and multi) else name
+            if tower:
+                self._system_alias[f"{tower}-{name}"] = sname
+            self.model.grid_systems[sname] = GridSystem(name=sname, type=str(d.get("TYPE", "Cartesian")).title(),
+                                                        bubble_size=float(d.get("BUBBLESIZE", 1.0)),
+                                                        origin=(float(d.get("UX", 0.0)), float(d.get("UY", 0.0))),
+                                                        rotation=float(d.get("ROTATION", d.get("ROTZ", 0.0))),
+                                                        tower=tower if (tower and multi) else None)
         elif kind == "GRID":
             d = _kv(toks, 2)
-            self.model.grid_lines.append(GridLine(system=toks[1][0], name=str(d.get("LABEL", "")),
+            self.model.grid_lines.append(GridLine(system=self._system_alias.get(toks[1][0], toks[1][0]),
+                                                  name=str(d.get("LABEL", "")),
                                                   direction=str(d.get("DIR", "X")).upper(),
                                                   ordinate=float(d.get("COORD", 0.0)),
                                                   bubble_location=str(d.get("BUBBLELOC", "End")),
@@ -362,8 +408,11 @@ class E2KImporter:
         nums = [_num(t) for t, q in toks[2:] if not q and _num(t) is not None]
         if len(nums) >= 2:
             self._plan_points[label] = (nums[0], nums[1])
-            if len(nums) >= 3:
-                self._plan_points[label] = (nums[0], nums[1])
+            if len(nums) >= 3 and nums[2]:
+                # ETABS: a third number is how far the point lies below the story it is
+                # used at (a point between the levels, e.g. a column of a tower whose floors
+                # are not at this tower's levels)
+                self._point_dz[label] = float(nums[2])
 
     def _load_pattern(self, toks):
         name = toks[1][0]
@@ -443,7 +492,7 @@ class E2KImporter:
         if story not in self.model.stories:
             raise ModelError("UNKNOWN_STORY", f"e2k: story {story!r} is not defined")
         x, y = self._plan_points[label]
-        z = self.model.stories[story].elevation
+        z = self.model.stories[story].elevation - self._point_dz.get(label, 0.0)
         p = Point(name=name, x=x, y=y, z=z, label=label, story=story)
         self.model.points[name] = p
         return p
@@ -474,7 +523,7 @@ class E2KImporter:
 
     # ---------------------------------------------------------------- pass 3
     def _point_assign(self, toks):
-        label, story = toks[1][0], toks[2][0]
+        label, story = toks[1][0], self._st(toks[2][0])
         d = _kv(toks, 3)
         p = self._joint(label, story)
         if "RESTRAINT" in d:
@@ -506,7 +555,7 @@ class E2KImporter:
             p.panel_zone = str(d["PANELZONE"])
 
     def _line_assign(self, toks):
-        label, story = toks[1][0], toks[2][0]
+        label, story = toks[1][0], self._st(toks[2][0])
         d = _kv(toks, 3)
         if label not in self._line_defs:
             self.skipped["LINEASSIGN (unknown line)"] += 1
@@ -578,7 +627,8 @@ class E2KImporter:
         self.model.frames[name] = fr
 
     def _story_below(self, story: str, span: int = 1) -> str:
-        ordered = self.model.stories_bottom_up()
+        m = self.model  # (several towers: the stories of the story's own tower)
+        ordered = m.stories_of(m.tower_of_story(story)) if (m.multi_tower and story in m.stories) else m.stories_bottom_up()
         names = [s.name for s in ordered]
         k = names.index(story)
         if k - span < 0:
@@ -586,7 +636,7 @@ class E2KImporter:
         return names[k - span]
 
     def _area_assign(self, toks):
-        label, story = toks[1][0], toks[2][0]
+        label, story = toks[1][0], self._st(toks[2][0])
         d = _kv(toks, 3)
         if label not in self._area_defs:
             self.skipped["AREAASSIGN (unknown area)"] += 1
@@ -638,7 +688,7 @@ class E2KImporter:
         self.model.areas[name] = area
 
     def _point_load(self, toks):
-        label, story = toks[1][0], toks[2][0]
+        label, story = toks[1][0], self._st(toks[2][0])
         d = _kv(toks, 3)
         p = self._joint(label, story)
         pattern = str(d.get("LC", ""))
@@ -651,7 +701,7 @@ class E2KImporter:
         p.loads.append(PointLoad(pattern, force, moment))
 
     def _line_load(self, toks):
-        label, story = toks[1][0], toks[2][0]
+        label, story = toks[1][0], self._st(toks[2][0])
         d = _kv(toks, 3)
         name = f"{label}@{story}"
         fr = self.model.frames.get(name)
@@ -687,7 +737,7 @@ class E2KImporter:
             self.skipped[f"LINELOAD type {ltype}"] += 1
 
     def _area_load(self, toks):
-        label, story = toks[1][0], toks[2][0]
+        label, story = toks[1][0], self._st(toks[2][0])
         d = _kv(toks, 3)
         area = self.model.areas.get(f"{label}@{story}")
         if area is None:

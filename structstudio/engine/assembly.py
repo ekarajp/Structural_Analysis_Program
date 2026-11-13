@@ -624,9 +624,14 @@ class Assembler:
                 m_add = -fz * mult / am.gravity
                 for nid in range(am.n_nodes):
                     M[6 * nid:6 * nid + 3] += m_add[nid]
-        # analytical inertia corrections for area objects lumped into rigid diaphragms
+        # analytical inertia corrections for area objects lumped into rigid diaphragms (not
+        # for a diaphragm between the story levels whose mass goes to the levels - mass
+        # source "lump lateral mass at story levels": the correction goes with the mass)
+        lumped = {nid for nid, _ in self._story_lumping()}
         for c in am.constraints:
             if not c.rigid:
+                continue
+            if lumped and c.nodes and all(n in lumped for n in c.nodes):
                 continue
             extra = c.inertia_correction_self if am.mass_include_elements else 0.0
             for pattern, mult in am.mass_from_loads.items():

@@ -122,6 +122,7 @@ class CsiImporter:
     source_dir: Optional[str] = None
     _used: set = field(default_factory=set)
     _null_lines: Dict[str, Tuple[str, str]] = field(default_factory=dict)
+    _point_towers: Dict[str, str] = field(default_factory=dict)  # ETABS towers: point -> tower
 
     # ------------------------------------------------------------------ api
     @classmethod
@@ -574,9 +575,10 @@ class CsiImporter:
         base_rows = self._rows("Tower and Base Story Definitions", "Base Story Definition")
         base_name = gets(base_rows[0], "BSName", "BaseStory", default="Base") if base_rows else "Base"
         base_elev = getf(base_rows[0], "BSElev", "BaseElev", default=0.0) if base_rows else 0.0
-        towers = {gets(r, "Tower", default="T1") for r in rows}
+        towers = list(dict.fromkeys(gets(r, "Tower", default="T1") for r in rows))
         if len(towers) > 1:
-            self._warn("Multiple towers: all towers are imported on one set of stories")
+            self._tower_stories(rows, base_rows, towers)
+            return
         first_tower = gets(rows[0], "Tower", default="T1")
         story_rows = [r for r in rows if gets(r, "Tower", default="T1") == first_tower]
         # listed top -> bottom
@@ -594,16 +596,47 @@ class CsiImporter:
                                     is_master=to_bool(get(r, "IsMaster", "MasterStory")),
                                     similar_to=gets(r, "SimilarTo"))
 
+    def _tower_stories(self, rows, base_rows, towers):
+        """ETABS multiple towers: each tower's stories (listed top -> bottom) on its own
+        base; named as ETABS names them in its results ("T2-Story1")."""
+        from ..model.objects import Tower
+        m = self.model
+        m.stories.clear()
+        m.towers = {t: Tower(t) for t in towers}
+        bases = {gets(r, "Tower", default="T1"): r for r in base_rows}
+        for t in towers:
+            b = bases.get(t)
+            bname = gets(b, "BSName", "BaseStory", default="Base") if b else "Base"
+            z = (getf(b, "BSElev", "BaseElev", default=0.0) if b else 0.0) or 0.0
+            m.stories[f"{t}-{bname}"] = Story(name=f"{t}-{bname}", elevation=z, height=0.0, tower=t)
+            for r in reversed([r for r in rows if gets(r, "Tower", default="T1") == t]):
+                name = gets(r, "Story", "Name")
+                h = getf(r, "Height", default=0.0) or 0.0
+                elev = getf(r, "Elevation", "Elev")
+                z = elev if elev is not None else z + h
+                full = f"{t}-{name}"
+                sim = gets(r, "SimilarTo")
+                m.stories[full] = Story(name=full, elevation=z, height=h, tower=t,
+                                        is_master=to_bool(get(r, "IsMaster", "MasterStory")),
+                                        similar_to=f"{t}-{sim}" if sim and sim != "None" else None)
+        self._warn(f"Towers {', '.join(towers)}: the stories are named as ETABS names them in its tables "
+                   "(tower-story)")
+
     def _grids(self):
         m = self.model
         rows = self._rows("GRID LINES", "Grid Definitions - Grid Lines", "GRID LINES - CARTESIAN")
         systems = self._rows("Grid Definitions - General", "COORDINATE SYSTEMS")
+        multi = len({gets(r, "Tower") for r in systems if gets(r, "Tower")}) > 1
         for r in systems:
             name = gets(r, "Name", "CoordSys")
+            tower = gets(r, "Tower") if multi else None
+            if tower:  # ETABS towers: the grid lines name the system "T1-G1"
+                name = f"{tower}-{name}"
             if name and name.upper() != "GLOBAL" or (name and not m.grid_systems):
                 m.grid_systems.setdefault(name, GridSystem(name=name, origin=(getf(r, "Ux", "X", default=0.0),
                                                                               getf(r, "Uy", "Y", default=0.0)),
-                                                           rotation=getf(r, "Rz", "AboutZ", default=0.0) or 0.0))
+                                                           rotation=getf(r, "Rz", "AboutZ", default=0.0) or 0.0,
+                                                           tower=tower))
         for r in rows:
             system = gets(r, "CoordSys", "Name", "GridSys", default="G1")
             axis = (gets(r, "AxisDir", "LineType", "GridLineType", "Dir", default="X") or "X").strip().upper()[:1]
@@ -667,6 +700,11 @@ class CsiImporter:
                         else:
                             self._warn(f"Joint coordinates in unknown coordinate system {cs} taken as global")
                 story = gets(row, "Story")
+                tower = gets(row, "Tower")
+                if tower:  # (ETABS towers: the point's tower; its story "T1-Story1")
+                    self._point_towers[name] = tower
+                    if m.towers and story and f"{tower}-{story}" in m.stories:
+                        story = f"{tower}-{story}"
                 label = gets(row, "PointBay", "Label", "PointLabel")
                 if self.family == "etabs" and story and story in m.stories and getf(row, "Z") is None and gx is None:
                     z = m.stories[story].elevation
@@ -1818,6 +1856,15 @@ class CsiImporter:
     def _levels(self):
         m = self.model
         if self.family == "etabs":
+            towers = {("point", n): t for n, t in getattr(self, "_point_towers", {}).items() if t in m.towers}
+            if not m.stories and m.points and len(set(getattr(self, "_point_towers", {}).values())) > 1:
+                # no story table, several towers: each tower's levels from its points
+                self._tower_levels_from_points()
+                m.reassign_stories({("point", n): t for n, t in self._point_towers.items()})
+                return
+            if m.multi_tower:
+                m.reassign_stories(towers)
+                return
             if not m.stories and m.points:
                 # no story table: stories from the point elevations
                 zs = sorted({round(p.z, 6) for p in m.points.values()})
@@ -1843,6 +1890,20 @@ class CsiImporter:
                 uniq.append((n, z))
             m.set_z_grid(uniq)
         m.options.grid_mode = "xyz"
+
+    def _tower_levels_from_points(self):
+        from ..model.objects import Tower
+        m = self.model
+        towers = list(dict.fromkeys(self._point_towers.values()))
+        m.towers = {t: Tower(t) for t in towers}
+        for t in towers:
+            zs = sorted({round(m.points[n].z, 6) for n, tt in self._point_towers.items() if tt == t and n in m.points})
+            prev = None
+            for k, z in enumerate(zs):
+                name = f"{t}-{'Base' if k == 0 else f'Story{k}'}"
+                m.stories[name] = Story(name=name, elevation=z, height=0.0 if prev is None else z - prev, tower=t)
+                prev = z
+        self._warn("No story table: each tower's stories are made from the elevations of its joints")
 
     def _report_unused(self):
         ignore = ("program control", "project information", "analysis messages", "table set", "named sets",
