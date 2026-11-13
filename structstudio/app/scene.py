@@ -342,8 +342,17 @@ def tower_sets(model: Model, tower: str):
     return frames, areas, points
 
 
+def plan_stories(model: Model, story: Optional[str], same_level: bool = True) -> set:
+    """The stories a plan of ``story`` shows: it, and with several towers (``same_level``)
+    the other towers' stories at its elevation - a podium and the towers on it are
+    worked on as one floor."""
+    if story is None:
+        return set()
+    return set(model.same_level_stories(story)) if same_level else {story}
+
+
 def visible_sets(model: Model, story: Optional[str] = None, plane: Optional[Tuple[str, float]] = None,
-                 tol: Optional[float] = None, tower: Optional[str] = None):
+                 tol: Optional[float] = None, tower: Optional[str] = None, same_level: bool = True):
     """Objects shown by a filtered window: ``story`` (plan view of one story)
     or ``plane`` = ("x"|"y", ordinate) (elevation on a grid line); ``tower`` (several
     towers): only that tower's objects.
@@ -373,9 +382,10 @@ def visible_sets(model: Model, story: Optional[str] = None, plane: Optional[Tupl
                         or (f.point_i in on and zb < value - tol):
                     frames.add(f.name)
         return frames, areas, on
-    frames = {f.name for f in model.frames.values() if f.story == story}
-    areas = {a.name for a in model.areas.values() if a.story == story}
-    points = {p.name for p in pts.values() if p.story == story}
+    ss = plan_stories(model, story, same_level)
+    frames = {f.name for f in model.frames.values() if f.story in ss}
+    areas = {a.name for a in model.areas.values() if a.story in ss}
+    points = {p.name for p in pts.values() if p.story in ss}
     for f in model.frames.values():
         if f.name in frames:
             points |= {f.point_i, f.point_j} if model.frames[f.name].type != "Column" else {
@@ -384,9 +394,9 @@ def visible_sets(model: Model, story: Optional[str] = None, plane: Optional[Tupl
 
 
 def make_visibility(model: Model, story: Optional[str] = None, plane: Optional[Tuple[str, float]] = None,
-                    tower: Optional[str] = None):
+                    tower: Optional[str] = None, same_level: bool = True):
     """Predicate obj -> bool (frames and areas) for the objects a window shows."""
-    vis = visible_sets(model, story, plane, tower=tower)
+    vis = visible_sets(model, story, plane, tower=tower, same_level=same_level)
     if vis is None:
         return lambda obj: True
     frames, areas, _ = vis
@@ -467,7 +477,8 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
                        selected_areas: Optional[set] = None, selected_points: Optional[set] = None,
                        plane: Optional[Tuple[str, float]] = None, options=None,
                        hidden: Optional[Tuple[set, set, set]] = None,
-                       layers: Sequence[str] = MODEL_LAYERS, tower: Optional[str] = None) -> SceneActors:
+                       layers: Sequence[str] = MODEL_LAYERS, tower: Optional[str] = None,
+                       same_level: bool = True) -> SceneActors:
     """Actors for the model.  ``story`` limits the display to one story (plan
     view), ``plane`` to one elevation; ``selection``/``selected_areas``/
     ``selected_points`` are highlighted.  ``options`` (:class:`~.display.DisplayOptions`)
@@ -487,7 +498,8 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
     selected_areas = selected_areas or set()
     selected_points = selected_points or set()
     pts = model.points
-    vis = visible_sets(model, story, plane, tower=tower)
+    vis = visible_sets(model, story, plane, tower=tower, same_level=same_level)
+    plan_ss = plan_stories(model, story, same_level)
     if hidden is not None and any(hidden):  # View > Make Selected Objects Invisible / Show Selected Only
         base = vis or (set(model.frames), set(model.areas), set(model.points))
         hf, ha, hp = hidden
@@ -665,7 +677,7 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
                                                                      max(1.0, gsize("area_edge_width") * 0.75))
     # ---- plan-view column markers (section outline at the story level) -------
     if base_on and story is not None and not extruded and opts.columns:
-        cols = [f for f in model.frames.values() if f.type == "Column" and f.story == story
+        cols = [f for f in model.frames.values() if f.type == "Column" and f.story in plan_ss
                 and (vis_f is None or f.name in vis_f)]  # hidden columns (Show only / Make invisible) too
         groups: Dict[str, Tuple[tuple, list]] = {}
         for f in cols:
@@ -806,16 +818,18 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
     bubbles_on = opts.grid_bubbles and opts.grid_lines
     # several towers: each tower's grids at its own levels (a plan: its story's tower; a
     # window showing one tower: that tower's)
+    # (a plan: also the grids of the other towers with a story at its level)
     if model.multi_tower:
         if story is not None and story in model.stories:
-            grid_models = [model.view(model.tower_of_story(story))]
+            grid_models = [(model.view(model.tower_of_story(st)), st)
+                           for st in model.same_level_stories(story) if st in plan_ss or st == story]
         elif tower is not None:
-            grid_models = [model.view(tower)]
+            grid_models = [(model.view(tower), story)]
         else:
-            grid_models = [model.view(t) for t in model.tower_names()]
+            grid_models = [(model.view(t), story) for t in model.tower_names()]
     else:
-        grid_models = [model]
-    for gi, gm in enumerate(grid_models):
+        grid_models = [(model, story)]
+    for gi, (gm, story_g) in enumerate(grid_models):
         sfx = "" if gi == 0 else f"@{gi}"
         if not base_on:
             pass
@@ -851,7 +865,7 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
                         if lab is not None:
                             out.actors["story_labels" + sfx] = lab
                 else:
-                    grid_actor = build_grid_actor(gm, story, levels=levels)
+                    grid_actor = build_grid_actor(gm, story_g, levels=levels)
                     if grid_actor is not None:
                         if story is None:  # 3D: the base grid is the reference - draw it stronger
                             grid_actor.GetProperty().SetOpacity(0.85)
@@ -862,7 +876,7 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
                     if vert is not None:
                         out.actors["grid_vertical" + sfx] = vert
             if bubbles_on and gm.grid_lines and gm.stories:
-                out.actors["grid_bubbles" + sfx] = build_grid_bubbles(gm, story, z=levels[0] if levels else None)
+                out.actors["grid_bubbles" + sfx] = build_grid_bubbles(gm, story_g, z=levels[0] if levels else None)
     # ---- reference lines (CYPE 3D) --------------------------------------------
     if base_on and getattr(opts, "reference_lines", False):
         from .snap import reference_lines_for

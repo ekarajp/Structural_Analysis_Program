@@ -162,7 +162,8 @@ def view_snap_objects(view):
         plane_of = getattr(view, "_scene_plane", None)
         tf = getattr(view, "tower_filter", None)
         vis = scene.visible_sets(m, view.config.story if view.config.kind == "plan" else None,
-                                 plane_of() if plane_of else None, tower=tf() if tf else None)
+                                 plane_of() if plane_of else None, tower=tf() if tf else None,
+                                 same_level=bool(getattr(view.config, "same_level", True)))
     except Exception:
         vis = None
     hf, ha, hp = getattr(view, "hidden", (set(), set(), set()))
@@ -302,13 +303,16 @@ class ViewConfig:
     # several towers: the tower an elevation / 3D window shows (None: all); plans show
     # the tower of their story
     tower: Optional[str] = None
+    # several towers: a plan also shows the other towers' stories at its level (a podium)
+    same_level: bool = True
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> "ViewConfig":
-        return cls(**{k: d[k] for k in ("kind", "story", "grid", "results", "display", "z", "ordinate", "tower")
+        return cls(**{k: d[k] for k in ("kind", "story", "grid", "results", "display", "z", "ordinate", "tower",
+                                                  "same_level")
                      if k in d})
 
 
@@ -373,6 +377,12 @@ class ModelViewport(QtWidgets.QWidget):
         self.tower_box = _ShrinkCombo()
         self.tower_box.setToolTip("Tower shown in this window")
         self.tower_box.setVisible(False)
+        self.level_box = _ShrinkCheck("Same level")
+        self.level_box.setToolTip("Also show the other towers' stories at this elevation (a podium and the "
+                                  "towers on it, worked on as one floor)")
+        self.level_box.setChecked(self.config.same_level)
+        self.level_box.setVisible(False)
+        self.level_box.toggled.connect(self._same_level_toggled)
         # the combos shrink to a few characters in a narrow header (the full text is in the list)
         for box in (self.kind_box, self.tower_box, self.where_box):
             box.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
@@ -402,6 +412,7 @@ class ModelViewport(QtWidgets.QWidget):
         hl.addWidget(self.kind_box)
         hl.addWidget(self.tower_box)
         hl.addWidget(self.where_box)
+        hl.addWidget(self.level_box)
         hl.addWidget(self.step_up)
         hl.addWidget(self.step_down)
         hl.addWidget(self.title, 1)
@@ -573,6 +584,10 @@ class ModelViewport(QtWidgets.QWidget):
             self.tower_box.setCurrentIndex(max(i, 0))
         self.tower_box.setVisible(multi)
         self.tower_box.blockSignals(False)
+        self.level_box.blockSignals(True)
+        self.level_box.setChecked(c.same_level)
+        self.level_box.blockSignals(False)
+        self.level_box.setVisible(multi and c.kind == "plan")
         self.where_box.blockSignals(True)
         self.where_box.clear()
         if c.kind == "plan":
@@ -665,7 +680,9 @@ class ModelViewport(QtWidgets.QWidget):
             z = pl.value
             where = pl.story or ("custom" if c.z is not None else "-")
             if m.multi_tower:
-                where = f"{self.window_tower()} / {where}"
+                others = [s for s in m.same_level_stories(pl.story) if s != pl.story] \
+                    if (pl.story and c.same_level) else []
+                where = f"{self.window_tower()} / {where}" + (f" (+ {', '.join(others)})" if others else "")
             self.title.setText(f"X-Y Plane @ Z = {z:g}  ({where})" if sap
                                else f"Plan View - {where} - Z = {z:g}")
         elif c.kind in ("xz", "yz"):
@@ -695,6 +712,16 @@ class ModelViewport(QtWidgets.QWidget):
     def tower_filter(self) -> Optional[str]:
         """The tower whose objects an elevation / 3D window shows (None: all)."""
         return None if self.config.kind == "plan" else self.window_tower()
+
+    def _same_level_toggled(self, on: bool):
+        self.config.same_level = bool(on)
+        self._update_title()
+        self.state.tool.cancel()
+        self.invalidate("scene", "overlays")
+        self.view_changed.emit(self)
+
+    def _plan_same_level(self) -> bool:
+        return bool(getattr(self.config, "same_level", True))
 
     def _tower_changed(self, *_):
         m = self.doc.model
@@ -1017,7 +1044,8 @@ class ModelViewport(QtWidgets.QWidget):
 
     def visible(self):
         base = scene.make_visibility(self.doc.model, self.config.story if self.config.kind == "plan" else None,
-                                     self._scene_plane(), tower=self.tower_filter())
+                                     self._scene_plane(), tower=self.tower_filter(),
+                                     same_level=self._plan_same_level())
         hf, ha, _ = self.hidden
         if not (hf or ha):
             return base
@@ -1278,7 +1306,8 @@ class ModelViewport(QtWidgets.QWidget):
         return scene.build_model_actors(self.doc.model, st.show_labels, st.extruded, st.frames, story=story,
                                         selected_areas=st.areas, selected_points=st.points,
                                         plane=self._scene_plane(), options=self.display_options,
-                                        hidden=self.hidden, layers=layers, tower=self.tower_filter())
+                                        hidden=self.hidden, layers=layers, tower=self.tower_filter(),
+                                        same_level=self._plan_same_level())
 
     def _build_scene(self):
         for a in self._scene_actors:
@@ -1703,7 +1732,9 @@ class ModelViewport(QtWidgets.QWidget):
         """(frames, areas, points) this window shows - its story plan or frame line,
         without the objects made invisible - or (None, None, None) for everything."""
         kind = self.config.kind
-        vis = scene.visible_sets(self.doc.model, self.config.story if kind == "plan" else None, self._scene_plane())
+        vis = scene.visible_sets(self.doc.model, self.config.story if kind == "plan" else None, self._scene_plane(),
+                                 tower=self.tower_filter() if hasattr(self, "tower_filter") else None,
+                                 same_level=bool(getattr(self.config, "same_level", True)))
         hf, ha, hp = self.hidden
         if vis is None:
             if not (hf or ha or hp):
@@ -2049,7 +2080,8 @@ class ModelViewport(QtWidgets.QWidget):
                          max(m.options.merge_tolerance, 1e-6), refs, depth=depth,
                          objects=view_snap_objects(self), near=near, px_scale=view_dpr(self),
                          plane_tol=plane_band(m),
-                         tower=self.window_tower() if hasattr(self, "window_tower") else None)
+                         tower=self.window_tower() if hasattr(self, "window_tower") else None,
+                         same_level=bool(getattr(self.config, "same_level", True)))
         eng.override = getattr(st, "snap_override", None)
         return eng
 

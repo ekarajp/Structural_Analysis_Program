@@ -81,11 +81,12 @@ try {
             foreach ($x in $xs) { for ($j = 1; $j -lt $ys.Count; $j++) {
                 $name = ''; if ($m.FrameObj.AddByCoord($x, $ys[$j - 1], $z1, $x, $ys[$j], $z1, [ref]$name, 'B30x50', '', 'Global') -ne 0) { $bad++ } } }
             for ($i = 1; $i -lt $xs.Count; $i++) { for ($j = 1; $j -lt $ys.Count; $j++) {
-                [double[]]$X = @($xs[$i - 1], $xs[$i], $xs[$i], $xs[$i - 1])
-                [double[]]$Y = @($ys[$j - 1], $ys[$j - 1], $ys[$j], $ys[$j])
-                [double[]]$Z = @($z1, $z1, $z1, $z1)
+                # (PowerShell names ignore case: $X would be $x - corner arrays get their own names)
+                [double[]]$cornerX = @($xs[$i - 1], $xs[$i], $xs[$i], $xs[$i - 1])
+                [double[]]$cornerY = @($ys[$j - 1], $ys[$j - 1], $ys[$j], $ys[$j])
+                [double[]]$cornerZ = @($z1, $z1, $z1, $z1)
                 $name = ''
-                if ($m.AreaObj.AddByCoord(4, [ref]$X, [ref]$Y, [ref]$Z, [ref]$name, 'S15', '', 'Global') -ne 0) { $bad++; continue }
+                if ($m.AreaObj.AddByCoord(4, [ref]$cornerX, [ref]$cornerY, [ref]$cornerZ, [ref]$name, 'S15', '', 'Global') -ne 0) { $bad++; continue }
                 try { $rc = $m.AreaObj.SetDiaphragm($name, $dia) } catch { $rc = "error: $($_.Exception.Message)" }
                 if ($rc -ne 0) { Say "  AreaObj.SetDiaphragm $name -> $rc" }
             } }
@@ -93,8 +94,8 @@ try {
             try {
                 $pn = ''
                 $null = $m.PointObj.AddCartesian($xs[-1], $ys[0], $z1, [ref]$pn, '', 'Global', $false, 0)  # (merges with the joint there)
-                [double[]]$f = @(($fx * $z1 / $zs[-1]), (0.25 * $fx * $z1 / $zs[-1]), 0, 0, 0, 0)
-                $rc = $m.PointObj.SetLoadForce($pn, 'EQX', [ref]$f, $false, 'Global', (E 'eItemType' 0))
+                [double[]]$loadVec = @(($fx * $z1 / $zs[-1]), (0.25 * $fx * $z1 / $zs[-1]), 0, 0, 0, 0)
+                $rc = $m.PointObj.SetLoadForce($pn, 'EQX', [ref]$loadVec, $false, 'Global', (E 'eItemType' 0))
                 Say "  EQX at $pn (z = $z1): rc=$rc"
             } catch { Say "  load: $($_.Exception.Message)" }
         }

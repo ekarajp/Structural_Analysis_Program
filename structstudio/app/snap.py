@@ -217,12 +217,14 @@ class SnapEngine:
                  depth: Optional[Callable[[Sequence[float]], float]] = None,
                  objects: Optional[Tuple[Optional[set], Optional[set], Optional[set]]] = None,
                  near: Optional[float] = None, px_scale: float = 1.0, plane_tol: Optional[float] = None,
-                 tower: Optional[str] = None):
+                 tower: Optional[str] = None, same_level: bool = True):
         self.model = model
         # several towers: the grids and levels snapped to are the tower's (of the plan's
-        # story, else of the window); all towers' when None
-        if tower is None and plane.kind == "plan" and plane.story in model.stories and model.multi_tower:
-            tower = model.tower_of_story(plane.story)
+        # story - with the towers that have a story at its level -, else of the window);
+        # all towers' when None
+        if plane.kind == "plan" and plane.story in model.stories and model.multi_tower:
+            ss = model.same_level_stories(plane.story) if same_level else [plane.story]
+            tower = [model.tower_of_story(s) for s in ss]
         self.gmodel = model.view(tower)
         self.plane = plane
         self.opt = options

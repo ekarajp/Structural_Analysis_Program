@@ -358,20 +358,23 @@ def test_views_and_snaps_per_tower():
     assert vis[0] < vis_all[0]
     assert scene.visible_sets(m, None, None, tower="T2")[0] == fr["T2"]
     # snapping in T3's plan: T3's grid points only, at its level
+    # (T1's Story1 is at the same 3.5 m: with "same level" its grid is snapped to as well)
     pl = Plane("plan", 3.5, "T3-Story1")
-    eng = SnapEngine(m, pl, SnapOptions(), lambda p: (p[0], p[1]), lambda x, y: (x, y, 3.5))
-    gp = {h.xyz[:2] for h in eng._point_candidates() if h.kind == "grid"}
-    assert gp == {(40.0, 0.0), (48.0, 0.0), (40.0, 8.0), (48.0, 8.0)}
+    t3 = {(40.0, 0.0), (48.0, 0.0), (40.0, 8.0), (48.0, 8.0)}
+    t1 = {(x, y) for x in (0.0, 6.0, 12.0) for y in (0.0, 6.0, 12.0)}
+    eng = SnapEngine(m, pl, SnapOptions(), lambda p: (p[0], p[1]), lambda x, y: (x, y, 3.5), same_level=False)
+    assert {h.xyz[:2] for h in eng._point_candidates() if h.kind == "grid"} == t3
+    eng_all = SnapEngine(m, pl, SnapOptions(), lambda p: (p[0], p[1]), lambda x, y: (x, y, 3.5))
+    assert {h.xyz[:2] for h in eng_all._point_candidates() if h.kind == "grid"} == t3 | t1
     eng1 = SnapEngine(m, Plane("plan", 3.5, "Story1"), SnapOptions(), lambda p: (p[0], p[1]),
-                      lambda x, y: (x, y, 3.5))
-    assert {h.xyz[:2] for h in eng1._point_candidates() if h.kind == "grid"} == \
-        {(x, y) for x in (0.0, 6.0, 12.0) for y in (0.0, 6.0, 12.0)}
+                      lambda x, y: (x, y, 3.5), same_level=False)
+    assert {h.xyz[:2] for h in eng1._point_candidates() if h.kind == "grid"} == t1
     # an elevation window of T2: its levels
     eng2 = SnapEngine(m, Plane("xz", 0.0), SnapOptions(), lambda p: (p[0], p[2]), lambda x, y: (x, 0.0, y),
                       tower="T2")
     assert sorted({h.xyz[2] for h in eng2._point_candidates() if h.kind == "grid"}) == [7.0, 10.0, 13.0]
     # the grid drawn in a plan is the story's tower's
-    out = scene.build_model_actors(m, story="T3-Story1")
+    out = scene.build_model_actors(m, story="T3-Story1", same_level=False)
     assert "grids" in out.actors and not any(k.startswith("grids@") for k in out.actors)
     out3d = scene.build_model_actors(m)
     assert {"grids", "grids@1", "grids@2"} <= set(out3d.actors)
@@ -466,6 +469,14 @@ def test_gui_towers(tmp_path, monkeypatch):
     items = [plan.where_box.itemData(i) for i in range(plan.where_box.count())]
     assert [x for x in items if x and not str(x).startswith("__")] == ["T2-Story2", "T2-Story1", "T2-Base"]
     assert "T2 /" in plan.title.text()
+    assert plan.level_box.isVisibleTo(plan)
+    plan.where_box.setCurrentIndex(plan.where_box.findData("T2-Base"))  # z = 7: T1 and T3 are there too
+    app.processEvents()
+    assert "(+ Story2, T3-Story2)" in plan.title.text()
+    plan.level_box.setChecked(False)
+    app.processEvents()
+    assert "(+" not in plan.title.text() and plan.config.same_level is False
+    plan.level_box.setChecked(True)
     plan.activate()
     assert w.doc.active_tower == "T2"
     # an elevation window: All Towers or one tower; grid names of two systems told apart
@@ -672,3 +683,44 @@ def test_xyz_mode_gives_the_same_results():
         _close(rx.displacement_envelope(case).max, rs.displacement_envelope(case).max)
         assert [(d["Story"], d["Tower"], d["Drift"]) for d in rx.story_drifts(case)] == \
             [(d["Story"], d["Tower"], d["Drift"]) for d in rs.story_drifts(case)]
+
+def test_plans_show_the_other_towers_at_the_same_level():
+    """A plan of a tower's story shows the stories of the other towers at its elevation
+    (a podium and the towers on it as one floor): objects, grids and snaps."""
+    from structstudio.app import scene
+    from structstudio.app.snap import SnapEngine, SnapOptions
+    from structstudio.app.tools import BeamTool, ColumnTool, DrawSettings, Plane
+    doc = _three_towers()  # T1 Story2, T2-Base and T3-Story2 are all at z = 7
+    m = doc.model
+    assert m.same_level_stories("Story2") == ["Story2", "T2-Base", "T3-Story2"]
+    assert m.same_level_stories("T2-Story1") == ["T2-Story1"]
+    sec = next(n for n in m.frame_sections if n.startswith("C"))
+    for story, xy in (("Story2", (0.0, 0.0)), ("T3-Story2", (40.0, 0.0))):
+        t = ColumnTool(doc, DrawSettings(frame_section=sec, all_stories=False))
+        t.set_story(story)
+        t.click(xy)
+    t3col = next(n for n, f in m.frames.items() if f.story == "T3-Story2")
+    t1col = next(n for n, f in m.frames.items() if f.story == "Story2")
+    on = scene.visible_sets(m, "Story2")
+    off = scene.visible_sets(m, "Story2", same_level=False)
+    assert {t1col, t3col} <= on[0] and t3col not in off[0] and t1col in off[0]
+    # the grids of the towers at that level are drawn and snapped to
+    out = scene.build_model_actors(m, story="Story2")
+    assert {"grids", "grids@1", "grids@2"} <= set(out.actors)
+    assert "grids@1" not in scene.build_model_actors(m, story="Story2", same_level=False).actors
+    eng = SnapEngine(m, Plane("plan", 7.0, "Story2"), SnapOptions(), lambda p: (p[0], p[1]), lambda x, y: (x, y, 7.0))
+    gp = {h.xyz[:2] for h in eng._point_candidates() if h.kind == "grid"}
+    assert (40.0, 0.0) in gp and (0.0, 0.0) in gp
+    eng2 = SnapEngine(m, Plane("plan", 7.0, "Story2"), SnapOptions(), lambda p: (p[0], p[1]),
+                      lambda x, y: (x, y, 7.0), same_level=False)
+    assert (40.0, 0.0) not in {h.xyz[:2] for h in eng2._point_candidates() if h.kind == "grid"}
+    # a beam drawn in T2's base plan from a podium joint belongs to T2 (the tower drawn in)
+    bsec = next(n for n in m.frame_sections if n.startswith("B"))
+    bt = BeamTool(doc, DrawSettings(frame_section=bsec))
+    bt.set_story("T2-Base")
+    bt.click((0.0, 0.0))
+    bt.click((6.0, 0.0))
+    bt.finish()
+    beam = next(f for f in m.frames.values() if f.type == "Beam")
+    assert beam.story == "T2-Base" and m.tower_of_object("frame", beam.name) == "T2"
+    assert m.points[beam.point_i].story == "Story2"  # the podium joint stays the podium's

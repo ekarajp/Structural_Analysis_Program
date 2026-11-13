@@ -618,6 +618,15 @@ class Model:
         pts = [obj.point_i, obj.point_j] if kind == "frame" else list(obj.points)
         return self._tower_hint([self.points[n] for n in pts]) or self.default_tower()
 
+    def _draw_tower(self, pts) -> Optional[str]:
+        """The tower a new frame / area goes to: the tower drawn in (``active_tower``),
+        else that of its joints (a beam from a podium joint drawn in a tower's window
+        belongs to that tower)."""
+        t = getattr(self, "active_tower", None)
+        if t is not None and self.multi_tower and t in self.towers:
+            return t
+        return self._tower_hint(pts)
+
     def _tower_hint(self, pts) -> Optional[str]:
         """The tower of the first of ``pts`` that is on a story (None: none is)."""
         if not self.multi_tower:
@@ -650,12 +659,26 @@ class Model:
         self._tower_ext_cache = (sig, out)
         return out
 
-    def view(self, tower: Optional[str] = None):
-        """The model seen through ``tower`` (a :class:`TowerView`); the model itself
-        with one tower or when ``tower`` is None (all towers)."""
+    def view(self, tower=None):
+        """The model seen through ``tower`` - one tower or a list of towers (a
+        :class:`TowerView`); the model itself with one tower or when ``tower`` is None
+        (all towers)."""
         if tower is None or not self.multi_tower:
             return self
         return TowerView(self, tower)
+
+    def same_level_stories(self, story: Optional[str]) -> List[str]:
+        """``story`` and the stories of the other towers at its elevation (a podium and
+        the towers on it, worked on as one floor), in tower order."""
+        if story is None or story not in self.stories:
+            return [story] if story else []
+        if not self.multi_tower:
+            return [story]
+        z = self.stories[story].elevation
+        tol = max(self.options.merge_tolerance, 1e-6)
+        order = {t: k for k, t in enumerate(self.towers)}
+        others = [st.name for st in self.stories.values() if st.name != story and abs(st.elevation - z) <= tol]
+        return [story] + sorted(others, key=lambda n: order.get(self.tower_of_story(n), 0))
 
     def stories_of(self, tower: Optional[str] = None) -> List[Story]:
         """The stories of a tower, bottom-up (all stories when ``tower`` is None)."""
@@ -897,7 +920,7 @@ class Model:
         f = Frame(name=name, point_i=pi.name, point_j=pj.name, section=section, type=type, **kw)
         if f.story is None:
             top = max(pi.z, pj.z)
-            s = self.story_at(top, self.options.merge_tolerance, tower=self._tower_hint((pi, pj)),
+            s = self.story_at(top, self.options.merge_tolerance, tower=self._draw_tower((pi, pj)),
                               xy=((pi.x + pj.x) / 2, (pi.y + pj.y) / 2))
             f.story = s.name if s else None
         self.frames[name] = f
@@ -923,7 +946,7 @@ class Model:
         if a.story is None:
             top = max(self.points[p].z for p in pts)
             pp = [self.points[p] for p in pts]
-            s = self.story_at(top, self.options.merge_tolerance, tower=self._tower_hint(pp),
+            s = self.story_at(top, self.options.merge_tolerance, tower=self._draw_tower(pp),
                               xy=(sum(q.x for q in pp) / len(pp), sum(q.y for q in pp) / len(pp)))
             a.story = s.name if s else None
         self.areas[name] = a
@@ -1654,14 +1677,20 @@ class TowerView:
     and stories; everything else is the model's (read through to it).  What draws or
     snaps to grids and levels takes it in place of the model."""
 
-    def __init__(self, model: "Model", tower: str):
+    def __init__(self, model: "Model", tower):
+        """``tower``: a tower, or several (a plan showing the towers that have a story
+        at its level: their grids together)."""
         self._model = model
-        self.tower = model._tower(tower)
-        names = model.grid_systems_of(self.tower)
+        towers = [tower] if isinstance(tower, str) or tower is None else list(tower)
+        towers = list(dict.fromkeys(model._tower(t) for t in towers))
+        self.tower = towers[0]
+        self.towers = towers
+        names = [n for t in towers for n in model.grid_systems_of(t)]
         self.grid_systems = {n: model.grid_systems[n] for n in names}
         keep = set(names)
         self.grid_lines = [g for g in model.grid_lines if g.system in keep]
-        self.stories = {st.name: st for st in model.stories_of(self.tower)}
+        self.stories = {st.name: st for st in sorted((st for t in towers for st in model.stories_of(t)),
+                                                       key=lambda st: st.elevation)}
 
     def __getattr__(self, name):
         return getattr(self._model, name)
@@ -1677,8 +1706,9 @@ class TowerView:
     def story_at(self, z: float, tol: float = 1e-6, tower: Optional[str] = None, xy=None) -> Optional[Story]:
         return self._model.story_at(z, tol, tower=self.tower, xy=xy)
 
-    def view(self, tower: Optional[str] = None):
-        return self if tower is None or self._model._tower(tower) == self.tower else self._model.view(tower)
+    def view(self, tower=None):
+        return self if tower is None or (isinstance(tower, str) and self._model._tower(tower) == self.tower
+                                         and len(self.towers) == 1) else self._model.view(tower)
 
 
 class _TowerGrids:
