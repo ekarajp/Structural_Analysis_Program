@@ -48,6 +48,7 @@ class MenuCommandsMixin:
             "edit.paste": self.edit_paste,
             "edit.grid_stories": self.edit_grid_stories,
             "edit.grid_at_joints": self.edit_grid_at_joints,
+            "edit.show_all_grids": self.edit_show_all_grids,
             "edit.replicate": self.edit_replicate_tabs,
             "edit.extrude_joints": self.edit_extrude_joints,
             "edit.extrude_frames": self.edit_extrude_frames,
@@ -90,7 +91,6 @@ class MenuCommandsMixin:
             "define.load_cases": lambda: self._define("load_cases", "Load Cases", dialogs.static_case_factory),
             "define.combos": lambda: self._define("load_combinations", "Load Combinations", dialogs.combo_factory),
             # Draw
-            "draw.grids": self.edit_grid_stories,
             "draw.snap_options": self.draw_snap_options,
             "draw.snap_only": self.toggle_snap_only,
             # Select
@@ -419,6 +419,11 @@ class MenuCommandsMixin:
     @clipboard.setter
     def clipboard(self, clip):
         self.state.clipboard = clip
+
+    def edit_show_all_grids(self):
+        from .grid_tools import show_all_grid_lines
+        n = show_all_grid_lines(self.doc)
+        self._info(f"{n} hidden grid line(s) shown" if n else "No grid line is hidden")
 
     def edit_grid_at_joints(self):
         if not self._need("point"):

@@ -11,6 +11,7 @@ from .document import Document
 from .tools import TOOLS, DrawSettings, SelectTool, Tool, delete_objects, select_by_type
 from . import modify as _modify  # noqa: F401  (registers Move / Copy / Rotate / Mirror / Trim ... tools)
 from . import reshape as _reshape  # noqa: F401  (registers Reshape)
+from . import grid_tools as _grid_tools  # noqa: F401  (registers Draw / Offset Grid Line)
 
 
 class ViewState(QtCore.QObject):

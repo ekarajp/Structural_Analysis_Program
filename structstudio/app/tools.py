@@ -325,6 +325,7 @@ class DrawSettings:
     modify_copy: bool = False  # Rotate: rotate a copy
     mirror_copy: bool = True  # Mirror: keep the original (Revit / AutoCAD default)
     offset_distance: float = 1.0
+    grid_offset_distance: float = 1.0  # Draw > Offset Grid Line
 
     def offsets(self):
         return (self.offset_x, self.offset_y, self.offset_z)

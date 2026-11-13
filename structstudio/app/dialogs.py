@@ -293,7 +293,8 @@ class GridStoriesDialog(QtWidgets.QDialog):
     tab (X-Y-Z mode).  The switch at the top changes the grid system."""
 
     def __init__(self, doc: Document, parent=None, system: Optional[str] = None, add: Optional[str] = None,
-                 copy_of: Optional[str] = None, show_levels: bool = False, tower: Optional[str] = None):
+                 copy_of: Optional[str] = None, show_levels: bool = False, tower: Optional[str] = None,
+                 line: Optional[str] = None):
         """``system``: the grid system shown first; ``add``: start with a new system of
         that type ("Cartesian" / "Cylindrical"); ``copy_of``: start with a copy of that
         system; ``show_levels``: open on the Story / Z Grid tab; ``tower`` (several
@@ -379,6 +380,21 @@ class GridStoriesDialog(QtWidgets.QDialog):
             self._add_system(add)
         if show_levels:
             self.tabs.setCurrentIndex(2)
+        if line and system and system in self._systems:
+            self.select_line(line)
+
+    def select_line(self, name: str) -> bool:
+        """Show the grid line ``name`` of the current system: its tab, its row selected."""
+        for k, t in enumerate((self.x_table, self.y_table)):
+            for r in range(t.rowCount()):
+                it = t.item(r, 0)
+                if it is not None and it.text().strip() == name:
+                    self.tabs.setCurrentIndex(k)
+                    t.setCurrentCell(r, 1)
+                    t.selectRow(r)
+                    t.scrollToItem(it)
+                    return True
+        return False
 
     # ------------------------------------------------------------ grid systems
     @staticmethod
@@ -645,10 +661,29 @@ class GridStoriesDialog(QtWidgets.QDialog):
                                               f"{m0.tower_of_system(clash[0])}")
                 return
 
+        glue = bool(getattr(self.doc, "glue_grids", False))
+        self.glued = 0
+
         def mutate(model: Model):
             import dataclasses as _dc
             from ..model.objects import GridSystem
+            from .grid_tools import glue_moves
             old = model.grid_systems
+            # Move Objects with Grid Lines: the joints on an X / Y line whose ordinate changed
+            # (its system not moved or turned) move with it - found before anything changes
+            moves = []
+            for sname, d in (systems.items() if glue else ()):
+                gs0 = old.get(sname)
+                if gs0 is None or d["type"] != "Cartesian" or gs0.type == "Cylindrical" or \
+                        tuple(gs0.origin or (0.0, 0.0)) != tuple(d["origin"]) or \
+                        float(gs0.rotation or 0.0) != float(d["rotation"]):
+                    continue
+                for dirn, rows in (("X", d["a"]), ("Y", d["b"])):
+                    for n, o in rows:
+                        prev = extras.get((sname, dirn, n))
+                        if prev is not None and prev.ordinate != o:
+                            moves.append((sname, dirn, prev.ordinate, o))
+            shifted = glue_moves(model, moves) if moves else {}
             # several towers: the other towers' systems and lines stay as they are
             edited = set(model.grid_systems_of(tower)) if tower is not None else set(old)
             model.grid_systems = {n: gs for n, gs in old.items() if n not in edited}
@@ -671,6 +706,10 @@ class GridStoriesDialog(QtWidgets.QDialog):
                 # general lines of the system are kept
                 lines += [g for (s_, dd, _), g in extras.items() if s_ == sname and dd == "General"]
             model.grid_lines = lines
+            for pn, (dx, dy) in shifted.items():
+                model.points[pn].x += dx
+                model.points[pn].y += dy
+            self.glued = len(shifted)
             if tower is not None:
                 if mode == "xyz" and model.grid_mode == "xyz":
                     model.set_z_grid(levels, tower)

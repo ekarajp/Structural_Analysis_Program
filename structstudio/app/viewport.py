@@ -709,6 +709,32 @@ class ModelViewport(QtWidgets.QWidget):
             return c.tower if c.tower in m.towers else m.default_tower()
         return c.tower if c.tower in m.towers else None
 
+    def grid_line_under(self, x: int, y: int) -> Optional[Tuple[str, str]]:
+        """(system, name) of the grid line under display (x, y) - plan windows only."""
+        if self.config.kind != "plan":
+            return None
+        xyz = self._plane_point(x, y)
+        if xyz is None:
+            return None
+        from .grid_tools import line_at
+        return line_at(self.doc.model, (xyz[0], xyz[1]), self._world_tolerance(),
+                       story=self.config.story, tower=self.window_tower())
+
+    def grid_bubble_under(self, x: int, y: int) -> Optional[Tuple[str, str]]:
+        """(system, name) of the grid line whose bubble is under display (x, y) (plan)."""
+        if self.config.kind != "plan" or not (self.display_options.grid_bubbles and self.display_options.grid_lines):
+            return None
+        xyz = self._plane_point(x, y)
+        if xyz is None:
+            return None
+        from .grid_tools import bubble_at
+
+        def size(gm):
+            r = scene._bubble_radius(gm)
+            return r, r * (1.0 + 0.6 * scene.gsize("bubble_gap"))
+        return bubble_at(self.doc.model, (xyz[0], xyz[1]), size, story=self.config.story,
+                         tower=self.window_tower())
+
     def tower_filter(self) -> Optional[str]:
         """The tower whose objects an elevation / 3D window shows (None: all)."""
         return None if self.config.kind == "plan" else self.window_tower()
@@ -1485,6 +1511,70 @@ class ModelViewport(QtWidgets.QWidget):
         return best
 
     # ------------------------------------------------ drag objects / grips (select tool)
+    def _grid_highlight(self, hit):
+        """The grid line ``hit`` drawn thick (the line a grid command acts on)."""
+        if hit is None:
+            return
+        from .grid_tools import find_line, line_ends
+        m = self.doc.model
+        try:
+            ends = line_ends(m, find_line(m, *hit))
+        except Exception:  # noqa: BLE001
+            return
+        if ends is not None:
+            z = self.plane().value if self.plane().kind == "plan" else 0.0
+            self._preview_actors.append(self._lines_actor([((*ends[0], z), (*ends[1], z))],
+                                                          scene.COLORS["select_box"], 5.0))
+
+    def _grid_drag_update(self, x: int, y: int):
+        """Dragging a grid bubble: the line at the cursor (snapped), its new ordinate."""
+        from .grid_tools import find_line, line_ordinate, moved_line
+        gd = self._grid_drag
+        self._clear_preview()
+        pt, snap = self._snapped(x, y)
+        if pt is None:
+            pt = self._plane_point(x, y)
+        if pt is None:
+            self.render()
+            return
+        p3 = tuple(pt)
+        m = self.doc.model
+        xy = (float(p3[0]), float(p3[1]))
+        try:
+            g = find_line(m, gd["system"], gd["name"])
+            ln = moved_line(m, gd["system"], gd["name"], xy)
+            val = line_ordinate(m, gd["system"], gd["name"], xy)
+        except Exception:  # noqa: BLE001
+            self.render()
+            return
+        gd["xy"] = xy
+        z = float(p3[2])
+        pv = Preview(marker=(xy[0], xy[1], z))
+        if ln is not None:
+            pv.lines = [((ln[0][0], ln[0][1], z), (ln[1][0], ln[1][1], z))]
+        glue = " - joints on it move along" if getattr(self.doc, "glue_grids", False) else ""
+        if g.direction == "General":
+            pv.text = f"Grid line {g.name}: move {val:.3f} across{glue}"
+        else:
+            pv.text = f"Grid line {g.name}: {g.ordinate:g} -> {val:.3f}{glue}"
+        self._draw_preview(pv, snap, x, y)
+
+    def _grid_drag_apply(self, gd):
+        from .grid_tools import find_line, line_ordinate, move_grid_line
+        st = self.state
+        m = self.doc.model
+        try:
+            g = find_line(m, gd["system"], gd["name"])
+            val = line_ordinate(m, gd["system"], gd["name"], gd["xy"])
+            glue = bool(getattr(self.doc, "glue_grids", False))
+            if g.direction == "General":
+                n = move_grid_line(self.doc, gd["system"], gd["name"], delta=val, move_objects=glue)
+            else:
+                n = move_grid_line(self.doc, gd["system"], gd["name"], to=val, move_objects=glue)
+            st.status.emit(f"Grid line {gd['name']} moved" + (f" with {n} joint(s)" if n else ""))
+        except Exception as exc:  # noqa: BLE001
+            st.report(exc)
+
     def _drag_update(self, x: int, y: int):
         """Ghost of the dragged selection (or of the members at a dragged grip)."""
         from .modify import ghost_lines, translation
@@ -2192,12 +2282,34 @@ class ModelViewport(QtWidgets.QWidget):
                 self._draw_grips()
                 self._update_preview(x, y)
             return
+        if st.tool.name == "select" and not getattr(self.doc, "lock_grids", False):
+            # a grid bubble: drag it to move its line (Edit > Grid Lines > Lock Grid Lines
+            # Against Dragging stops it)
+            hit = self.grid_bubble_under(x, y)
+            if hit is not None:
+                self._grid_drag = {"system": hit[0], "name": hit[1], "moved": False, "xy": None}
+                self._press = (x, y)
+                self._dragging = False
+                return
         if st.tool.name in ("select", "select_line") or getattr(st.tool, "picks", None) \
                 or getattr(st.tool, "selecting", False):
             # select tools, load commands picking their objects, and modify commands asking
             # for their objects (click or window)
             self._press = (x, y)
             self._dragging = False
+            return
+        if getattr(st.tool, "picks_grids", False):  # Offset Grid Line: click a grid line
+            if self.config.kind not in st.tool.views:
+                st.status.emit(f"{st.tool.title} works in plan windows")
+                return
+            st.tool.set_plane(self.plane())
+            cursor = self._plane_point(x, y)
+            try:
+                st.tool.grid_click(self.grid_line_under(x, y), None if cursor is None else (cursor[0], cursor[1]))
+            except Exception as exc:
+                st.report(exc)
+            st.update_hint()
+            self._update_preview(x, y)
             return
         if getattr(st.tool, "picks_frames", False):  # Trim / Extend / Offset: click a frame
             if self.config.kind not in st.tool.views:
@@ -2306,6 +2418,15 @@ class ModelViewport(QtWidgets.QWidget):
             self._draw_grips()
             self._update_preview(x, y)
             return
+        if getattr(self, "_grid_drag", None) is not None:
+            gd, self._grid_drag = self._grid_drag, None
+            self._press = None
+            self._dragging = False
+            self._clear_preview()
+            if gd["moved"] and gd["xy"] is not None:
+                self._grid_drag_apply(gd)
+            self.render()
+            return
         if self._press is None:
             return
         x, y = self.interactor.GetEventPosition()
@@ -2372,6 +2493,11 @@ class ModelViewport(QtWidgets.QWidget):
                 self._dragging = True
             self._update_preview(x, y)
             return
+        if self._press is not None and getattr(self, "_grid_drag", None) is not None:
+            if self._grid_drag["moved"] or abs(x - self._press[0]) > 4 or abs(y - self._press[1]) > 4:
+                self._grid_drag["moved"] = True
+                self._grid_drag_update(x, y)
+            return
         if self._press is not None and self._drag is not None:
             dx, dy = x - self._press[0], y - self._press[1]
             if self._drag["moved"] or abs(dx) > 4 or abs(dy) > 4:
@@ -2389,9 +2515,18 @@ class ModelViewport(QtWidgets.QWidget):
                     self._rubber.show(self._press, (x, y), crossing=x < self._press[0])
                     self.render()
             return
+        on_bubble = st.tool.name == "select" and self.config.kind == "plan" and \
+            not getattr(self.doc, "lock_grids", False) and self.grid_bubble_under(x, y) is not None
         if st.tool.name not in ("select", "select_line") and not getattr(st.tool, "picks", None) \
                 and not getattr(st.tool, "selecting", False):
             self._update_preview(x, y)
+        elif on_bubble:  # a grid bubble can be dragged
+            self.vtk_widget.setCursor(QtCore.Qt.SizeAllCursor)
+            self._grid_cursor = True
+        elif getattr(self, "_grid_cursor", False) and not (st.frames or st.areas or st.points):
+            self._grid_cursor = False
+            if getattr(self.state, "nav_mode", None) is None:
+                self.vtk_widget.unsetCursor()
         elif self.DIRECT_EDIT and st.tool.name == "select" and (st.frames or st.areas or st.points):
             grip = self._grip_at(x, y)
             want = QtCore.Qt.SizeAllCursor if (grip or self._on_selection(x, y)) else None
@@ -3055,6 +3190,18 @@ class ModelViewport(QtWidgets.QWidget):
         self._clear_preview()
         if self.config.kind not in st.tool.views:
             self.render()
+            return
+        if getattr(st.tool, "picks_grids", False):  # Offset Grid Line: the grid line under the cursor
+            st.tool.set_plane(self.plane())
+            cursor = self._plane_point(x, y)
+            hit = self.grid_line_under(x, y)
+            try:
+                pv = st.tool.grid_preview(hit, None if cursor is None else (cursor[0], cursor[1]))
+            except Exception:
+                self.render()
+                return
+            self._grid_highlight(hit)
+            self._draw_preview(pv, None, x, y)
             return
         if getattr(st.tool, "picks_frames", False):  # Trim / Extend / Offset: the frame under the cursor
             st.tool.set_plane(self.plane())

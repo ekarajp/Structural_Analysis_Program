@@ -508,6 +508,25 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
                            checked=(b == self.color_settings.color_by))
             self.color_by_group.addAction(a)
             self.color_by_actions[b] = a
+        # grid lines drawn / offset in plan (Draw menu); Edit > Grid Lines options
+        for key, label in (("grid_line", "Draw Grid Line"), ("grid_offset", "Offset Grid Line")):
+            a = self._make(label, lambda _=False, k=key: st.set_tool(k), checkable=True)
+            self.tool_group.addAction(a)
+            self.tool_actions[key] = a
+        store = self.settings_store()
+
+        def _flag(key, default):
+            v = store.value(key, default)
+            return v if isinstance(v, bool) else str(v).lower() in ("1", "true", "yes")
+        self.doc.glue_grids = _flag("grid/move_objects", True)
+        self.doc.lock_grids = _flag("grid/lock_dragging", False)
+        self.act_glue_grids = self._make(
+            "Move Objects with Grid Lines", self.set_glue_grids, checkable=True, checked=self.doc.glue_grids,
+            tip="On: when a grid line is moved (dragged by its bubble, Move..., or a new ordinate in the grid "
+                "form) the joints on it - and the members on them - move with it")
+        self.act_lock_grids = self._make(
+            "Lock Grid Lines Against Dragging", self.set_lock_grids, checkable=True, checked=self.doc.lock_grids,
+            tip="On: grid bubbles cannot be dragged in the plan windows (Move... and the grid form still work)")
         # measure tools (View > Measure) are tools like the draw commands
         for key, label in (("measure_line", "Measure Line"), ("measure_area", "Measure Area"),
                            ("measure_angle", "Measure Angle")):
@@ -521,6 +540,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         # ---- command id -> existing action
         acts = {f"tool.{k}": a for k, a in self.tool_actions.items()}
         acts.update({
+            "edit.glue_joints": self.act_glue_grids, "edit.lock_grid": self.act_lock_grids,
             "edit.undo": self.act_undo, "edit.redo": self.act_redo, "edit.delete": self.act_delete,
             "edit.move": self.act_move, "edit.divide_frames": self.act_divide, "edit.replicate": self.act_replicate,
             "analyze.run": self.act_run, "analyze.lock": self.act_lock,
@@ -1308,9 +1328,15 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         self._info_dialogs.append(open_object_info(self.doc, kind, name, self))
 
     def show_background_menu(self, vp, x: int, y: int):
-        """Right click on the background of a model window (ETABS list)."""
+        """Right click on the background of a model window: on a grid line (plan) the grid
+        line's own menu, else the window's menu."""
         if getattr(self, "_pending_assign", None) is not None:
             self.run_pending_assign()
+            return
+        hit = vp.grid_line_under(x, y) if hasattr(vp, "grid_line_under") else None
+        if hit is not None:
+            from .grid_tools import grid_line_menu
+            grid_line_menu(self, vp, hit, x, y)
             return
         menu = QtWidgets.QMenu(self)
         ma = self.menu_actions
@@ -1318,7 +1344,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             # the selection first (the window was right-clicked beside it)
             menu.addAction(self.tool_actions["reshape"])
             menu.addSeparator()
-        for cid in ("draw.grids", "-", "view.show_selected", "view.invert_visibility", "view.hide_selected",
+        for cid in ("tool.grid_line", "-", "view.show_selected", "view.invert_visibility", "view.hide_selected",
                     "view.restore_visibility", "view.show_all", "-", "draw.snap_options", "options.colors_display"):
             if cid == "-":
                 menu.addSeparator()
@@ -2140,6 +2166,16 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         elif kind == "recent":
             self._open(d.choice[1])
         return d.choice
+
+    def set_glue_grids(self, on: bool):
+        self.doc.glue_grids = bool(on)
+        self.settings_store().setValue("grid/move_objects", bool(on))
+        self.statusBar().showMessage("Moved grid lines carry the joints on them" if on
+                                     else "Moved grid lines leave the objects where they are", 4000)
+
+    def set_lock_grids(self, on: bool):
+        self.doc.lock_grids = bool(on)
+        self.settings_store().setValue("grid/lock_dragging", bool(on))
 
     def set_start_page_at_startup(self, on: bool):
         from .start_page import KEY_SHOW
