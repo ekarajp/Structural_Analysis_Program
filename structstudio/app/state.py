@@ -155,6 +155,9 @@ class ViewState(QtCore.QObject):
         new = make()
         self._swap_tool_settings(old.name, name or new.name)
         self.tool = new
+        hook = getattr(old, "deactivate", None)
+        if callable(hook) and old is not new:
+            hook()  # (e.g. the template placement goes back to its form when cancelled)
         self.tool.set_plane(old.plane)
         picks = getattr(self.tool, "picks", ())
         if picks:  # load commands: the selection of their kind is what they act on

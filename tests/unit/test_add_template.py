@@ -194,3 +194,89 @@ def test_gui_template_dialogs(tmp_path, monkeypatch):
     w.close()
     for _ in range(3):
         app.processEvents()
+
+
+@pytest.mark.skipif(not CHILD, reason="desktop test: run in the child interpreter")
+def test_gui_place_in_view(tmp_path, monkeypatch):
+    QtCore = pytest.importorskip("PySide6.QtCore")
+    QtWidgets = pytest.importorskip("PySide6.QtWidgets")
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    monkeypatch.setenv("STRUCTSTUDIO_THUMBS", str(tmp_path / "thumbs"))
+    from structstudio.app.document import Document
+    from structstudio.app.mainwindow import MainWindow
+    from structstudio.app import template_dialog as TD
+    from structstudio.app.tools import Plane
+    m = _bldg()
+    w = MainWindow(Document(m), QtCore.QSettings(str(tmp_path / "s.ini"), QtCore.QSettings.IniFormat))
+    w.show()
+    app.processEvents()
+    # 3D: reference point = the far corner, placed on the building's corner (12, 5) of Story1
+    d = TD.TemplateDialog(w, plane=False)
+    d.kind.setCurrentIndex(d.kind.findData("frame_only"))
+    d.xsp.setText("4")
+    d.ysp.setText("3")
+    d.bottom.setCurrentText("Base")
+    d.top.setCurrentText("Story2")  # two stories
+    d.sketch.ref = (4.0, 3.0)
+    d.place_in_view()
+    assert d.pick
+    TD.start_placing(d)
+    tool = w.state.tool
+    assert tool.name == "template_place" and "reference point" in tool.hint()
+    z1 = m.stories["Story1"].elevation
+    tool.set_plane(Plane("plan", z1, "Story1"))
+    pv = tool.preview((12.0, 5.0))
+    assert pv.lines and "Base - Story2" in pv.text  # a plan shows the tops of the first story
+    assert tool.key("r")  # turn 90 degrees
+    assert tool.angle == 90.0
+    tool.angle = 0.0
+    assert tool.click((12.0, 5.0)) is True
+    assert w.state.tool.name == "select" and d.added
+    cols = [f for f in d.added if f.type == "Column"]
+    xy = {(round(w.doc.model.points[f.point_i].x, 6), round(w.doc.model.points[f.point_i].y, 6)) for f in cols}
+    assert xy <= {(8, 2), (12, 2), (8, 5), (12, 5)} and (8, 2) in xy
+    zs = {round(w.doc.model.points[q].z, 6) for f in cols for q in (f.point_i, f.point_j)}
+    assert zs == {0.0, 3.5, 6.5}  # two stories, the first one below the plan clicked
+    # in 3D / an elevation the clicked joint is the bottom
+    w.doc.undo()
+    d.place_in_view()
+    TD.start_placing(d)
+    tool = w.state.tool
+    tool.plane = Plane("xz", 5.0, None)  # elevation on y = 5: (u, v) = (x, z)
+    assert "Story1 - Story3" in tool.preview((12.0, z1)).text
+    tool.done = True  # (leave it without going back to the form)
+    w.state.set_tool("select")
+    w.doc.undo()
+    # 2D: two clicks - reference point, then the direction (along +Y)
+    d2 = TD.TemplateDialog(w, plane=True)
+    d2.kind.setCurrentIndex(d2.kind.findData("x_brace"))
+    d2.xsp.setText("2@4")
+    d2.bottom.setCurrentText("Base")
+    d2.top.setCurrentText("Story1")
+    d2.place_in_view()
+    TD.start_placing(d2)
+    t2 = w.state.tool
+    t2.set_plane(Plane("plan", 0.0, "Base"))
+    assert t2.click((20.0, 0.0)) is False and t2.points
+    assert not t2.key("r")  # the direction comes from the second click
+    assert t2.click((20.0, 1.0)) is True
+    ys = sorted({round(w.doc.model.points[q].y, 6) for f in d2.added for q in (f.point_i, f.point_j)})
+    xs = {round(w.doc.model.points[q].x, 6) for f in d2.added for q in (f.point_i, f.point_j)}
+    assert ys == [0, 4, 8] and xs == {20}
+    base = [w.doc.model.points[q] for f in d2.added for q in (f.point_i, f.point_j) if w.doc.model.points[q].z == 0]
+    assert all(all(p.restraints) for p in base)
+    # Esc while placing: back to the form
+    calls = []
+    monkeypatch.setattr(TD, "reopen", lambda dlg: calls.append(dlg))
+    d3 = TD.TemplateDialog(w, plane=True)
+    TD.start_placing(d3)
+    w.state.set_tool("select")
+    app.processEvents()
+    QtCore.QThread.msleep(20)
+    app.processEvents()
+    assert calls == [d3]
+    w.doc.dirty = False
+    w.views.finalize()
+    w.close()
+    for _ in range(3):
+        app.processEvents()

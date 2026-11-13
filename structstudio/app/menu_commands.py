@@ -328,8 +328,11 @@ class MenuCommandsMixin:
 
     def add_from_template(self, plane: bool):
         """Edit > Add to Model From Template > 2D Frames / 3D Structures."""
-        from .template_dialog import TemplateDialog
-        TemplateDialog(self, plane).exec()
+        from .template_dialog import TemplateDialog, start_placing
+        d = TemplateDialog(self, plane)
+        d.exec()
+        if d.pick:
+            start_placing(d)
 
     # --------------------------------------------------------------- Design
     def slab_column_drift_check(self):

@@ -11,6 +11,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from ..model.base import ModelError
 from . import templates as T
+from .tools import Preview, Tool, next_step
 
 
 class _Sketch(QtWidgets.QWidget):
@@ -21,11 +22,45 @@ class _Sketch(QtWidgets.QWidget):
         self.model = None
         self.plan = False
         self.error = ""
+        self.ref = (0.0, 0.0)  # the reference point (local u, v of the sketch)
+        self.on_pick = None
+        self._map = None
         self.setMinimumSize(320, 260)
+        self.setCursor(QtCore.Qt.PointingHandCursor)
+        self.setToolTip("Click a joint: the reference point of the new structure (the point that goes where "
+                        "you click / type the origin)")
 
     def show_model(self, model, plan: bool, error: str = ""):
         self.model, self.plan, self.error = model, plan, error
         self.update()
+
+    def candidates(self):
+        """The joints a reference point can be: (u, v) of the bottom level (2D: along the
+        frame; 3D: in plan)."""
+        m = self.model
+        if m is None:
+            return []
+        if self.plan:
+            return sorted({(round(p.x, 9), round(p.y, 9)) for p in m.points.values()})
+        z0 = min(p.z for p in m.points.values())
+        return sorted({(round(p.x, 9), 0.0) for p in m.points.values() if abs(p.z - z0) < 1e-9})
+
+    def mousePressEvent(self, ev):
+        if self._map is None or self.model is None:
+            return
+        X, pts = self._map
+        pos = ev.position() if hasattr(ev, "position") else ev.pos()
+        best, bd = None, 1e9
+        for c in self.candidates():
+            q = X(c[0], c[1] if self.plan else self._v0)
+            d = (q.x() - pos.x()) ** 2 + (q.y() - pos.y()) ** 2
+            if d < bd:
+                best, bd = c, d
+        if best is not None and bd < 30 ** 2:
+            self.ref = best
+            if self.on_pick:
+                self.on_pick(best)
+            self.update()
 
     def paintEvent(self, _e):
         p = QtGui.QPainter(self)
@@ -51,6 +86,9 @@ class _Sketch(QtWidgets.QWidget):
 
         def X(u, v):
             return QtCore.QPointF(pad + (u - u0) * s, H - pad - (v - v0) * s)
+
+        self._v0 = v0
+        self._map = (X, pts)
 
         if self.plan:
             p.setPen(QtCore.Qt.NoPen)
@@ -79,8 +117,15 @@ class _Sketch(QtWidgets.QWidget):
                     if k not in done:
                         done.add(k)
                         p.drawRect(QtCore.QRectF(X(*k) - QtCore.QPointF(3, 3), QtCore.QSizeF(6, 6)))
+        # the reference point
+        r = X(self.ref[0], self.ref[1] if self.plan else v0)
+        p.setPen(QtGui.QPen(QtGui.QColor("#d32f2f"), 2))
+        p.setBrush(QtCore.Qt.NoBrush)
+        p.drawEllipse(r, 7, 7)
+        p.drawLine(r - QtCore.QPointF(11, 0), r + QtCore.QPointF(11, 0))
+        p.drawLine(r - QtCore.QPointF(0, 11), r + QtCore.QPointF(0, 11))
         p.setPen(fg)
-        p.drawText(4, 12, "Plan (one story), origin at bottom left" if self.plan else "Elevation, origin at bottom left")
+        p.drawText(4, 12, ("Plan (one story)" if self.plan else "Elevation") + " - click a joint: reference point")
         p.end()
 
 
@@ -170,16 +215,25 @@ class TemplateDialog(QtWidgets.QDialog):
         self.support = QtWidgets.QComboBox()
         self.support.addItems(list(T.SUPPORTS))
         form.addRow("Supports at the bottom", self.support)
-        self.note = QtWidgets.QLabel("Joints on existing joints are shared; members the model has already are "
-                                     "not added again.")
+        self.ref_label = QtWidgets.QLabel()
+        form.addRow("Reference point", self.ref_label)
+        self.note = QtWidgets.QLabel("The reference point goes to the origin (or where you click with Place in "
+                                     "View).  Joints on existing joints are shared; members the model has already "
+                                     "are not added again.")
         self.note.setWordWrap(True)
         left.addWidget(self.note)
         bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
         bb.button(QtWidgets.QDialogButtonBox.Ok).setText("Add")
+        self.place_btn = bb.addButton("Place in View...", QtWidgets.QDialogButtonBox.ActionRole)
+        self.place_btn.setToolTip("Hide this form and place the structure with the mouse: it follows the cursor "
+                                  "and snaps to joints and grid crossings; the story comes from the point clicked")
+        self.place_btn.clicked.connect(self.place_in_view)
+        self.pick = False
         bb.accepted.connect(self.add)
         bb.rejected.connect(self.reject)
         left.addWidget(bb)
         self.sketch = _Sketch()
+        self.sketch.on_pick = lambda _r: self._show_ref()
         outer.addWidget(self.sketch, 1)
         for w in (self.kind, self.bottom, self.top, self.column, self.beam):
             w.currentIndexChanged.connect(self.refresh)
@@ -189,10 +243,114 @@ class TemplateDialog(QtWidgets.QDialog):
         self._default_support()
         self.added: Optional[list] = None
         self.refresh()
+        self._show_ref()
 
     def _default_support(self):
         lowest = self.bottom.currentIndex() == 0
         self.support.setCurrentText("Fixed" if lowest else "None")
+
+    def _show_ref(self):
+        u, v = self.sketch.ref
+        k = self.k
+        self.ref_label.setText(f"local ({u * k:g}, {v * k:g})" if not self.plane else f"{u * k:g} along the frame")
+
+    def cycle_ref(self):
+        """B in the view: the next corner / the middle of the template."""
+        c = self.sketch.candidates()
+        if not c:
+            return
+        us, vs = [a for a, _ in c], [b for _, b in c]
+        if self.plane:
+            ring = [(min(us), 0.0), (max(us), 0.0)]
+            mid = min(c, key=lambda q: abs(q[0] - 0.5 * (min(us) + max(us))))
+            ring.append(mid)
+        else:
+            ring = [(min(us), min(vs)), (max(us), min(vs)), (max(us), max(vs)), (min(us), max(vs))]
+            cx, cy = 0.5 * (min(us) + max(us)), 0.5 * (min(vs) + max(vs))
+            ring.append(min(c, key=lambda q: (q[0] - cx) ** 2 + (q[1] - cy) ** 2))
+        cur = self.sketch.ref
+        k = next((i for i, q in enumerate(ring) if abs(q[0] - cur[0]) < 1e-9 and abs(q[1] - cur[1]) < 1e-9), -1)
+        self.sketch.ref = ring[(k + 1) % len(ring)]
+        self._show_ref()
+        self.sketch.update()
+
+    def span(self) -> int:
+        """Number of stories between the chosen bottom and top."""
+        return self.top.currentIndex() - self.bottom.currentIndex()
+
+    def stories_from(self, bottom: str):
+        """(bottom, top) when the structure starts at ``bottom``: the same number of stories."""
+        names = [s.name for s in self.doc.model.stories_bottom_up()]
+        if bottom not in names:
+            raise ValueError("Click a point at a story level")
+        i = names.index(bottom)
+        n = self.span()
+        if n < 1:
+            raise ValueError("The top story must be above the bottom story")
+        if i + n >= len(names):
+            raise ValueError(f"{n} stories from {bottom} go above the top of the model")
+        return names[i], names[i + n]
+
+    def local_model(self, bottom: str):
+        """The template in local coordinates with its levels starting at ``bottom``."""
+        b, t = self.stories_from(bottom)
+        p = dict(self.params(), bottom=b, top=t)
+        fn = T.build_plane_frame if self.plane else T.build_structure
+        return fn(self.doc.model, **p)
+
+    def origin_for(self, point, angle: float):
+        """The origin putting the reference point on ``point`` (x, y) turned ``angle``."""
+        import math
+        u, v = self.sketch.ref
+        c, s_ = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+        return point[0] - (c * u - s_ * v), point[1] - (s_ * u + c * v)
+
+    def place_in_view(self):
+        try:
+            self.params()
+        except ValueError as exc:
+            QtWidgets.QMessageBox.warning(self, self.windowTitle(), str(exc))
+            return
+        self.pick = True
+        self.accept()
+
+    def place(self, point, bottom: str, angle: float) -> list:
+        """Add the template with its reference point at ``point`` (xyz), its bottom on the
+        story ``bottom``.  Returns the new members (one undo step)."""
+        b, t = self.stories_from(bottom)
+        ox, oy = self.origin_for(point, angle)
+        p = dict(self.params(), bottom=b, top=t)
+        sup = self.support.currentText()
+        if self.bottom.currentIndex() == 0 and b != self.bottom.currentText() and sup != "None":
+            sup = "None"  # placed above the base: no supports there
+        made: List = []
+        skipped = [0]
+
+        def run(model):
+            fn = T.add_plane_frame if self.plane else T.add_structure
+            res = fn(model, origin=(ox, oy), angle=angle, support=sup, **p)
+            made.extend(res)
+            skipped[0] = res.skipped
+
+        self.doc.edit(run)
+        self.added = made
+        self._report(made, skipped[0])
+        return made
+
+    def _report(self, made, skipped):
+        try:
+            from ..model.objects import Area, Frame
+            self.win.state.set_selection([o.name for o in made if isinstance(o, Frame)],
+                                         [o.name for o in made if isinstance(o, Area)])
+        except Exception:
+            pass
+        msg = f"Added {len(made)} member(s)" + (f"; {skipped} already in the model, not added again"
+                                                  if skipped else "")
+        try:
+            self.win.statusBar().showMessage(msg, 10000)
+            self.win.logger.log(msg)
+        except Exception:
+            pass
 
     # --------------------------------------------------------------- values
     def _len(self, w, what) -> float:
@@ -248,6 +406,10 @@ class TemplateDialog(QtWidgets.QDialog):
                            if all(abs(t.points[q].z - ztop) < 1e-9 for q in a.points) or
                            (a.type == "Wall" and any(abs(t.points[q].z - ztop) < 1e-9 for q in a.points))}
             self.sketch.show_model(t, plan=not self.plane)
+            c = self.sketch.candidates()
+            if c and not any(abs(q[0] - self.sketch.ref[0]) < 1e-9 and abs(q[1] - self.sketch.ref[1]) < 1e-9 for q in c):
+                self.sketch.ref = (0.0, 0.0)
+                self._show_ref()
         except (ValueError, ModelError) as exc:
             self.sketch.show_model(None, plan=not self.plane, error=str(exc))
 
@@ -256,6 +418,7 @@ class TemplateDialog(QtWidgets.QDialog):
             p = self.params()
             ox, oy = self._len(self.ox, "Origin X"), self._len(self.oy, "Origin Y")
             ang = float(self.ang.text())
+            ox, oy = self.origin_for((ox, oy), ang)  # the reference point goes to the origin typed
         except ValueError as exc:
             QtWidgets.QMessageBox.warning(self, self.windowTitle(), str(exc))
             return
@@ -275,17 +438,176 @@ class TemplateDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(self, self.windowTitle(), str(exc))
             return
         self.added = made
-        try:
-            from ..model.objects import Area, Frame
-            self.win.state.set_selection([o.name for o in made if isinstance(o, Frame)],
-                                         [o.name for o in made if isinstance(o, Area)])
-        except Exception:
-            pass
-        msg = f"Added {len(made)} member(s)" + (f"; {skipped[0]} already in the model, not added again"
-                                                  if skipped[0] else "")
-        try:
-            self.win.statusBar().showMessage(msg, 10000)
-            self.win.logger.log(msg)
-        except Exception:
-            pass
+        self._report(made, skipped[0])
         self.accept()
+
+
+class TemplatePlaceTool(Tool):
+    """Place in View: the template follows the cursor by its reference point and snaps
+    with the drawing snaps; the story of the point gives its bottom.  3D: one click
+    (R turns 90 degrees).  2D: the first click places the reference point, the second
+    the direction (Enter keeps the angle).  B: the next corner / the middle as the
+    reference point.  Esc: back to the form."""
+
+    name = "template_place"
+    title = "Add From Template"
+    views = ("plan", "xz", "yz", "3d")
+
+    def __init__(self, doc, settings, dialog: "TemplateDialog"):
+        super().__init__(doc, settings)
+        self.dialog = dialog
+        self.angle = float(dialog.ang.text() or 0.0) if dialog.ang.text().strip() else 0.0
+        self.done = False
+        self._cache = {}
+        self.error = ""
+
+    def activate(self, state) -> None:
+        self.state = state
+
+    @property
+    def prompt(self) -> str:
+        if self.dialog.plane and self.points:
+            return "click the direction of the frame (or Enter: keep the angle)"
+        return "click where the reference point goes"
+
+    def hint(self, state=None) -> str:
+        keys = ["B = reference point", "Esc = back to the form"]
+        if not self.dialog.plane or not self.points:
+            keys.insert(0, "R = turn 90°")
+        return next_step(self.title, self.prompt, *keys)
+
+    def key(self, k: str) -> bool:
+        if k in ("r", "R"):
+            if self.dialog.plane and self.points:
+                return False
+            self.angle = (self.angle + (90.0 if k == "r" else -90.0)) % 360.0
+            return True
+        if k in ("b", "B"):
+            self.dialog.cycle_ref()
+            return True
+        return False
+
+    def _bottom_at(self, P) -> Optional[str]:
+        """The bottom story of the structure for a point: its story level - in a plan, the
+        story below (as columns drawn in a plan: the plan shows the tops of the first story)."""
+        st = self._story_at(P[2])
+        if st is None or self.plane.kind != "plan":
+            return st
+        below = self.model.story_below(st) if hasattr(self.model, "story_below") else None
+        return below.name if below is not None else st
+
+    def _local(self, bottom: str):
+        if bottom not in self._cache:
+            self._cache[bottom] = self.dialog.local_model(bottom)
+        return self._cache[bottom]
+
+    def _angle_to(self, a, b) -> float:
+        import math
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        if math.hypot(dx, dy) < 1e-9:
+            return self.angle
+        return math.degrees(math.atan2(dy, dx))
+
+    def _ghost(self, P, angle):
+        """Lines of the template with its reference point at P, or (None, error)."""
+        import math
+        bottom = self._bottom_at(P)
+        if bottom is None:
+            return None, "not at a story level"
+        try:
+            t, levels = self._local(bottom)
+        except (ValueError, ModelError) as exc:
+            return None, str(exc)
+        ox, oy = self.dialog.origin_for(P, angle)
+        c, s_ = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+
+        def X(q):
+            pt = t.points[q]
+            return (ox + c * pt.x - s_ * pt.y, oy + s_ * pt.x + c * pt.y, pt.z)
+
+        out = []
+        for f in list(t.frames.values())[:4000]:
+            out.append((X(f.point_i), X(f.point_j)))
+        for a in list(t.areas.values())[:4000]:
+            q = [X(n) for n in a.points]
+            out += [(q[k], q[(k + 1) % len(q)]) for k in range(len(q))]
+        return out, f"{bottom} - {levels[-1][0]}"
+
+    def preview(self, cursor) -> Preview:
+        if cursor is None:
+            return Preview()
+        P = self._p3(cursor)
+        pv = Preview(marker=P)
+        if self.dialog.plane and self.points:
+            base = self.points[0]
+            ang = self._angle_to(base, P)
+            lines, info = self._ghost(base, ang)
+            pv.guides = [(base, P)]
+            pv.text = f"∠{ang:.1f}°"
+        else:
+            ang = self.angle
+            lines, info = self._ghost(P, ang)
+            pv.text = f"∠{ang:.0f}°"
+        if lines is None:
+            pv.text += f"  ({info})"
+            return pv
+        pv.lines = lines
+        pv.text += f"  {info}"
+        return pv
+
+    def click(self, pt, snap=None) -> bool:
+        P = self._p3(pt)
+        if self.dialog.plane and not self.points:
+            if self._story_at(P[2]) is None:
+                self.state.status.emit("Add From Template: click a point at a story level")
+                return False
+            self.points = [P]
+            self.state.update_hint()
+            return False
+        if self.dialog.plane:
+            return self._place(self.points[0], self._angle_to(self.points[0], P))
+        return self._place(P, self.angle)
+
+    def finish(self) -> bool:
+        if self.dialog.plane and self.points:
+            return self._place(self.points[0], self.angle)
+        return False
+
+    def _place(self, P, angle) -> bool:
+        bottom = self._bottom_at(P)
+        try:
+            if bottom is None:
+                raise ValueError("Click a point at a story level")
+            self.dialog.place(P, bottom, angle)
+        except (ValueError, ModelError) as exc:
+            self.state.status.emit(f"Add From Template: {exc}")
+            self.points = []
+            return False
+        self.done = True
+        self.points = []
+        self.state.set_tool("select")
+        if self.dialog.added:
+            from ..model.objects import Area, Frame
+            self.state.set_selection([o.name for o in self.dialog.added if isinstance(o, Frame)],
+                                     [o.name for o in self.dialog.added if isinstance(o, Area)])
+        return True
+
+    def deactivate(self):
+        """Left without placing (Esc / another command): back to the form."""
+        if not self.done:
+            QtCore.QTimer.singleShot(0, lambda: reopen(self.dialog))
+
+
+def reopen(dialog: "TemplateDialog"):
+    """Show the form again (after Place in View); Add / Place in View / Cancel as before."""
+    dialog.pick = False
+    dialog.refresh()
+    dialog.exec()
+    if dialog.pick:
+        start_placing(dialog)
+
+
+def start_placing(dialog: "TemplateDialog"):
+    win = dialog.win
+    st = win.state
+    st.start_tool(lambda: TemplatePlaceTool(win.doc, st.settings, dialog), "template_place")

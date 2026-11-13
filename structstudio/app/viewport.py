@@ -2614,6 +2614,13 @@ class ModelViewport(QtWidgets.QWidget):
             if key == "Escape" and self._ref is not None:
                 self.drop_reference()
                 return
+        tool_key = getattr(st.tool, "key", None)
+        if not ctrl and callable(tool_key) and key and tool_key(key):
+            if self._last_xy is not None:
+                self._update_preview(*self._last_xy, keep_index=True)
+            st.update_hint()
+            self.render()
+            return
         arrows = {"Left": (-1, 0), "Right": (1, 0), "Up": (0, 1), "Down": (0, -1)}
         if key in arrows:
             dx, dy = arrows[key]
