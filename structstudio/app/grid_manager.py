@@ -57,6 +57,7 @@ class GridPreview(QtWidgets.QWidget):
         self.gs = None
         self.lines = []
         self.bubbles = bubbles
+        self.dims = bubbles  # dimension chains of the spacings (the small icons: none)
         self.show_others = True
         self.message = "No grid system selected"
         self.units = ""
@@ -85,6 +86,9 @@ class GridPreview(QtWidgets.QWidget):
         if geo is None or geo.extent is None:
             return None
         x0, x1, y0, y1 = geo.extent
+        if getattr(self, "dims", False) and self.bubbles:  # room for the dimension chains
+            x1 += 2.6 * geo.ext
+            y0 -= 2.6 * geo.ext
         w, h = max(x1 - x0, 1e-9), max(y1 - y0, 1e-9)
         pad = 34.0 if self.bubbles else 3.0
         s = min((rect.width() - 2 * pad) / w, (rect.height() - 2 * pad) / h)
@@ -146,7 +150,7 @@ def paint_grid(p: QtGui.QPainter, rect: QtCore.QRectF, view: GridPreview, pal: Q
         p.drawEllipse(P(q), 2.4, 2.4)
     # spacings of a Cartesian system, along its first X / Y line
     gs = view.gs
-    if gs is not None and gs.type != CYLINDRICAL:
+    if gs is not None and gs.type != CYLINDRICAL and getattr(view, "dims", True):
         _spacings(p, view, P, text_col)
     # origin and local axes
     if gs is not None:
@@ -181,25 +185,55 @@ def paint_grid(p: QtGui.QPainter, rect: QtCore.QRectF, view: GridPreview, pal: Q
 
 
 def _spacings(p, view, P, text_col):
+    """Dimension chains of a Cartesian system: the X spacings below the grid, the Y
+    spacings right of it (ticks at the lines, the value at the middle), the overall size
+    further out."""
     gs, lines, geo = view.gs, view.lines, view.geo
     xs = sorted({g.ordinate for g in lines if g.direction == "X"})
     ys = sorted({g.ordinate for g in lines if g.direction == "Y"})
-    if not xs or not ys:
+    if len(xs) < 2 and len(ys) < 2:
         return
     col = QtGui.QColor(text_col)
-    col.setAlpha(170)
-    p.setPen(col)
+    col.setAlpha(190)
+    pen = QtGui.QPen(col, 1.0)
+    pen.setCosmetic(True)
+    p.setPen(pen)
     f = p.font()
     fm = QtGui.QFontMetricsF(f)
-    off = 0.45 * geo.ext
-    for vals, along in ((xs, "x"), (ys, "y")):
-        for a, b in zip(vals, vals[1:]):
-            mid = 0.5 * (a + b)
-            q = to_global(gs, mid, ys[0] - off) if along == "x" else to_global(gs, xs[0] - off, mid)
+    ext = geo.ext
+    v0 = (ys[0] if ys else 0.0)
+    u1 = (xs[-1] if xs else 0.0)
+
+    def chain(vals, along, off, overall=False):
+        pts = [vals[0], vals[-1]] if overall else vals
+        for a in pts:  # ticks
+            q = to_global(gs, a, v0 - off) if along == "x" else to_global(gs, u1 + off, a)
             c = P(q)
+            p.drawLine(QtCore.QPointF(c.x() - 3, c.y() + 3), QtCore.QPointF(c.x() + 3, c.y() - 3))
+        a0 = to_global(gs, pts[0], v0 - off) if along == "x" else to_global(gs, u1 + off, pts[0])
+        a1 = to_global(gs, pts[-1], v0 - off) if along == "x" else to_global(gs, u1 + off, pts[-1])
+        p.drawLine(P(a0), P(a1))
+        for a, b in zip(pts, pts[1:]):
+            mid = 0.5 * (a + b)
+            c = P(to_global(gs, mid, v0 - off) if along == "x" else to_global(gs, u1 + off, mid))
             t = f"{b - a:g}"
             w = fm.horizontalAdvance(t) + 6
-            p.drawText(QtCore.QRectF(c.x() - w / 2, c.y() - 9, w, 18), QtCore.Qt.AlignCenter, t)
+            if along == "x":
+                p.drawText(QtCore.QRectF(c.x() - w / 2, c.y() + 1, w, 16), QtCore.Qt.AlignCenter, t)
+            else:
+                p.save()
+                p.translate(c)
+                p.rotate(-90.0 - (gs.rotation or 0.0))
+                p.drawText(QtCore.QRectF(-w / 2, 1, w, 16), QtCore.Qt.AlignCenter, t)
+                p.restore()
+    if len(xs) >= 2:
+        chain(xs, "x", 1.5 * ext)
+        if len(xs) > 2:
+            chain(xs, "x", 2.3 * ext, overall=True)
+    if len(ys) >= 2:
+        chain(ys, "y", 1.5 * ext)
+        if len(ys) > 2:
+            chain(ys, "y", 2.3 * ext, overall=True)
 
 
 def grid_icon(model, name: str, size: int = 22) -> QtGui.QIcon:

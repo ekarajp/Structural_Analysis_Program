@@ -4,7 +4,7 @@ from __future__ import annotations
 import dataclasses
 from typing import Callable, Dict, List, Optional, Sequence
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from ..model import FIXED, FrameSection, Model, ModelError, PINNED, ShellSection
 from ..model.loads import LinearStaticCase, LoadCombination, LoadPattern, ModalCase
@@ -346,30 +346,74 @@ class GridStoriesDialog(QtWidgets.QDialog):
             orow.addWidget(w)
         orow.addStretch(1)
         lay.addLayout(orow)
-        self.tabs = QtWidgets.QTabWidget()
-        lay.addWidget(self.tabs, 1)
-        self.x_table = self._table(["Name", "X ordinate"], [])
-        self.y_table = self._table(["Name", "Y ordinate"], [])
+        # one page: the X and Y lines and the levels side by side, the General lines under
+        # them, the plan of the system (with its spacings) on the right - live
+        self.x_table = self._table(["Name", "X", "Spacing"], [])
+        self.y_table = self._table(["Name", "Y", "Spacing"], [])
         self.g_table = self._table(["Name", "X1", "Y1", "X2", "Y2"], [])
+        for t in (self.x_table, self.y_table):
+            t.horizontalHeaderItem(2).setToolTip("Distance to the next line: changing it moves every line after it")
+            t.itemChanged.connect(lambda it, t=t: self._lines_edited(t, it))
+        self.g_table.itemChanged.connect(lambda _it: self._refresh_preview())
         self._current = None
         for name in self._systems:
             self.system_box.addItem(name)
         stories = m.stories_of(self.tower) if self.tower is not None else m.stories_bottom_up()
-        # Story tab: name, height (bottom-up; the first row is the base level with its elevation)
+        # Story table: name, height (bottom-up; the first row is the base level with its elevation)
         rows = [(s.name, s.elevation if k == 0 else s.elevation - stories[k - 1].elevation)
                 for k, s in enumerate(stories)]
-        self.story_table = self._table(["Story (bottom up)", "Height (base: elevation)"], rows)
+        self.story_table = self._table(["Story", "Height"], rows)
+        self.story_table.horizontalHeaderItem(0).setToolTip("Bottom up: the first row is the base")
+        self.story_table.horizontalHeaderItem(1).setToolTip("Story height; the first row (base): its elevation")
         zl = [(g.name, g.ordinate) for g in m.z_grid_lines(self.tower)] if m.grid_mode == "xyz" else []
-        self.z_table = self._table(["Name", "Z ordinate"], zl or [(s.name, s.elevation) for s in stories])
-        self.tabs.addTab(self._with_buttons(self.x_table, ("", 0.0)), "X Grid")
-        self.tabs.addTab(self._with_buttons(self.y_table, ("", 0.0)), "Y Grid")
-        self.g_page = self._with_buttons(self.g_table, ("", 0.0, 0.0, 1.0, 0.0))
-        self.tabs.addTab(self.g_page, "General")
-        self.tabs.setTabToolTip(2, "Grid lines at any angle: two points in the grid system's axes "
-                                   "(drawn in Edit Grids on Screen, or typed here)")
+        self.z_table = self._table(["Name", "Z"], zl or [(s.name, s.elevation) for s in stories])
+        self.box_a = self._box("X Grid", self.x_table, ("", 0.0))
+        self.box_b = self._box("Y Grid", self.y_table, ("", 0.0))
         self.story_page = self._with_buttons(self.story_table, ("", 3.0))
         self.z_page = self._with_buttons(self.z_table, ("", 0.0))
-        self._level_tab = None
+        self.levels = QtWidgets.QStackedWidget()
+        self.levels.addWidget(self.story_page)
+        self.levels.addWidget(self.z_page)
+        self.box_levels = QtWidgets.QGroupBox("Story")
+        QtWidgets.QVBoxLayout(self.box_levels).addWidget(self.levels)
+        self.box_g = self._box("General lines (any angle: two points in the system's axes)", self.g_table,
+                               ("", 0.0, 0.0, 1.0, 0.0))
+        self.g_page = self.box_g
+        self.box_g.setMaximumHeight(150)
+        for t in (self.x_table, self.y_table, self.g_table, self.story_table, self.z_table):
+            hh = t.horizontalHeader()
+            hh.setStretchLastSection(False)
+            hh.setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+            hh.setMinimumSectionSize(36)
+            t.verticalHeader().setDefaultSectionSize(22)
+            t.verticalHeader().setMinimumWidth(18)
+        left = QtWidgets.QWidget()
+        lv = QtWidgets.QVBoxLayout(left)
+        lv.setContentsMargins(0, 0, 0, 0)
+        cols = QtWidgets.QHBoxLayout()
+        for b in (self.box_a, self.box_b, self.box_levels):
+            cols.addWidget(b, 1)
+        lv.addLayout(cols, 1)
+        lv.addWidget(self.box_g)
+        from .grid_manager import GridPreview
+        self.preview = GridPreview(self)
+        self.preview.setMinimumSize(300, 300)
+        pbox = QtWidgets.QGroupBox("Plan")
+        pv = QtWidgets.QVBoxLayout(pbox)
+        pv.addWidget(self.preview, 1)
+        self.dims_box = QtWidgets.QCheckBox("Dimensions")
+        self.dims_box.setChecked(True)
+        self.dims_box.toggled.connect(self._refresh_preview)
+        pv.addWidget(self.dims_box)
+        split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        split.addWidget(left)
+        split.addWidget(pbox)
+        split.setStretchFactor(0, 3)
+        split.setStretchFactor(1, 2)
+        lay.addWidget(split, 1)
+        self.resize(1180, 580)
+        for w in (self.ox, self.oy, self.rot):
+            w.editingFinished.connect(self._refresh_preview)
         self._show_level_tab(m.grid_mode)
         self.system_box.currentTextChanged.connect(self._switch_system)
         self._switch_system(self.system_box.currentText())
@@ -384,22 +428,112 @@ class GridStoriesDialog(QtWidgets.QDialog):
         elif add in ("Cartesian", "Cylindrical"):
             self._add_system(add)
         if show_levels:
-            self.tabs.setCurrentWidget(self._level_tab)
+            self.focus_levels()
         if line and system and system in self._systems:
             self.select_line(line)
 
+    def _box(self, title: str, table, blank) -> QtWidgets.QGroupBox:
+        box = QtWidgets.QGroupBox(title)
+        QtWidgets.QVBoxLayout(box).addWidget(self._with_buttons(table, blank))
+        return box
+
+    def level_table(self) -> QtWidgets.QTableWidget:
+        """The levels shown: the story table (X-Y-Story) or the Z lines (X-Y-Z)."""
+        return self.z_table if self.levels.currentWidget() is self.z_page else self.story_table
+
+    def focus_levels(self):
+        self.on_levels = True  # (opened on the levels: Stories box / Modify Stories)
+        t = self.level_table()
+        t.setFocus()
+        if t.rowCount():
+            t.setCurrentCell(0, 0)
+
     def select_line(self, name: str) -> bool:
-        """Show the grid line ``name`` of the current system: its tab, its row selected."""
+        """Show the grid line ``name`` of the current system: its row selected."""
         for t in (self.x_table, self.y_table, self.g_table):
             for r in range(t.rowCount()):
                 it = t.item(r, 0)
                 if it is not None and it.text().strip() == name:
-                    self.tabs.setCurrentWidget(t.parentWidget())
+                    t.setFocus()
                     t.setCurrentCell(r, 1)
                     t.selectRow(r)
                     t.scrollToItem(it)
                     return True
         return False
+
+    # ------------------------------------------------- spacings, the live plan
+    def _lines_edited(self, table, item):
+        """A changed spacing moves every line after it (ETABS spacing input); a changed
+        ordinate updates the spacings.  The plan follows."""
+        if getattr(self, "_filling", False):
+            return
+        if item is not None and item.column() == 2:
+            r = item.row()
+            try:
+                new = float(item.text())
+                o0 = float(table.item(r, 1).text())
+                o1 = float(table.item(r + 1, 1).text()) if r + 1 < table.rowCount() else None
+            except (ValueError, AttributeError):
+                new, o1 = None, None
+            if new is not None and o1 is not None:
+                delta = (o0 + new) - o1
+                self._filling = True
+                try:
+                    for k in range(r + 1, table.rowCount()):
+                        it = table.item(k, 1)
+                        try:
+                            it.setText(f"{float(it.text()) + delta:g}")
+                        except (ValueError, AttributeError):
+                            pass
+                finally:
+                    self._filling = False
+        self._spacings(table)
+        self._refresh_preview()
+
+    def _spacings(self, table):
+        self._filling = True
+        try:
+            for r in range(table.rowCount()):
+                try:
+                    a = float(table.item(r, 1).text())
+                    b = float(table.item(r + 1, 1).text()) if r + 1 < table.rowCount() else None
+                    text = "" if b is None else f"{b - a:g}"
+                except (ValueError, AttributeError):
+                    text = ""
+                it = table.item(r, 2)
+                if it is None:
+                    it = QtWidgets.QTableWidgetItem()
+                    table.setItem(r, 2, it)
+                it.setText(text)
+                it.setForeground(QtGui.QBrush(QtGui.QColor(110, 110, 110)))
+        finally:
+            self._filling = False
+
+    def _refresh_preview(self, *_):
+        """The plan of the system as the tables have it now (the others faintly)."""
+        prev = getattr(self, "preview", None)
+        if prev is None or self._current is None:
+            return
+        from types import SimpleNamespace
+        from ..model.objects import GridSystem
+        try:
+            self._save_system()
+        except ValueError:
+            return
+        systems, lines = {}, []
+        for sname, d in self._systems.items():
+            gs = GridSystem(name=sname, type=d["type"], origin=tuple(d["origin"]), rotation=float(d["rotation"]))
+            systems[sname] = gs
+            da, db = ("T", "R") if d["type"] == "Cylindrical" else ("X", "Y")
+            for dirn, rows in ((da, d["a"]), (db, d["b"])):
+                for n, o in rows:
+                    if dirn != "R" or o > 0:
+                        lines.append(GridLine(system=sname, name=n, direction=dirn, ordinate=o))
+            for n, x1, y1, x2, y2 in (d.get("g", []) if d["type"] == "Cartesian" else []):
+                lines.append(GridLine(system=sname, name=n, direction="General", start=(x1, y1), end=(x2, y2)))
+        model = SimpleNamespace(grid_systems=systems, grid_lines=lines, units=self.doc.model.units)
+        prev.dims = self.dims_box.isChecked()
+        prev.set_system(model, self._current)
 
     # ------------------------------------------------------------ grid systems
     @staticmethod
@@ -471,15 +605,22 @@ class GridStoriesDialog(QtWidgets.QDialog):
         self._current = name
         kind = d["type"]
         ta, tb = self._tab_titles(kind)
-        self.tabs.setTabText(0, ta)
-        self.tabs.setTabText(1, tb)
-        self.x_table.setHorizontalHeaderLabels(["Name", "Angle [deg]" if kind == "Cylindrical" else "X ordinate"])
-        self.y_table.setHorizontalHeaderLabels(["Name", "Radius" if kind == "Cylindrical" else "Y ordinate"])
-        for t, rows in ((self.x_table, d["a"]), (self.y_table, d["b"]), (self.g_table, d.get("g", []))):
-            t.setRowCount(0)
-            for row in rows:
-                self._add_row(t, row)
-        self.tabs.setTabEnabled(self.tabs.indexOf(self.g_page), kind == "Cartesian")
+        self.box_a.setTitle(ta)
+        self.box_b.setTitle(tb)
+        self.x_table.setHorizontalHeaderLabels(["Name", "Angle [deg]" if kind == "Cylindrical" else "X", "Spacing"])
+        self.y_table.setHorizontalHeaderLabels(["Name", "Radius" if kind == "Cylindrical" else "Y", "Spacing"])
+        self._filling = True
+        try:
+            for t, rows in ((self.x_table, d["a"]), (self.y_table, d["b"]), (self.g_table, d.get("g", []))):
+                t.setRowCount(0)
+                for row in rows:
+                    self._add_row(t, row)
+        finally:
+            self._filling = False
+        self._spacings(self.x_table)
+        self._spacings(self.y_table)
+        self.box_g.setEnabled(kind == "Cartesian")
+        self._refresh_preview()
         self.type_label.setText(kind)
         self.ox.setText(f"{d['origin'][0]:g}")
         self.oy.setText(f"{d['origin'][1]:g}")
@@ -592,11 +733,9 @@ class GridStoriesDialog(QtWidgets.QDialog):
         return w
 
     def _show_level_tab(self, mode: str):
-        if self._level_tab is not None:
-            self.tabs.removeTab(self.tabs.indexOf(self._level_tab))
         page, title = (self.z_page, "Z Grid") if mode == "xyz" else (self.story_page, "Story")
-        self.tabs.addTab(page, title)
-        self._level_tab = page
+        self.levels.setCurrentWidget(page)
+        self.box_levels.setTitle(title)
 
     def _mode_changed(self, mode: str):
         # carry the levels across so switching tabs inside the dialog loses nothing
@@ -617,7 +756,7 @@ class GridStoriesDialog(QtWidgets.QDialog):
                     self._add_row(target, (name, z if prev is None else z - prev))
                     prev = z
         self._show_level_tab(mode)
-        self.tabs.setCurrentWidget(self._level_tab)
+        self.focus_levels()
 
     # ------------------------------------------------------------- values
     @staticmethod

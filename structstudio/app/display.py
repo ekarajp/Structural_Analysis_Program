@@ -44,6 +44,7 @@ class DisplayOptions:
     edges: bool = True
     grid_lines: bool = True
     grid_bubbles: bool = True
+    grid_dimensions: bool = False  # plans: dimension chains of the grid spacings (always on in Grid Mode)
     grid_3d: str = "all"  # 3D windows: grid at every level (base drawn stronger) / the base / the top
     grid_vertical: bool = True  # 3D windows: vertical lines at the grid intersections (column lines)
     story_plane: bool = True  # 3D windows: shade the plane of the story shown in the plan window
@@ -111,6 +112,7 @@ GROUPS: List[Tuple[str, List[Tuple[str, str]]]] = [
                 ("section_names", "Frame section names")]),
     ("Other", [("extrude", "Extrude frames and areas (real sections)"), ("fill_areas", "Fill areas"),
                ("edges", "Show edges"), ("grid_lines", "Grid lines"), ("grid_bubbles", "Grid bubbles (A, B, 1, 2)"),
+               ("grid_dimensions", "Grid dimensions (spacings, in plans)"),
                ("grid_vertical", "Vertical grid lines in 3D (column lines)"),
                ("story_plane", "Show the plane of the active plan / elevation window (blue) in 3D"),
                ("analysis_mesh", "Analysis mesh of floors / walls (after an analysis)")]),

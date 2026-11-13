@@ -456,6 +456,10 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         self.act_bubbles = self._make("Show Grid Bubbles (A, B, 1, 2)",
                                       lambda c: self.views.set_option_all("grid_bubbles", c), checkable=True,
                                       checked=True)
+        self.act_grid_dims = self._make("Show Grid Dimensions (plans)",
+                                        lambda c: self.views.set_option_all("grid_dimensions", c), checkable=True,
+                                        checked=False, tip="The spacings of the grid lines as dimension chains "
+                                                           "in the plan windows (always shown in Grid Mode)")
         self.act_grid_vertical = self._make("Show Vertical Grid Lines in 3D",
                                             lambda c: self.views.set_option_all("grid_vertical", c),
                                             checkable=True, checked=True,
@@ -1672,6 +1676,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             return
         o = self.viewport.display_options
         for a, v in ((self.act_grid, o.grid_lines), (self.act_bubbles, o.grid_bubbles),
+                     (self.act_grid_dims, getattr(o, "grid_dimensions", False)),
                      (self.act_grid_vertical, o.grid_vertical), (self.act_story_plane, o.story_plane),
                      (self.act_extrude, o.extrude), (self.act_labels, o.frame_labels),
                      (self.act_reference, o.reference_lines),

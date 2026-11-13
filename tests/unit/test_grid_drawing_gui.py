@@ -259,7 +259,7 @@ def test_table_and_screen_are_the_same_grid_lines(window):
     from structstudio.app.grid_tools import draw_grid_line
     draw_grid_line(window.doc, (0.0, 0.0), (6.0, 5.0))
     d = GridStoriesDialog(window.doc, window, system="G1", line="L1")
-    assert d.tabs.currentWidget() is d.g_page
+    assert d.g_table.currentRow() == 0 and d.g_table.item(0, 0).text() == "L1"
     t = d.g_table
     assert [t.item(0, c).text() for c in range(5)] == ["L1", "0", "0", "6", "5"]
     t.item(0, 3).setText("12")
@@ -277,3 +277,32 @@ def test_table_and_screen_are_the_same_grid_lines(window):
         assert d.glued == (len(on_c) if glue else 0)
         assert all(abs(window.doc.model.points[n].x - x) < 1e-9 for n in on_c)
         window.doc.undo()
+
+
+@gui
+def test_grid_dimensions_in_plans_and_always_in_grid_mode(window):
+    vp = _plan(window)
+    assert not any(k.startswith("grid_dims") for k in vp._scene_keys)
+    window.act_grid_dims.trigger()  # View > Grid > Show Grid Dimensions
+    QtWidgets.QApplication.processEvents()
+    vp.rebuild()
+    assert any(k.startswith("grid_dims") for k in vp._scene_keys)
+    window.act_grid_dims.trigger()
+    vp.rebuild()
+    assert not any(k.startswith("grid_dims") for k in vp._scene_keys)
+    window.state.set_grid_mode(True)
+    assert any(k.startswith("grid_dims") for k in vp._scene_keys)
+
+
+@gui
+def test_quick_column_at_a_general_line_crossing(window):
+    """A General line crossing B: the crossing is a grid point - snapped like the others."""
+    from structstudio.app.grid_tools import draw_grid_line
+    from structstudio.app.tools import grid_intersections
+    draw_grid_line(window.doc, (0.0, 0.0), (12.0, 5.0))
+    pts = {(round(x, 6), round(y, 6)) for x, y in grid_intersections(window.doc.model)}
+    assert (6.0, 2.5) in pts
+    vp = _plan(window)
+    vp.interactor.SetEventPosition(*_display(vp, 6.05, 2.55, 3.5))
+    pt, snap = vp._snapped(*_display(vp, 6.05, 2.55, 3.5))
+    assert pt is not None and abs(pt[0] - 6.0) < 1e-6 and abs(pt[1] - 2.5) < 1e-6

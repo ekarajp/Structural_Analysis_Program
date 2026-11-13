@@ -224,7 +224,8 @@ class MenuCommandsMixin:
                 menu.addAction(a)
 
         def grid(menu):
-            for a in (self.act_grid, self.act_bubbles, self.act_grid_vertical, self.act_story_plane):
+            for a in (self.act_grid, self.act_bubbles, self.act_grid_dims, self.act_grid_vertical,
+                      self.act_story_plane):
                 menu.addAction(a)
             menu.addMenu(self.grid3d_menu)
             menu.addMenu(self.reference_menu)

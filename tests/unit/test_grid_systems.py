@@ -144,16 +144,23 @@ def test_gui_grid_systems_dialog(tmp_path, monkeypatch):
     w.show()
     app.processEvents()
     d = GridStoriesDialog(w.doc, w)
-    assert [d.tabs.tabText(i) for i in range(d.tabs.count())] == ["X Grid", "Y Grid", "General", "Story"]
+    # one page: X | Y | levels side by side, General lines under them, the plan on the right
+    assert [b.title() for b in (d.box_a, d.box_b, d.box_levels)] == ["X Grid", "Y Grid", "Story"]
+    assert d.box_g.isEnabled() and d.preview.geo is not None and len(d.preview.geo.points) == 6
     assert d.system_box.currentText() == "G1" and d.x_table.rowCount() == 3
     d._add_system("Cylindrical")
-    assert d.system_box.currentText() == "C1" and d.tabs.tabText(0) == "Radial lines"
+    assert d.system_box.currentText() == "C1" and d.box_a.title() == "Radial lines" and not d.box_g.isEnabled()
     assert d.x_table.rowCount() == 8 and d.y_table.rowCount() == 2
     d.ox.setText("30")
     d.rot.setText("15")
     d._add_row(d.y_table, ("C1-T3", 12.0))
     d.system_box.setCurrentText("G1")  # back: G1 untouched, C1 kept
-    assert d.tabs.tabText(0) == "X Grid" and d.x_table.rowCount() == 3
+    assert d.box_a.title() == "X Grid" and d.x_table.rowCount() == 3
+    # spacings: shown beside the ordinates; a changed spacing moves the lines after it
+    assert [d.x_table.item(r, 2).text() for r in range(3)] == ["6", "6", ""]
+    d.x_table.item(0, 2).setText("5")
+    assert [d.x_table.item(r, 1).text() for r in range(3)] == ["0", "5", "11"]
+    d.x_table.item(0, 2).setText("6")
     d._add_system("Cartesian")
     d.rot.setText("45")
     d.accept()
@@ -200,7 +207,8 @@ def test_gui_grid_systems_manager(tmp_path, monkeypatch):
     seen = {}
 
     def fake_exec(self):  # the editor: accept what the manager opened it with
-        seen.setdefault("kw", []).append((self._current, self.tabs.tabText(self.tabs.currentIndex())))
+        seen.setdefault("kw", []).append((self._current, self.box_levels.title()
+                                          if getattr(self, "on_levels", False) else ""))
         self.accept()
         return QtWidgets.QDialog.Accepted
 

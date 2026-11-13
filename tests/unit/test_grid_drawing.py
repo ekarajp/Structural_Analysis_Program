@@ -191,3 +191,20 @@ def test_grid_line_properties_edit():
     assert (g.ordinate, g.visible, g.bubble_location) == (7.0, False, "Start")
     with pytest.raises(ModelError):
         edit_grid_line(doc, "G1", "B2", ordinate=12.0)  # C is there
+
+
+def test_general_lines_and_circles_cross_into_grid_points():
+    """Where a General line meets an X / Y line, where any straight line meets a circle,
+    and where lines of two systems meet: grid points (the grid snap and quick columns)."""
+    from structstudio.model.grids import grid_points
+    doc = _doc()
+    draw_grid_line(doc, (0.0, 0.0), (12.0, 5.0))
+    m = doc.model
+    m.grid_systems["C1"] = GridSystem(name="C1", type="Cylindrical", origin=(6.0, 2.5))
+    m.grid_lines += [GridLine(system="C1", name="R1", direction="R", ordinate=2.0)]
+    pts = {(round(x, 6), round(y, 6)) for x, y in grid_points(m)}
+    assert (6.0, 2.5) in pts  # L1 x B
+    assert {(6.0, 0.5), (6.0, 4.5)} <= pts  # the circle x B
+    s = 2.0 / math.hypot(12.0, 5.0)
+    assert (round(6.0 - 12.0 * s, 6), round(2.5 - 5.0 * s, 6)) in pts  # the circle x L1
+    assert (4.0, 5.0) not in pts  # (nothing meets there)

@@ -1336,9 +1336,13 @@ class ModelViewport(QtWidgets.QWidget):
     def _model_actors(self, layers):
         st = self.state
         story = self.config.story if self.config.kind == "plan" else None
+        opts = self.display_options
+        if getattr(st, "grid_mode", False) and self.config.kind == "plan" and not opts.grid_dimensions:
+            import dataclasses as _dc
+            opts = _dc.replace(opts, grid_dimensions=True)  # Grid Mode: the spacings always shown
         return scene.build_model_actors(self.doc.model, st.show_labels, st.extruded, st.frames, story=story,
                                         selected_areas=st.areas, selected_points=st.points,
-                                        plane=self._scene_plane(), options=self.display_options,
+                                        plane=self._scene_plane(), options=opts,
                                         hidden=self.hidden, layers=layers, tower=self.tower_filter(),
                                         same_level=self._plan_same_level())
 

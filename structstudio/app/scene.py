@@ -842,6 +842,9 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
                     out.actors["grids" + sfx] = g
             if bubbles_on and gm.grid_lines and gm.stories:
                 out.actors["grid_bubbles" + sfx] = build_grid_bubbles(gm, None, z=float(plane[1]))
+            if getattr(opts, "grid_dimensions", False) and opts.grid_lines and gi == 0:
+                for k, a in enumerate(build_grid_dimensions(gm, float(plane[1]))):
+                    out.actors[f"grid_dims_{k}"] = a
         elif plane is not None:
             if opts.grid_lines:
                 elev = build_elevation_grid(gm, plane)
@@ -879,6 +882,10 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
                         out.actors["grid_vertical" + sfx] = vert
             if bubbles_on and gm.grid_lines and gm.stories:
                 out.actors["grid_bubbles" + sfx] = build_grid_bubbles(gm, story_g, z=levels[0] if levels else None)
+            if getattr(opts, "grid_dimensions", False) and opts.grid_lines and gi == 0 and story is not None \
+                    and story in model.stories:
+                for k, a in enumerate(build_grid_dimensions(gm, model.stories[story].elevation)):
+                    out.actors[f"grid_dims_{k}"] = a
     # ---- reference lines (CYPE 3D) --------------------------------------------
     if base_on and getattr(opts, "reference_lines", False):
         from .snap import reference_lines_for
@@ -1455,6 +1462,78 @@ def build_grid_bubbles(model: Model, story: Optional[str] = None, z: Optional[fl
     if actor is None:
         actor = vtk.vtkActor2D()
     return actor
+
+
+def build_grid_dimensions(model: Model, z: float) -> List[vtk.vtkProp]:
+    """Dimension chains of the Cartesian grid systems in a plan (Display > Grid dimensions,
+    always in Grid Mode): the X spacings under the grid, the Y spacings right of it, ticks
+    at the lines, the overall size further out.  Values in the display length unit."""
+    from ..model.grids import grid_geometry, to_global, CYLINDRICAL
+    if not model.grid_lines:
+        return []
+    geo = grid_geometry(model)
+    ext = geo.ext
+    try:
+        from ..display_units import DisplayUnits
+        f = DisplayUnits.of(model).factor("coordinates")
+    except Exception:  # noqa: BLE001
+        f = 1.0
+    coords, texts, tpts = [], [], []
+    lines = vtk.vtkCellArray()
+
+    def seg(a, b):
+        n = len(coords)
+        coords.extend([(a[0], a[1], z), (b[0], b[1], z)])
+        lines.InsertNextCell(2)
+        lines.InsertCellPoint(n)
+        lines.InsertCellPoint(n + 1)
+    tick = 0.12 * ext
+    for name, gs in model.grid_systems.items():
+        if gs.type == CYLINDRICAL:
+            continue
+        mine = [g for g in model.grid_lines if (g.system or "G1") == name and getattr(g, "visible", True)]
+        xs = sorted({g.ordinate for g in mine if g.direction == "X"})
+        ys = sorted({g.ordinate for g in mine if g.direction == "Y"})
+        if not xs and not ys:
+            continue
+        u0, u1 = (xs[0], xs[-1]) if xs else (0.0, 0.0)
+        v0, v1 = (ys[0], ys[-1]) if ys else (0.0, 0.0)
+        c, s_ = math.cos(math.radians(gs.rotation or 0.0)), math.sin(math.radians(gs.rotation or 0.0))
+        diag = ((c - s_) * tick * 0.5, (s_ + c) * tick * 0.5)  # 45 degree tick
+
+        def chain(vals, along, off):
+            P = (lambda t: to_global(gs, t, v0 - off)) if along == "x" else (lambda t: to_global(gs, u1 + off, t))
+            seg(P(vals[0]), P(vals[-1]))
+            for t in vals:
+                q = P(t)
+                seg((q[0] - diag[0], q[1] - diag[1]), (q[0] + diag[0], q[1] + diag[1]))
+            for a, b in zip(vals, vals[1:]):
+                q = P(0.5 * (a + b))
+                lift = to_global(gs, 0.5 * (a + b), v0 - off + 0.2 * ext) if along == "x" else \
+                    to_global(gs, u1 + off - 0.2 * ext, 0.5 * (a + b))
+                tpts.append((lift[0], lift[1], z))
+                texts.append(f"{(b - a) * f:.6g}")
+            del q
+        for vals, along in ((xs, "x"), (ys, "y")):
+            if len(vals) >= 2:
+                chain(vals, along, 0.7 * ext)
+                if len(vals) > 2:
+                    chain([vals[0], vals[-1]], along, 1.3 * ext)
+    if not coords:
+        return []
+    poly = vtk.vtkPolyData()
+    poly.SetPoints(_points(np.array(coords, float)))
+    poly.SetLines(lines)
+    col = COLORS["grid_text"]
+    out = [_actor_from_polydata(poly, col, 1.0, lighting=False)]
+    pts = vtk.vtkPoints()
+    arr = vtk.vtkStringArray()
+    arr.SetName("labels")
+    for q, t in zip(tpts, texts):
+        pts.InsertNextPoint(*q)
+        arr.InsertNextValue(t)
+    out.append(_text_labels(pts, arr, col, _text_pt(0)))
+    return out
 
 
 def build_grid_actor(model: Model, story: Optional[str] = None,

@@ -31,6 +31,7 @@ class GridGeometry:
         self.points: List[XY] = []
         self.extent: Optional[Tuple[float, float, float, float]] = None  # x0, x1, y0, y1
         self.ext: float = 1.0  # how far the lines run past the outermost crossing lines
+        self.general: List[Tuple[XY, XY]] = []  # General lines (their crossings are grid points too)
 
     def polylines(self, seg_deg: float = 6.0) -> List[List[XY]]:
         """Lines and arcs as polylines (arcs in steps of about ``seg_deg``)."""
@@ -112,6 +113,7 @@ def grid_geometry(model) -> GridGeometry:
             _cylindrical(gs, lines, ext, out)
         else:
             _cartesian(gs, lines, ext, out)
+    _extra_crossings(out)
     for a, b, _, _ in out.lines:
         pts_all += [a, b]
     for c, r, a0, a1, _, _ in out.arcs:
@@ -122,6 +124,99 @@ def grid_geometry(model) -> GridGeometry:
         xs, ys = [p[0] for p in pts_all], [p[1] for p in pts_all]
         out.extent = (min(xs), max(xs), min(ys), max(ys))
     return out
+
+
+def _extra_crossings(out: GridGeometry) -> None:
+    """Grid points where lines meet that the systems' own crossings miss: a General line
+    with any line, lines of two different systems, and straight lines with circles (and
+    circles of two different systems) - so they snap like the X / Y crossings."""
+    seen = {(round(x, 9), round(y, 9)) for x, y in out.points}
+
+    def add(q):
+        key = (round(q[0], 9), round(q[1], 9))
+        if key not in seen:
+            seen.add(key)
+            out.points.append(q)
+    gen = set(out.general)
+    lines = out.lines
+    for k in range(len(lines)):
+        a, b, _, sa = lines[k]
+        for m in range(k + 1, len(lines)):
+            c, d, _, sc = lines[m]
+            if sa != sc or (a, b) in gen or (c, d) in gen:
+                q = _segment_crossing(a, b, c, d)
+                if q is not None:
+                    add(q)
+    for c0, r, a0, a1, _, sc in out.arcs:
+        for a, b, _, sa in lines:
+            if sa == sc and (a, b) not in gen:
+                continue  # (a system's own radial lines: its R x T points already)
+            for q in _segment_circle(a, b, c0, r):
+                if _on_arc(q, c0, a0, a1):
+                    add(q)
+    arcs = out.arcs
+    for k in range(len(arcs)):
+        for m in range(k + 1, len(arcs)):
+            c1, r1, a10, a11, _, s1 = arcs[k]
+            c2, r2, a20, a21, _, s2 = arcs[m]
+            if s1 == s2:
+                continue
+            for q in _circle_circle(c1, r1, c2, r2):
+                if _on_arc(q, c1, a10, a11) and _on_arc(q, c2, a20, a21):
+                    add(q)
+
+
+def _segment_circle(a: XY, b: XY, c: XY, r: float) -> List[XY]:
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    fx, fy = a[0] - c[0], a[1] - c[1]
+    A = dx * dx + dy * dy
+    if A <= 0:
+        return []
+    B = 2 * (fx * dx + fy * dy)
+    C = fx * fx + fy * fy - r * r
+    disc = B * B - 4 * A * C
+    if disc < -1e-12 * max(1.0, B * B):
+        return []
+    sq = math.sqrt(max(disc, 0.0))
+    out = []
+    for t in sorted({(-B - sq) / (2 * A), (-B + sq) / (2 * A)}):
+        if -1e-9 <= t <= 1 + 1e-9:
+            out.append((a[0] + t * dx, a[1] + t * dy))
+    return out
+
+
+def _circle_circle(c1: XY, r1: float, c2: XY, r2: float) -> List[XY]:
+    d = math.dist(c1, c2)
+    if d <= 1e-12 or d > r1 + r2 + 1e-9 or d < abs(r1 - r2) - 1e-9:
+        return []
+    a = (r1 * r1 - r2 * r2 + d * d) / (2 * d)
+    h = math.sqrt(max(r1 * r1 - a * a, 0.0))
+    mx, my = c1[0] + a * (c2[0] - c1[0]) / d, c1[1] + a * (c2[1] - c1[1]) / d
+    ox, oy = -h * (c2[1] - c1[1]) / d, h * (c2[0] - c1[0]) / d
+    return [(mx + ox, my + oy)] if h <= 1e-12 else [(mx + ox, my + oy), (mx - ox, my - oy)]
+
+
+def _on_arc(q: XY, c: XY, a0: float, a1: float) -> bool:
+    if abs(a1 - a0) >= 360.0 - 1e-9:
+        return True
+    ang = math.degrees(math.atan2(q[1] - c[1], q[0] - c[0]))
+    lo = min(a0, a1)
+    return (ang - lo) % 360.0 <= abs(a1 - a0) + 1e-7
+
+
+def _segment_crossing(a: XY, b: XY, c: XY, d: XY) -> Optional[XY]:
+    """Where segment ab crosses segment cd (ends included), None if they do not."""
+    rx, ry = b[0] - a[0], b[1] - a[1]
+    sx, sy = d[0] - c[0], d[1] - c[1]
+    den = rx * sy - ry * sx
+    if abs(den) <= 1e-12 * max(1.0, rx * rx + ry * ry, sx * sx + sy * sy):
+        return None
+    t = ((c[0] - a[0]) * sy - (c[1] - a[1]) * sx) / den
+    u = ((c[0] - a[0]) * ry - (c[1] - a[1]) * rx) / den
+    eps = 1e-9
+    if -eps <= t <= 1 + eps and -eps <= u <= 1 + eps:
+        return a[0] + t * rx, a[1] + t * ry
+    return None
 
 
 def _cartesian(gs, lines, ext, out: GridGeometry):
@@ -148,6 +243,7 @@ def _cartesian(gs, lines, ext, out: GridGeometry):
         elif g.direction == "General" and g.start and g.end:
             a, b = to_global(gs, *g.start), to_global(gs, *g.end)
             out.lines.append((a, b, g.name, gs.name))
+            out.general.append((a, b))
             d = (b[0] - a[0], b[1] - a[1])
             L = math.hypot(*d) or 1.0
             out.bubbles.append((b, (d[0] / L, d[1] / L), g.name))

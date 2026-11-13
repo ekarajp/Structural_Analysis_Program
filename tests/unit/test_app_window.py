@@ -234,9 +234,9 @@ def test_grid_system_switch_toolbar_menu_dialog(window, app):
     assert window.views.viewports[0].title.text().startswith("Plan View")
     # tabbed dialog: switch to SAP2000 inside the dialog, add a Z line, accept
     d = GridStoriesDialog(window.doc, window)
-    assert [d.tabs.tabText(i) for i in range(d.tabs.count())] == ["X Grid", "Y Grid", "General", "Story"]
+    assert d.box_levels.title() == "Story"
     d.switch.setCurrentIndex(1)
-    assert d.tabs.tabText(3) == "Z Grid" and d.z_table.rowCount() == 3
+    assert d.box_levels.title() == "Z Grid" and d.level_table() is d.z_table and d.z_table.rowCount() == 3
     d._add_row(d.z_table, ("Roof", 9.0))
     d.accept()
     m = window.doc.model
