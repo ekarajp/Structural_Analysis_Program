@@ -212,6 +212,11 @@ class TemplateDialog(QtWidgets.QDialog):
             form.addRow("Slab section", self.slab)
             form.addRow("Wall section (core)", self.wall)
             form.addRow("Infill beam (steel deck)", self.infill)
+        self.from_click = QtWidgets.QCheckBox("Place in View: the bottom story is the level clicked")
+        self.from_click.setToolTip("Off (default): the stories are those above, wherever you click (only X, Y come "
+                                   "from the click).\nOn: the structure starts at the story of the point clicked "
+                                   "(in a plan: the story below it) with the same number of stories.")
+        form.addRow("", self.from_click)
         self.support = QtWidgets.QComboBox()
         self.support.addItems(list(T.SUPPORTS))
         form.addRow("Supports at the bottom", self.support)
@@ -488,8 +493,11 @@ class TemplatePlaceTool(Tool):
         return False
 
     def _bottom_at(self, P) -> Optional[str]:
-        """The bottom story of the structure for a point: its story level - in a plan, the
-        story below (as columns drawn in a plan: the plan shows the tops of the first story)."""
+        """The bottom story of the structure: the form's - or, with "the bottom story is the
+        level clicked", the point's story level (in a plan the story below it, as columns
+        drawn in a plan: the plan shows the tops of the first story)."""
+        if not self.dialog.from_click.isChecked():
+            return self.dialog.bottom.currentText()
         st = self._story_at(P[2])
         if st is None or self.plane.kind != "plan":
             return st
@@ -521,13 +529,25 @@ class TemplatePlaceTool(Tool):
         ox, oy = self.dialog.origin_for(P, angle)
         c, s_ = math.cos(math.radians(angle)), math.sin(math.radians(angle))
 
+        flat = self.plane.kind  # in a plan / elevation the ghost is drawn on the window's plane
+        val = self.plane.value
+
         def X(q):
             pt = t.points[q]
-            return (ox + c * pt.x - s_ * pt.y, oy + s_ * pt.x + c * pt.y, pt.z)
+            x, y, z = ox + c * pt.x - s_ * pt.y, oy + s_ * pt.x + c * pt.y, pt.z
+            if flat == "plan":
+                z = val
+            elif flat == "xz":
+                y = val
+            elif flat == "yz":
+                x = val
+            return (x, y, z)
 
         out = []
         for f in list(t.frames.values())[:4000]:
-            out.append((X(f.point_i), X(f.point_j)))
+            a, b = X(f.point_i), X(f.point_j)
+            if a != b:
+                out.append((a, b))
         for a in list(t.areas.values())[:4000]:
             q = [X(n) for n in a.points]
             out += [(q[k], q[(k + 1) % len(q)]) for k in range(len(q))]
@@ -549,7 +569,7 @@ class TemplatePlaceTool(Tool):
             lines, info = self._ghost(P, ang)
             pv.text = f"∠{ang:.0f}°"
         if lines is None:
-            pv.text += f"  ({info})"
+            pv.text += f"  (cannot place here: {info})"
             return pv
         pv.lines = lines
         pv.text += f"  {info}"
@@ -577,7 +597,8 @@ class TemplatePlaceTool(Tool):
         bottom = self._bottom_at(P)
         try:
             if bottom is None:
-                raise ValueError("Click a point at a story level")
+                raise ValueError("Click a point at a story level (or switch off 'the bottom story is the level "
+                                 "clicked')")
             self.dialog.place(P, bottom, angle)
         except (ValueError, ModelError) as exc:
             self.state.status.emit(f"Add From Template: {exc}")

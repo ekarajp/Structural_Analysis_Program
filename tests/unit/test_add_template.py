@@ -226,7 +226,16 @@ def test_gui_place_in_view(tmp_path, monkeypatch):
     z1 = m.stories["Story1"].elevation
     tool.set_plane(Plane("plan", z1, "Story1"))
     pv = tool.preview((12.0, 5.0))
-    assert pv.lines and "Base - Story2" in pv.text  # a plan shows the tops of the first story
+    assert pv.lines and "Base - Story2" in pv.text  # the stories of the form
+    assert all(a[2] == z1 and b[2] == z1 for a, b in pv.lines)  # drawn on the plan
+    d.from_click.setChecked(True)  # a plan shows the tops of the first story: Base .. Story2 too
+    assert "Base - Story2" in tool.preview((12.0, 5.0)).text
+    tool.set_plane(Plane("plan", m.stories["Story3"].elevation, "Story3"))
+    assert "cannot place" in tool.preview((12.0, 5.0)).text  # Story2 + 2 stories: above the top
+    tool.set_plane(Plane("plan", m.stories["Story3"].elevation, "Story3"))
+    d.from_click.setChecked(False)
+    assert "Base - Story2" in tool.preview((12.0, 5.0)).text  # the form's stories wherever clicked
+    tool.set_plane(Plane("plan", z1, "Story1"))
     assert tool.key("r")  # turn 90 degrees
     assert tool.angle == 90.0
     tool.angle = 0.0
@@ -242,6 +251,7 @@ def test_gui_place_in_view(tmp_path, monkeypatch):
     d.place_in_view()
     TD.start_placing(d)
     tool = w.state.tool
+    d.from_click.setChecked(True)
     tool.plane = Plane("xz", 5.0, None)  # elevation on y = 5: (u, v) = (x, z)
     assert "Story1 - Story3" in tool.preview((12.0, z1)).text
     tool.done = True  # (leave it without going back to the form)
