@@ -292,7 +292,11 @@ class GridStoriesDialog(QtWidgets.QDialog):
     """Edit Grid Lines: X / Y grid tabs plus a Story tab (X-Y-Story mode) or a Z grid
     tab (X-Y-Z mode).  The switch at the top changes the grid system."""
 
-    def __init__(self, doc: Document, parent=None):
+    def __init__(self, doc: Document, parent=None, system: Optional[str] = None, add: Optional[str] = None,
+                 copy_of: Optional[str] = None, show_levels: bool = False):
+        """``system``: the grid system shown first; ``add``: start with a new system of
+        that type ("Cartesian" / "Cylindrical"); ``copy_of``: start with a copy of that
+        system; ``show_levels``: open on the Story / Z Grid tab."""
         super().__init__(parent)
         self.doc = doc
         self.setWindowTitle("Grid Systems and Levels")
@@ -359,6 +363,14 @@ class GridStoriesDialog(QtWidgets.QDialog):
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
+        if system and system in self._systems:
+            self.system_box.setCurrentText(system)
+        if copy_of and copy_of in self._systems:
+            self._copy_system(copy_of)
+        elif add in ("Cartesian", "Cylindrical"):
+            self._add_system(add)
+        if show_levels:
+            self.tabs.setCurrentIndex(2)
 
     # ------------------------------------------------------------ grid systems
     @staticmethod
@@ -442,6 +454,25 @@ class GridStoriesDialog(QtWidgets.QDialog):
             rows_a = [(f"{name}-{k + 1}", float(x)) for k, x in enumerate((0, 6, 12))]
             rows_b = [(f"{name}-{chr(65 + k)}", float(y)) for k, y in enumerate((0, 6))]
         self._systems[name] = {"type": kind, "origin": (0.0, 0.0), "rotation": 0.0, "a": rows_a, "b": rows_b}
+        self.system_box.addItem(name)
+        self.system_box.setCurrentText(name)
+
+    def _copy_system(self, src: str):
+        """A new system with the lines, origin and rotation of ``src`` (named src_copy)."""
+        try:
+            self._save_system()
+        except ValueError as exc:
+            QtWidgets.QMessageBox.warning(self, "Invalid value", str(exc))
+            return
+        import copy as _copy
+        name, k = f"{src}_copy", 2
+        while name in self._systems:
+            name, k = f"{src}_copy{k}", k + 1
+        self._systems[name] = _copy.deepcopy(self._systems[src])
+        import dataclasses as _dc
+        for (s_, d_, n_), g in list(self._extras.items()):
+            if s_ == src:  # bubble / visibility settings and general lines come along
+                self._extras[(name, d_, n_)] = _dc.replace(g, system=name)
         self.system_box.addItem(name)
         self.system_box.setCurrentText(name)
 

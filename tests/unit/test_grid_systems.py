@@ -173,3 +173,62 @@ def test_gui_grid_systems_dialog(tmp_path, monkeypatch):
     w.close()
     for _ in range(3):
         app.processEvents()
+
+
+@pytest.mark.skipif(not CHILD, reason="desktop test: run in the child interpreter")
+def test_gui_grid_systems_manager(tmp_path, monkeypatch):
+    QtCore = pytest.importorskip("PySide6.QtCore")
+    QtWidgets = pytest.importorskip("PySide6.QtWidgets")
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    monkeypatch.setenv("STRUCTSTUDIO_THUMBS", str(tmp_path / "thumbs"))
+    from structstudio.app import dialogs
+    from structstudio.app.document import Document
+    from structstudio.app.grid_manager import GridSystemsManager
+    from structstudio.app.mainwindow import MainWindow
+    m = new_building(x_spacings=(6, 6), y_spacings=(5,), story_heights=(3.0, 3.0), grid_only=True)
+    w = MainWindow(Document(m), QtCore.QSettings(str(tmp_path / "s.ini"), QtCore.QSettings.IniFormat))
+    w.show()
+    app.processEvents()
+    d = GridSystemsManager(w.doc, w)
+    d.show()
+    app.processEvents()
+    assert d.table.rowCount() == 1 and d.selected_name() == "G1"
+    assert d.table.item(0, 2).text() == "3 X, 2 Y"
+    assert d.stories.rowCount() == 3 and d.stories.item(0, 0).text() == "Story2"
+    assert d.preview.geo is not None and len(d.preview.geo.points) == 6
+    d.preview.grab()  # paints
+    seen = {}
+
+    def fake_exec(self):  # the editor: accept what the manager opened it with
+        seen.setdefault("kw", []).append((self._current, self.tabs.currentIndex()))
+        self.accept()
+        return QtWidgets.QDialog.Accepted
+
+    monkeypatch.setattr(dialogs.GridStoriesDialog, "exec", fake_exec)
+    d.add("Cylindrical")
+    assert d.selected_name() == "C1" and d.table.item(1, 1).text() == "Cylindrical"
+    assert d.table.item(1, 2).text() == "8 radial, 2 circles"
+    d.preview.grab()
+    d.table.selectRow(0)
+    d.copy_system()
+    assert "G1_copy" in w.doc.model.grid_systems and d.selected_name() == "G1_copy"
+    assert len([g for g in w.doc.model.grid_lines if g.system == "G1_copy"]) == 5
+    d.table.selectRow(0)
+    d.modify()
+    assert seen["kw"][-1][0] == "G1"
+    d.modify_stories()
+    assert seen["kw"][-1][1] == 2
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Yes)
+    rows = [d.table.item(r, 0).text() for r in range(d.table.rowCount())]
+    d.table.selectRow(rows.index("G1_copy"))
+    d.delete()
+    assert "G1_copy" not in w.doc.model.grid_systems
+    assert not [g for g in w.doc.model.grid_lines if g.system == "G1_copy"]
+    w.doc.undo()
+    assert "G1_copy" in w.doc.model.grid_systems
+    d.close()
+    w.doc.dirty = False
+    w.views.finalize()
+    w.close()
+    for _ in range(3):
+        app.processEvents()

@@ -1882,7 +1882,8 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             self.doc.edit(lambda m: m.add_modal_case(name, max_modes=12))
 
     def edit_grid_stories(self):
-        dialogs.GridStoriesDialog(self.doc, self).exec()
+        from .grid_manager import GridSystemsManager
+        GridSystemsManager(self.doc, self).exec()
 
     def _sel(self):
         return self.state.selected()
