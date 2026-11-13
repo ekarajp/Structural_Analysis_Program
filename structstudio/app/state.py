@@ -26,6 +26,8 @@ class ViewState(QtCore.QObject):
     # (source model window, tool Preview | None): the drawing preview, shared by the windows
     preview_shown = QtCore.Signal(object, object)
     hint_changed = QtCore.Signal(str)  # what to do next (status bar, bottom left)
+    grid_mode_changed = QtCore.Signal(bool)  # Edit > Edit Grids on Screen on / off
+    grid_selection_changed = QtCore.Signal()
 
     def __init__(self, doc: Document, parent=None):
         super().__init__(parent)
@@ -62,6 +64,9 @@ class ViewState(QtCore.QObject):
         self.areas: Set[str] = set()
         self.points: Set[str] = set()
         self._previous: Tuple[Set[str], Set[str], Set[str]] = (set(), set(), set())
+        # Grid Mode: the plan windows edit the grid lines only (the model faded, not picked)
+        self.grid_mode = False
+        self.grid_sel: Set[Tuple[str, str]] = set()  # selected grid lines (system, name)
         self._session_units = doc.model.units  # the units the session's values are in
         doc.on_change(self._on_doc_change)
         self.selection_changed.connect(self.update_hint)
@@ -117,6 +122,11 @@ class ViewState(QtCore.QObject):
             if u != self._session_units:
                 old, self._session_units = self._session_units, u
                 self.convert_units(old, u)
+        if what == "replaced" or what == "model":
+            keys = {((g.system or "G1"), g.name) for g in self.doc.model.grid_lines}
+            if self.grid_sel - keys:
+                self.grid_sel &= keys
+                self.grid_selection_changed.emit()
         if what == "model":
             m = self.doc.model
             self.frames &= set(m.frames)
@@ -140,7 +150,61 @@ class ViewState(QtCore.QObject):
         self.nav_changed.emit(self.nav_mode or "")
         self.status.emit(self.NAV_PROMPTS.get(self.nav_mode, self.tool.prompt))
 
+    # ---------------------------------------------------------- grid mode
+    def set_grid_mode(self, on: bool):
+        """Edit Grids on Screen: the grid tools (select, draw, offset, move, copy) in the
+        plan windows; the model is shown faded and is not picked or changed."""
+        on = bool(on)
+        if on == self.grid_mode:
+            return
+        from .grid_tools import GRID_MODE_TOOLS  # noqa: F401
+        self.grid_mode = on
+        self.grid_sel = set()
+        if on:
+            self.clear_selection()
+        self.set_tool("grid_select" if on else "select")
+        self.grid_mode_changed.emit(on)
+        self.grid_selection_changed.emit()
+        self.status.emit("Grid Mode: edit the grid lines in a plan window - Esc or Done to leave" if on
+                         else "Grid Mode ended")
+
+    def set_grid_selection(self, keys):
+        self.grid_sel = set(keys)
+        self.grid_selection_changed.emit()
+        self.update_hint()
+
+    def toggle_grid(self, key, add: bool = False):
+        if add and key in self.grid_sel:
+            self.grid_sel.discard(key)
+        elif add:
+            self.grid_sel.add(key)
+        else:
+            self.grid_sel = {key}
+        self.grid_selection_changed.emit()
+        self.update_hint()
+
+    def delete_grid_selection(self) -> int:
+        from .grid_tools import _sys
+        keys = set(self.grid_sel)
+        if not keys:
+            return 0
+
+        def mutate(model):
+            model.grid_lines = [g for g in model.grid_lines if (_sys(g), g.name) not in keys
+                                or g.direction not in ("X", "Y", "R", "T", "General")]
+        self.doc.edit(mutate)
+        self.set_grid_selection(())
+        self.status.emit(f"Deleted {len(keys)} grid line(s)")
+        return len(keys)
+
     def set_tool(self, name: str):
+        if self.grid_mode:
+            from .grid_tools import GRID_MODE_TOOLS
+            if name not in GRID_MODE_TOOLS:  # a model command: Grid Mode ends first
+                self.grid_mode = False
+                self.grid_sel = set()
+                self.grid_mode_changed.emit(False)
+                self.grid_selection_changed.emit()
         cls = TOOLS.get(name, SelectTool)
         self.start_tool(lambda: cls(self.doc, self.settings), getattr(cls, "name", name))
 
@@ -310,6 +374,18 @@ class ViewState(QtCore.QObject):
         return n
 
     def cancel_tool(self):
+        if self.grid_mode and not self.nav_mode:
+            if self.tool.points or (self.tool.name == "grid_move" or self.tool.name == "grid_copy") \
+                    and getattr(self.tool, "_adding", False) and self.grid_sel:
+                self.tool.cancel()
+            elif self.tool.name != "grid_select":
+                self.set_tool("grid_select")
+            elif self.grid_sel:
+                self.set_grid_selection(())
+            else:
+                self.set_grid_mode(False)
+            self.update_hint()
+            return
         if self.nav_mode:
             self.set_nav_mode(None)
         elif self.tool.points:
@@ -390,6 +466,8 @@ class ViewState(QtCore.QObject):
         self.set_selection(f, a, p, add=add)
 
     def delete_selected(self) -> int:
+        if self.grid_mode:  # Grid Mode: Delete removes the selected grid lines
+            return self.delete_grid_selection()
         n = delete_objects(self.doc, self.frames, self.areas, self.points)
         if self.panels:
             names = set(self.panels)

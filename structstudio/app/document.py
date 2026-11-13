@@ -38,10 +38,9 @@ class Document:
         # mirror ...): the window warns and offers to undo it
         self.check_duplicates = True
         self.duplicates: list = []
-        # grid lines moved on screen or in the grid form carry the joints on them (Edit > Grid
-        # Lines > Move Objects with Grid Lines); bubbles can be dragged unless locked
-        self.glue_grids = True
-        self.lock_grids = False
+        # Edit > Move Objects with Grid Lines (off: moving a grid line moves only the line -
+        # on screen in Grid Mode or a new ordinate in the grid form)
+        self.glue_grids = False
         self.active_tower = None  # several towers: the tower of the active window (new objects go there)
         self._geometry_before = None
 

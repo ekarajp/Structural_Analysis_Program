@@ -527,6 +527,9 @@ class ModelViewport(QtWidgets.QWidget):
         self.results_box.toggled.connect(self._results_toggled)
         self.doc.on_change(self._on_doc_change)
         self.state.selection_changed.connect(self._on_selection_changed)
+        if hasattr(self.state, "grid_mode_changed"):
+            self.state.grid_mode_changed.connect(self._on_grid_mode)
+            self.state.grid_selection_changed.connect(self._on_grid_selection)
         # this window's own result / load display (Display commands act on the active window)
         self.result_display = self.state.window_display() if hasattr(self.state, "window_display") else {}
         self.state.display_changed.connect(self._on_display_changed)
@@ -683,8 +686,11 @@ class ModelViewport(QtWidgets.QWidget):
                 others = [s for s in m.same_level_stories(pl.story) if s != pl.story] \
                     if (pl.story and c.same_level) else []
                 where = f"{self.window_tower()} / {where}" + (f" (+ {', '.join(others)})" if others else "")
-            self.title.setText(f"X-Y Plane @ Z = {z:g}  ({where})" if sap
-                               else f"Plan View - {where} - Z = {z:g}")
+            self.title.setText((f"X-Y Plane @ Z = {z:g}  ({where})" if sap
+                                else f"Plan View - {where} - Z = {z:g}")
+                               + ("   \u25a0 GRID MODE" if getattr(self.state, "grid_mode", False) else ""))
+            self.title.setStyleSheet("color: white; background: #d35400; font-weight: bold; padding: 0 4px;"
+                                     if getattr(self.state, "grid_mode", False) else "")
         elif c.kind in ("xz", "yz"):
             pl = self.plane()
             axis = "Y" if c.kind == "xz" else "X"
@@ -718,7 +724,8 @@ class ModelViewport(QtWidgets.QWidget):
             return None
         from .grid_tools import line_at
         return line_at(self.doc.model, (xyz[0], xyz[1]), self._world_tolerance(),
-                       story=self.config.story, tower=self.window_tower())
+                       story=self.config.story, tower=self.window_tower(),
+                       own_only=bool(getattr(self.state, "grid_mode", False)))
 
     def grid_bubble_under(self, x: int, y: int) -> Optional[Tuple[str, str]]:
         """(system, name) of the grid line whose bubble is under display (x, y) (plan)."""
@@ -733,7 +740,7 @@ class ModelViewport(QtWidgets.QWidget):
             r = scene._bubble_radius(gm)
             return r, r * (1.0 + 0.6 * scene.gsize("bubble_gap"))
         return bubble_at(self.doc.model, (xyz[0], xyz[1]), size, story=self.config.story,
-                         tower=self.window_tower())
+                         tower=self.window_tower(), own_only=bool(getattr(self.state, "grid_mode", False)))
 
     def tower_filter(self) -> Optional[str]:
         """The tower whose objects an elevation / 3D window shows (None: all)."""
@@ -1349,6 +1356,7 @@ class ModelViewport(QtWidgets.QWidget):
             self._scene_actors.append(actor)
         self._draw_highlight()
         self._draw_grips()
+        self._grid_mode_fade(bool(getattr(self.state, "grid_mode", False)) and self.config.kind == "plan")
 
     def _build_layer(self, layer: str):
         """Only the selection highlights / only the labels again: the objects (and
@@ -1370,6 +1378,7 @@ class ModelViewport(QtWidgets.QWidget):
             self._scene_actors.append(actor)
         if layer == "selection":
             self._draw_grips()
+        self._grid_mode_fade(bool(getattr(self.state, "grid_mode", False)) and self.config.kind == "plan")
 
     # ------------------------------------------------------------- grips
     # Dragging the selection / its joints with the select tool (AutoCAD grips) is off:
@@ -1572,6 +1581,8 @@ class ModelViewport(QtWidgets.QWidget):
             else:
                 n = move_grid_line(self.doc, gd["system"], gd["name"], to=val, move_objects=glue)
             st.status.emit(f"Grid line {gd['name']} moved" + (f" with {n} joint(s)" if n else ""))
+            if getattr(st, "grid_mode", False):
+                st.set_grid_selection([(gd["system"], gd["name"])])
         except Exception as exc:  # noqa: BLE001
             st.report(exc)
 
@@ -1673,6 +1684,63 @@ class ModelViewport(QtWidgets.QWidget):
         if shown and (rd.deformed or rd.display_mode is not None):
             hide += ("releases",)  # the pin symbols are drawn on the deflected members instead
         self._hide_scene(hide)
+        self._grid_mode_fade(bool(getattr(self.state, "grid_mode", False)) and self.config.kind == "plan")
+
+    GRID_MODE_OPACITY = 0.22
+
+    def _grid_mode_fade(self, on: bool):
+        """Grid Mode: everything but the window's own grid lines and bubbles faded (the
+        model and the other towers' grids stay as a reference)."""
+        store = getattr(self, "_gridmode_orig", None)
+        if store is None:
+            store = self._gridmode_orig = {}
+        live = {id(a) for a in self._scene_actors}
+        for k in [k for k in store if k not in live]:
+            del store[k]
+        for key, a in zip(getattr(self, "_scene_keys", []), self._scene_actors):
+            own_grid = key.startswith(("grid", "elev_grid", "story_labels")) and "@" not in key
+            k = id(a)
+            held = store.get(k)
+            if held is not None and held[0] is not a:  # (another actor with a recycled id)
+                del store[k]
+                held = None
+            if on and hasattr(a, "GetProperty") and hasattr(a.GetProperty(), "SetOpacity") and \
+                    (not own_grid or key == "grids"):
+                if held is None:  # the model faded; the grid lines themselves drawn solid
+                    op = a.GetProperty().GetOpacity()
+                    store[k] = (a, op)
+                    a.GetProperty().SetOpacity(1.0 if own_grid else min(op, self.GRID_MODE_OPACITY))
+            elif held is not None:
+                a.GetProperty().SetOpacity(store.pop(k)[1])
+
+    def _grid_selection_actors(self):
+        """Grid Mode: the selected grid lines drawn thick."""
+        st = self.state
+        if not getattr(st, "grid_mode", False) or not st.grid_sel or self.config.kind != "plan":
+            return []
+        from .grid_tools import find_line, line_ends
+        m = self.doc.model
+        z = self.plane().value
+        segs = []
+        for key in st.grid_sel:
+            try:
+                ends = line_ends(m, find_line(m, *key))
+            except Exception:  # noqa: BLE001
+                continue
+            if ends is not None:
+                segs.append(((ends[0][0], ends[0][1], z), (ends[1][0], ends[1][1], z)))
+        return [self._lines_actor(segs, (0.83, 0.33, 0.0), 4.0)] if segs else []  # (the Grid Mode orange)
+
+    def _on_grid_mode(self, on: bool):
+        self._update_title()
+        self._gridmode_orig = {}
+        self._build_scene()
+        self.update_overlays()
+        self.render()
+
+    def _on_grid_selection(self):
+        self.update_overlays()
+        self.render()
 
     def _grips_for_tool(self, _name=None):
         """Reshape on / off: its grips shown / removed."""
@@ -1783,6 +1851,7 @@ class ModelViewport(QtWidgets.QWidget):
             except Exception as exc:  # display must never crash the app
                 print("overlay error:", exc)
         self._build_panels(rd)
+        self._overlay_actors += self._grid_selection_actors()
         pats = self.doc.model.load_patterns
         factors = getattr(rd, "load_factors", None)
         factors = ({p: f for p, f in factors.items() if p in pats} if factors else
@@ -2282,15 +2351,20 @@ class ModelViewport(QtWidgets.QWidget):
                 self._draw_grips()
                 self._update_preview(x, y)
             return
-        if st.tool.name == "select" and not getattr(self.doc, "lock_grids", False):
-            # a grid bubble: drag it to move its line (Edit > Grid Lines > Lock Grid Lines
-            # Against Dragging stops it)
-            hit = self.grid_bubble_under(x, y)
-            if hit is not None:
-                self._grid_drag = {"system": hit[0], "name": hit[1], "moved": False, "xy": None}
-                self._press = (x, y)
-                self._dragging = False
+        if getattr(st.tool, "grid_selecting", False):  # Grid Mode select: grid lines only
+            if self.config.kind not in st.tool.views:
+                st.status.emit("Grid Mode: edit the grid lines in a plan window")
                 return
+            # a bubble, or a selected line: drag it to move the line
+            hit = self.grid_bubble_under(x, y)
+            on_line = self.grid_line_under(x, y)
+            if hit is None and on_line in st.grid_sel:
+                hit = on_line
+            if hit is not None and self.interactor.GetRepeatCount() == 0:
+                self._grid_drag = {"system": hit[0], "name": hit[1], "moved": False, "xy": None}
+            self._press = (x, y)
+            self._dragging = False
+            return
         if st.tool.name in ("select", "select_line") or getattr(st.tool, "picks", None) \
                 or getattr(st.tool, "selecting", False):
             # select tools, load commands picking their objects, and modify commands asking
@@ -2419,14 +2493,41 @@ class ModelViewport(QtWidgets.QWidget):
             self._draw_grips()
             self._update_preview(x, y)
             return
-        if getattr(self, "_grid_drag", None) is not None:
-            gd, self._grid_drag = self._grid_drag, None
+        gd = getattr(self, "_grid_drag", None)
+        if gd is not None and gd["moved"]:
+            self._grid_drag = None
             self._press = None
             self._dragging = False
             self._clear_preview()
-            if gd["moved"] and gd["xy"] is not None:
+            if gd["xy"] is not None:
                 self._grid_drag_apply(gd)
             self.render()
+            return
+        self._grid_drag = None
+        if getattr(st.tool, "grid_selecting", False) and self._press is not None:
+            x, y = self.interactor.GetEventPosition()
+            p0, self._press = self._press, None
+            ctrl = bool(self.interactor.GetControlKey())
+            if self._rubber.hide():
+                self.render()
+            if self._dragging:
+                from .grid_tools import lines_in_box
+                self._dragging = False
+                keys = lines_in_box(self.doc.model, lambda u, v: self._display((u, v, self.plane().value)),
+                                    (p0, (x, y)), crossing=x < p0[0], story=self.config.story,
+                                    tower=self.window_tower())
+                st.set_grid_selection((st.grid_sel | set(keys)) if ctrl else keys)
+            else:
+                hit = self.grid_line_under(x, y)
+                if self.interactor.GetRepeatCount() > 0 and hit is not None:  # double-click: properties
+                    st.set_grid_selection([hit])
+                    opener = getattr(self.window(), "grid_line_properties", None)
+                    if callable(opener):
+                        opener(hit)
+                elif hit is not None:
+                    st.toggle_grid(hit, add=ctrl)
+                elif not ctrl:
+                    st.set_grid_selection(())
             return
         if self._press is None:
             return
@@ -2499,6 +2600,12 @@ class ModelViewport(QtWidgets.QWidget):
                 self._grid_drag["moved"] = True
                 self._grid_drag_update(x, y)
             return
+        if self._press is not None and getattr(st.tool, "grid_selecting", False):
+            if self._dragging or abs(x - self._press[0]) > 4 or abs(y - self._press[1]) > 4:
+                self._dragging = True
+                self._rubber.show(self._press, (x, y), crossing=x < self._press[0])
+                self.render()
+            return
         if self._press is not None and self._drag is not None:
             dx, dy = x - self._press[0], y - self._press[1]
             if self._drag["moved"] or abs(dx) > 4 or abs(dy) > 4:
@@ -2516,15 +2623,17 @@ class ModelViewport(QtWidgets.QWidget):
                     self._rubber.show(self._press, (x, y), crossing=x < self._press[0])
                     self.render()
             return
-        on_bubble = st.tool.name == "select" and self.config.kind == "plan" and \
-            not getattr(self.doc, "lock_grids", False) and self.grid_bubble_under(x, y) is not None
+        grid_sel_tool = bool(getattr(st.tool, "grid_selecting", False))
+        on_bubble = grid_sel_tool and self.config.kind == "plan" and \
+            (self.grid_bubble_under(x, y) is not None or
+             (bool(st.grid_sel) and self.grid_line_under(x, y) in st.grid_sel))
         if st.tool.name not in ("select", "select_line") and not getattr(st.tool, "picks", None) \
-                and not getattr(st.tool, "selecting", False):
+                and not getattr(st.tool, "selecting", False) and not grid_sel_tool:
             self._update_preview(x, y)
         elif on_bubble:  # a grid bubble can be dragged
             self.vtk_widget.setCursor(QtCore.Qt.SizeAllCursor)
             self._grid_cursor = True
-        elif getattr(self, "_grid_cursor", False) and not (st.frames or st.areas or st.points):
+        elif getattr(self, "_grid_cursor", False) and (grid_sel_tool or not (st.frames or st.areas or st.points)):
             self._grid_cursor = False
             if getattr(self.state, "nav_mode", None) is None:
                 self.vtk_widget.unsetCursor()
@@ -2556,6 +2665,14 @@ class ModelViewport(QtWidgets.QWidget):
             if (self.interactor.GetShiftKey() or self.interactor.GetControlKey()) and self._takes_points():
                 self._right_press = None
                 self.snap_menu(x, y)  # CAD: Shift / Ctrl + right-click = object snap menu
+                return
+            if getattr(st.tool, "grid_selecting", False):  # Grid Mode: the grid line's menu
+                self._right_press = None
+                hit = self.grid_line_under(x, y)
+                if hit is not None and hit not in st.grid_sel:
+                    st.set_grid_selection([hit])
+                from .grid_tools import grid_mode_menu
+                grid_mode_menu(self.window(), self, hit, x, y)
                 return
             if st.tool.name in ("select", "select_line") and not getattr(st.tool, "points", None):
                 # a command waits for its objects (command first, then select): the right

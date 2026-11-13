@@ -150,19 +150,22 @@ def grid_models_at(model: Model, story: Optional[str], tower: Optional[str] = No
     story at its level - as the window draws them)."""
     if not model.multi_tower:
         return [model]
-    if story is not None and story in model.stories:
-        return [model.view(model.tower_of_story(st)) for st in model.same_level_stories(story)]
+    if story is not None and story in model.stories:  # (the plan's own tower first)
+        sts = sorted(model.same_level_stories(story), key=lambda st: st != story)
+        return [model.view(model.tower_of_story(st)) for st in sts]
     if tower is not None:
         return [model.view(tower)]
     return [model.view(t) for t in model.tower_names()]
 
 
 def line_at(model: Model, xy: XY, tol: float, story: Optional[str] = None,
-            tower: Optional[str] = None) -> Optional[Tuple[str, str]]:
-    """(system, name) of the straight grid line nearest to the plan point (within tol)."""
+            tower: Optional[str] = None, own_only: bool = False) -> Optional[Tuple[str, str]]:
+    """(system, name) of the straight grid line nearest to the plan point (within tol);
+    ``own_only``: the lines of the plan's own tower only."""
     from ..model.grids import grid_geometry
     best = None
-    for gm in grid_models_at(model, story, tower):
+    gms = grid_models_at(model, story, tower)
+    for gm in (gms[:1] if own_only else gms):
         for a, b, name, system in grid_geometry(gm).lines:
             d = _point_segment(xy, a, b)
             if d <= tol and (best is None or d < best[0]):
@@ -171,12 +174,13 @@ def line_at(model: Model, xy: XY, tol: float, story: Optional[str] = None,
 
 
 def bubble_at(model: Model, xy: XY, size, story: Optional[str] = None,
-              tower: Optional[str] = None) -> Optional[Tuple[str, str]]:
+              tower: Optional[str] = None, own_only: bool = False) -> Optional[Tuple[str, str]]:
     """(system, name) of the straight grid line whose bubble holds the plan point:
     ``size(grid model)`` = (radius, distance of the centre past the line's end), as the
     window draws the bubbles of that tower's grids."""
     from ..model.grids import grid_geometry
-    for gm in grid_models_at(model, story, tower):
+    gms = grid_models_at(model, story, tower)
+    for gm in (gms[:1] if own_only else gms):
         geo = grid_geometry(gm)
         radius, offset = size(gm)
         for end, d, name in geo.bubbles:
@@ -459,6 +463,164 @@ def moved_line(model: Model, system: str, name: str, xy: XY) -> Optional[Tuple[X
     return (ax + vec[0], ay + vec[1]), (bx + vec[0], by + vec[1])
 
 
+def _local_delta(gs, dx: float, dy: float) -> XY:
+    """A global plan displacement in the system's local axes."""
+    c, s = math.cos(math.radians(gs.rotation or 0.0)), math.sin(math.radians(gs.rotation or 0.0))
+    return c * dx + s * dy, -s * dx + c * dy
+
+
+def move_grid_lines(doc: Document, keys: Sequence[Tuple[str, str]], dx: float, dy: float,
+                    copy: bool = False, move_objects: bool = False) -> List[Tuple[str, str]]:
+    """Move (or copy) grid lines by the global plan vector (dx, dy) - an X / Y line by the
+    part of it across the line, a General line by all of it.  ``move_objects`` (move
+    only): the joints on the lines move with them.  Returns the (system, name) of the lines
+    moved / made.  One undo step."""
+    m = doc.model
+    tol = _tol(m)
+    lines = [find_line(m, s_, n_) for s_, n_ in dict.fromkeys(keys)]
+    if not lines:
+        raise ModelError("NOTHING_SELECTED", "Select the grid lines to move first")
+    plan = []  # (line, change)
+    xy_moves, gen_moves = [], {}
+    names_taken: Dict[str, set] = {}
+    for g in lines:
+        system = _sys(g)
+        gs = system_of(m, g)
+        du, dv = _local_delta(gs, dx, dy)
+        if g.direction == "X":
+            ch = ("ordinate", g.ordinate + du)
+        elif g.direction == "Y":
+            ch = ("ordinate", g.ordinate + dv)
+        elif g.direction == "General" and g.start and g.end:
+            ch = ("ends", ((g.start[0] + du, g.start[1] + dv), (g.end[0] + du, g.end[1] + dv)))
+        else:
+            raise ModelError("NOT_MOVABLE", f"Grid line {g.name}: circles and radial lines are changed in the "
+                                            f"grid systems form")
+        if ch[0] == "ordinate":
+            if abs(ch[1] - g.ordinate) <= tol and not copy:
+                continue
+            clash = _exists(m, system, g.direction, ch[1], skip=g)
+            if clash is not None and (copy or clash not in lines):
+                raise ModelError("GRID_EXISTS", f"Grid line {clash.name} is there already ({ch[1]:g})")
+            if move_objects and not copy:
+                xy_moves.append((system, g.direction, g.ordinate, ch[1]))
+        elif move_objects and not copy:
+            gen_moves.update(_general_glue(m, system, g, du, dv))
+        new = None
+        if copy:
+            taken = names_taken.setdefault(system, set())
+            new = g.name + "'"
+            while new in _names_in(m, system) or new in taken:
+                new += "'"
+            taken.add(new)
+        plan.append((system, g.name, g.direction, ch, new))
+    moves = glue_moves(m, xy_moves) if xy_moves else {}
+    for n_, d_ in gen_moves.items():
+        if n_ not in moves:
+            moves[n_] = d_
+    out = []
+
+    def mutate(model: Model):
+        for system, name, direction, ch, new in plan:
+            g = find_line(model, system, name)
+            if new is not None:
+                import dataclasses as _dc
+                g = _dc.replace(g, name=new)
+                model.grid_lines.append(g)
+            if ch[0] == "ordinate":
+                g.ordinate = ch[1]
+            else:
+                g.start, g.end = ch[1]
+            out.append((system, g.name))
+        _sort(model)
+        _apply_moves(model, moves)
+
+    if plan:
+        doc.edit(mutate)
+    return out
+
+
+def edit_grid_line(doc: Document, system: str, name: str, *, new_name: Optional[str] = None,
+                   ordinate: Optional[float] = None, start: Optional[XY] = None, end: Optional[XY] = None,
+                   visible: Optional[bool] = None, bubble: Optional[str] = None,
+                   move_objects: bool = False) -> None:
+    """Grid line properties (name, ordinate / ends, shown, bubble end) - one undo step."""
+    m = doc.model
+    g = find_line(m, system, name)
+    new_name = (new_name or "").strip() or name
+    if new_name != name and new_name in _names_in(m, system):
+        raise ModelError("NAME_IN_USE", f"Grid system {system} has a line {new_name} already")
+    moves = {}
+    if ordinate is not None and g.direction in ("X", "Y", "R", "T") and ordinate != g.ordinate:
+        if g.direction == "R" and ordinate <= 0:
+            raise ModelError("INVALID_RADIUS", "A circle needs a radius greater than zero")
+        clash = _exists(m, system, g.direction, ordinate, skip=g)
+        if clash is not None:
+            raise ModelError("GRID_EXISTS", f"Grid line {clash.name} is there already")
+        if move_objects and g.direction in ("X", "Y"):
+            moves = glue_moves(m, [(system, g.direction, g.ordinate, ordinate)])
+    if g.direction == "General" and (start is not None or end is not None):
+        a, b = start or g.start, end or g.end
+        if math.dist(a, b) <= _tol(m):
+            raise ModelError("ZERO_LENGTH", "The two ends of the line must differ")
+
+    def mutate(model: Model):
+        gl = find_line(model, system, name)
+        if ordinate is not None and gl.direction in ("X", "Y", "R", "T"):
+            gl.ordinate = float(ordinate)
+        if gl.direction == "General":
+            if start is not None:
+                gl.start = tuple(start)
+            if end is not None:
+                gl.end = tuple(end)
+        if visible is not None:
+            gl.visible = bool(visible)
+        if bubble in ("Start", "End"):
+            gl.bubble_location = bubble
+        gl.name = new_name
+        _sort(model)
+        _apply_moves(model, moves)
+
+    doc.edit(mutate)
+
+
+def lines_in_box(model: Model, to_screen, box, crossing: bool, story: Optional[str] = None,
+                 tower: Optional[str] = None) -> List[Tuple[str, str]]:
+    """Grid lines a selection box takes (screen coordinates through ``to_screen(x, y)``):
+    a window (left to right) takes the lines it holds whole, a crossing box (right to left)
+    the lines it touches."""
+    from ..model.grids import grid_geometry
+    (x0, y0), (x1, y1) = box
+    lo = (min(x0, x1), min(y0, y1))
+    hi = (max(x0, x1), max(y0, y1))
+
+    def inside(p):
+        return lo[0] <= p[0] <= hi[0] and lo[1] <= p[1] <= hi[1]
+
+    def crosses(a, b):
+        if inside(a) or inside(b):
+            return True
+        # the segment against the four sides
+        def seg(p, q, r, s_):
+            d = (q[0] - p[0]) * (s_[1] - r[1]) - (q[1] - p[1]) * (s_[0] - r[0])
+            if abs(d) < 1e-12:
+                return False
+            t = ((r[0] - p[0]) * (s_[1] - r[1]) - (r[1] - p[1]) * (s_[0] - r[0])) / d
+            u = ((r[0] - p[0]) * (q[1] - p[1]) - (r[1] - p[1]) * (q[0] - p[0])) / d
+            return 0 <= t <= 1 and 0 <= u <= 1
+        c = [lo, (hi[0], lo[1]), hi, (lo[0], hi[1])]
+        return any(seg(a, b, c[k], c[(k + 1) % 4]) for k in range(4))
+
+    out = []
+    gms = grid_models_at(model, story, tower)[:1]  # (the window's own tower)
+    for gm in gms:
+        for a, b, name, system in grid_geometry(gm).lines:
+            sa, sb = to_screen(*a), to_screen(*b)
+            if (inside(sa) and inside(sb)) if not crossing else crosses(sa, sb):
+                out.append((system, name))
+    return out
+
+
 # ------------------------------------------------------------------ tools
 
 
@@ -654,79 +816,273 @@ class OffsetGridTool(Tool):
         return pv
 
 
-TOOLS.update({"grid_line": GridLineTool, "grid_offset": OffsetGridTool})
+class GridSelectTool(Tool):
+    """Grid Mode: select grid lines (click, Ctrl + click, window / crossing box), drag a
+    bubble or a selected line to move it, Delete, double-click = properties."""
+
+    name = "grid_select"
+    title = "Select Grid Lines"
+    prompt = "click a grid line (Ctrl adds); drag a box; drag a bubble to move its line"
+    views = ("plan",)
+    grid_selecting = True  # the viewport picks grid lines instead of objects
+    takes_typed_points = False
+
+    def hint(self, state=None) -> str:
+        n = len(getattr(state, "grid_sel", ()) or ()) if state is not None else 0
+        if n:
+            return next_step("Grid Mode", f"{n} grid line(s) selected", "Delete = delete", "M, V = move",
+                             "C, O = copy", "drag = move", "double-click = properties", "Esc = clear")
+        return next_step("Grid Mode", self.prompt, "Esc = leave Grid Mode")
+
+
+class GridMoveTool(Tool):
+    """Grid Mode Move / Copy (CAD): the selected grid lines (or click lines first), then a
+    base point and the destination - clicked or typed (a length toward the cursor, dx,dy)."""
+
+    name = "grid_move"
+    title = "Move Grid Lines"
+    copy = False
+    views = ("plan",)
+
+    def activate(self, state) -> None:
+        self.state = state
+        self._adding = not state.grid_sel  # nothing selected: click the lines first
+
+    def cancel(self):
+        if getattr(self, "_adding", False) and getattr(self, "state", None) is not None and self.state.grid_sel:
+            self._adding = False  # right click / Esc after picking: the lines are chosen
+            return
+        super().cancel()
+
+    @property
+    def prompt(self) -> str:
+        st = getattr(self, "state", None)
+        if st is not None and not st.grid_sel:
+            return "click the grid lines to move, then Enter (or right-click)"
+        return "click the base point" if not self.points else "click the destination (or type a distance + Enter)"
+
+    def hint(self, state=None) -> str:
+        return next_step(self.title, self.prompt, "Esc = cancel")
+
+    def _picking(self) -> bool:
+        st = getattr(self, "state", None)
+        return st is not None and (not st.grid_sel or getattr(self, "_adding", False))
+
+    def click(self, pt, snap: Optional[SnapResult] = None) -> bool:
+        st = self.state
+        p = self._p3(pt)
+        if not st.grid_sel or getattr(self, "_adding", False):
+            self._adding = True
+            hit = line_at(self.model, (p[0], p[1]), self.tolerance, story=self.story, tower=self.tower,
+                          own_only=True)
+            if hit is not None:
+                st.toggle_grid(hit, add=True)
+            return False
+        if not self.points:
+            self.points = [p]
+            self._raw_last = p
+            return False
+        a = self.points[0]
+        self.points = []
+        self._raw_last = None
+        glue = bool(getattr(self.doc, "glue_grids", False)) and not self.copy
+        made = move_grid_lines(self.doc, sorted(st.grid_sel), p[0] - a[0], p[1] - a[1], copy=self.copy,
+                               move_objects=glue)
+        if made:  # (the copies / the moved lines stay selected)
+            st.set_grid_selection(made)
+        st.status.emit(("Copied" if self.copy else "Moved") + f" {len(made)} grid line(s)" if made else
+                       "Nothing moved: an X / Y line moves only across itself")
+        return True
+
+    def finish(self) -> bool:
+        if getattr(self, "_adding", False):  # Enter: the lines are chosen - now the base point
+            self._adding = False
+            return False
+        return False
+
+    def double_click(self, pt) -> bool:
+        return False
+
+    def preview(self, cursor) -> Preview:
+        pv = Preview(marker=None if cursor is None else self._p3(cursor))
+        st = getattr(self, "state", None)
+        if st is None or cursor is None or not self.points or self._picking():
+            return pv
+        a, b = self.points[0], self._p3(cursor)
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        m = self.model
+        for key in st.grid_sel:
+            try:
+                g = find_line(m, *key)
+            except ModelError:
+                continue
+            ends = line_ends(m, g)
+            if ends is None:
+                continue
+            gs = system_of(m, g)
+            du, dv = _local_delta(gs, dx, dy)
+            if g.direction == "X":
+                du, dv = du, 0.0
+            elif g.direction == "Y":
+                du, dv = 0.0, dv
+            c, s_ = math.cos(math.radians(gs.rotation or 0.0)), math.sin(math.radians(gs.rotation or 0.0))
+            vx, vy = c * du - s_ * dv, s_ * du + c * dv
+            pv.lines.append(((ends[0][0] + vx, ends[0][1] + vy, a[2]), (ends[1][0] + vx, ends[1][1] + vy, a[2])))
+        pv.guides = [(a, b)]
+        pv.text = f"{'copy' if self.copy else 'move'} {math.hypot(dx, dy):.3f}"
+        return pv
+
+
+class GridCopyTool(GridMoveTool):
+    name = "grid_copy"
+    title = "Copy Grid Lines"
+    copy = True
+
+
+GRID_MODE_TOOLS = ("grid_select", "grid_line", "grid_offset", "grid_move", "grid_copy")
+TOOLS.update({"grid_line": GridLineTool, "grid_offset": OffsetGridTool, "grid_select": GridSelectTool,
+              "grid_move": GridMoveTool, "grid_copy": GridCopyTool})
 TOOL_PROPERTIES.update({"grid_offset": [("grid_offset_distance", "Offset distance", "float",
                                           "or type the distance + Enter in the window")]})
 
 
-# ------------------------------------------------------- right-click menu
+# ------------------------------------------------------- menus / forms
 def grid_line_menu(win, vp, hit: Tuple[str, str], x: int, y: int) -> None:
-    """Right click on a grid line in a plan window: what can be done with it."""
+    """Right click on a grid line outside Grid Mode: go to Grid Mode with it selected."""
     from PySide6 import QtCore, QtWidgets
-    system, name = hit
-    doc = win.doc
-    m = doc.model
-    try:
-        g = find_line(m, system, name)
-    except ModelError:
-        return
     menu = QtWidgets.QMenu(win)
-    head = menu.addAction(f"Grid line {name}" + (f"  ({system})" if len(m.grid_systems) > 1 else ""))
+
+    def go():
+        win.state.set_grid_mode(True)
+        win.state.set_grid_selection([hit])
+    head = menu.addAction(f"Grid line {hit[1]}")
     head.setEnabled(False)
     menu.addSeparator()
+    menu.addAction("Edit Grids on Screen", go)
+    h = vp.vtk_widget.height()
+    menu.exec(vp.vtk_widget.mapToGlobal(QtCore.QPoint(int(x), int(h - y))))
+
+
+def grid_mode_menu(win, vp, hit: Optional[Tuple[str, str]], x: int, y: int) -> None:
+    """Right click in Grid Mode: on a grid line its commands, elsewhere the mode's own."""
+    from PySide6 import QtCore, QtWidgets
+    st = win.state
+    doc = win.doc
+    menu = QtWidgets.QMenu(win)
 
     def run(fn):
         def go():
             try:
                 fn()
             except Exception as exc:  # noqa: BLE001
-                QtWidgets.QMessageBox.warning(win, f"Grid line {name}", str(exc))
+                QtWidgets.QMessageBox.warning(win, "Grid lines", str(exc))
             vp.render()
         return go
 
-    def edit():
-        from .dialogs import GridStoriesDialog
-        tower = m.tower_of_system(system) if m.multi_tower else None
-        GridStoriesDialog(doc, win, system=system, tower=tower, line=name).exec()
-
-    def rename():
-        new, ok = QtWidgets.QInputDialog.getText(win, "Rename grid line", "Name", text=name)
-        if ok:
-            rename_grid_line(doc, system, name, new)
-
-    def move():
-        glue = bool(getattr(doc, "glue_grids", False))
-        note = "\n(the joints on the line move with it)" if glue else ""
-        if g.direction in ("X", "Y"):
-            v, ok = QtWidgets.QInputDialog.getDouble(win, f"Move grid line {name}",
-                                                     f"{g.direction} ordinate{note}", g.ordinate, -1e9, 1e9, 4)
-            if ok:
-                n = move_grid_line(doc, system, name, to=v, move_objects=glue)
-                win.state.status.emit(f"Grid line {name} moved to {v:g}" + (f" with {n} joint(s)" if n else ""))
-        else:
-            v, ok = QtWidgets.QInputDialog.getDouble(win, f"Move grid line {name}",
-                                                     f"Distance across the line (+ = to its left){note}",
-                                                     0.0, -1e9, 1e9, 4)
-            if ok:
-                n = move_grid_line(doc, system, name, delta=v, move_objects=glue)
-                win.state.status.emit(f"Grid line {name} moved" + (f" with {n} joint(s)" if n else ""))
-
-    straight = g.direction in ("X", "Y", "General")
-    menu.addAction("Edit in Grid Systems...", run(edit))
-    menu.addAction("Rename...", run(rename))
-    a = menu.addAction("Move...", run(move))
-    a.setEnabled(straight)
-    def offset():
-        win.state.set_tool("grid_offset")
-        win.state.tool.picked = hit  # this line: type the distance + Enter, or click a point
-        win.state.update_hint()
-    a = menu.addAction("Offset (type the distance + Enter)", run(offset))
-    a.setEnabled(g.direction != "T")
-    menu.addSeparator()
-    menu.addAction("Hide", run(lambda: set_grid_line_visible(doc, system, name, False)))
-    menu.addAction("Delete", run(lambda: delete_grid_line(doc, system, name)))
-    if any(not getattr(gl, "visible", True) for gl in m.grid_lines):
+    if hit is not None:
+        n = len(st.grid_sel)
+        head = menu.addAction(f"Grid line {hit[1]}" if n <= 1 else f"{n} grid lines")
+        head.setEnabled(False)
         menu.addSeparator()
-        menu.addAction("Show All Grid Lines", run(lambda: show_all_grid_lines(doc)))
+        menu.addAction("Properties...", run(lambda: grid_line_properties(win, hit)))
+        a = menu.addAction("Offset (type the distance + Enter)", run(lambda: _start(st, "grid_offset", hit)))
+        a.setEnabled(n <= 1)
+        menu.addAction("Move", run(lambda: st.set_tool("grid_move")))
+        menu.addAction("Copy", run(lambda: st.set_tool("grid_copy")))
+        menu.addSeparator()
+        menu.addAction("Hide", run(lambda: _hide(doc, st)))
+        menu.addAction("Delete", run(st.delete_grid_selection))
+        menu.addSeparator()
+    if any(not getattr(g, "visible", True) for g in doc.model.grid_lines):
+        menu.addAction("Show All Hidden Grid Lines", run(lambda: show_all_grid_lines(doc)))
+    menu.addAction("Edit Stories and Grid Systems (table)...", run(lambda: win.edit_grid_stories()))
+    menu.addSeparator()
+    menu.addAction("Done (leave Grid Mode)", run(lambda: st.set_grid_mode(False)))
     h = vp.vtk_widget.height()
     menu.exec(vp.vtk_widget.mapToGlobal(QtCore.QPoint(int(x), int(h - y))))
+
+
+def _start(st, tool: str, hit):
+    st.set_tool(tool)
+    st.tool.picked = hit
+    st.update_hint()
+
+
+def _hide(doc: Document, st) -> None:
+    keys = set(st.grid_sel)
+    if not keys:
+        return
+
+    def mutate(model: Model):
+        for g in model.grid_lines:
+            if (_sys(g), g.name) in keys:
+                g.visible = False
+    doc.edit(mutate)
+    st.set_grid_selection(())
+
+
+def grid_line_properties(win, hit: Tuple[str, str]) -> bool:
+    """Grid line properties: name, ordinate (X / Y / circle / radial) or the two ends
+    (General), shown, bubble end.  The same data as the grid systems form."""
+    from PySide6 import QtWidgets
+    doc = win.doc
+    m = doc.model
+    system, name = hit
+    g = find_line(m, system, name)
+    d = QtWidgets.QDialog(win)
+    d.setWindowTitle(f"Grid Line {name}")
+    form = QtWidgets.QFormLayout(d)
+    u = m.units.label("length") if hasattr(m.units, "label") else ""
+    ed_name = QtWidgets.QLineEdit(name)
+    form.addRow("Name", ed_name)
+    form.addRow("Grid system", QtWidgets.QLabel(f"{system}  ({system_of(m, g).type})"))
+    kind = {"X": "X line (constant X)", "Y": "Y line (constant Y)", "R": "Circle", "T": "Radial line",
+            "General": "General (two points)"}.get(g.direction, g.direction)
+    form.addRow("Type", QtWidgets.QLabel(kind))
+    fields = {}
+
+    def num(v):
+        w = QtWidgets.QLineEdit(f"{v:g}")
+        return w
+    if g.direction == "General":
+        for k, v in (("x1", g.start[0]), ("y1", g.start[1]), ("x2", g.end[0]), ("y2", g.end[1])):
+            fields[k] = num(v)
+            form.addRow(f"{k.upper()} [{u}] (system axes)", fields[k])
+    else:
+        lab = {"X": f"X ordinate [{u}]", "Y": f"Y ordinate [{u}]", "R": f"Radius [{u}]", "T": "Angle [deg]"}
+        fields["o"] = num(g.ordinate)
+        form.addRow(lab.get(g.direction, "Ordinate"), fields["o"])
+    vis = QtWidgets.QCheckBox("Shown")
+    vis.setChecked(getattr(g, "visible", True))
+    form.addRow("", vis)
+    bub = QtWidgets.QComboBox()
+    bub.addItems(["End", "Start"])
+    bub.setCurrentText(getattr(g, "bubble_location", "End") or "End")
+    form.addRow("Bubble at", bub)
+    glue = bool(getattr(doc, "glue_grids", False))
+    if g.direction in ("X", "Y"):
+        form.addRow("", QtWidgets.QLabel("Moving the line moves the joints on it" if glue else
+                                         "Moving the line leaves the objects where they are"))
+    bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+    form.addRow(bb)
+
+    def ok():
+        try:
+            kw = {}
+            if "o" in fields:
+                kw["ordinate"] = float(fields["o"].text())
+            else:
+                kw["start"] = (float(fields["x1"].text()), float(fields["y1"].text()))
+                kw["end"] = (float(fields["x2"].text()), float(fields["y2"].text()))
+            new = ed_name.text().strip() or name
+            edit_grid_line(doc, system, name, new_name=new, visible=vis.isChecked(),
+                           bubble=bub.currentText(), move_objects=glue, **kw)
+            st = getattr(win, "state", None)
+            if st is not None and getattr(st, "grid_mode", False):
+                st.set_grid_selection([(system, new)])
+            d.accept()
+        except Exception as exc:  # noqa: BLE001
+            QtWidgets.QMessageBox.warning(d, f"Grid line {name}", str(exc))
+    bb.accepted.connect(ok)
+    bb.rejected.connect(d.reject)
+    return d.exec() == QtWidgets.QDialog.Accepted

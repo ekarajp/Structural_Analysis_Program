@@ -144,7 +144,7 @@ def test_gui_grid_systems_dialog(tmp_path, monkeypatch):
     w.show()
     app.processEvents()
     d = GridStoriesDialog(w.doc, w)
-    assert [d.tabs.tabText(i) for i in range(d.tabs.count())] == ["X Grid", "Y Grid", "Story"]
+    assert [d.tabs.tabText(i) for i in range(d.tabs.count())] == ["X Grid", "Y Grid", "General", "Story"]
     assert d.system_box.currentText() == "G1" and d.x_table.rowCount() == 3
     d._add_system("Cylindrical")
     assert d.system_box.currentText() == "C1" and d.tabs.tabText(0) == "Radial lines"
@@ -200,7 +200,7 @@ def test_gui_grid_systems_manager(tmp_path, monkeypatch):
     seen = {}
 
     def fake_exec(self):  # the editor: accept what the manager opened it with
-        seen.setdefault("kw", []).append((self._current, self.tabs.currentIndex()))
+        seen.setdefault("kw", []).append((self._current, self.tabs.tabText(self.tabs.currentIndex())))
         self.accept()
         return QtWidgets.QDialog.Accepted
 
@@ -217,7 +217,7 @@ def test_gui_grid_systems_manager(tmp_path, monkeypatch):
     d.modify()
     assert seen["kw"][-1][0] == "G1"
     d.modify_stories()
-    assert seen["kw"][-1][1] == 2
+    assert seen["kw"][-1][1] == "Story"  # (opened on the levels)
     monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Yes)
     rows = [d.table.item(r, 0).text() for r in range(d.table.rowCount())]
     d.table.selectRow(rows.index("G1_copy"))

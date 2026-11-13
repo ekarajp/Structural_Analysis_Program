@@ -234,9 +234,9 @@ def test_grid_system_switch_toolbar_menu_dialog(window, app):
     assert window.views.viewports[0].title.text().startswith("Plan View")
     # tabbed dialog: switch to SAP2000 inside the dialog, add a Z line, accept
     d = GridStoriesDialog(window.doc, window)
-    assert [d.tabs.tabText(i) for i in range(d.tabs.count())] == ["X Grid", "Y Grid", "Story"]
+    assert [d.tabs.tabText(i) for i in range(d.tabs.count())] == ["X Grid", "Y Grid", "General", "Story"]
     d.switch.setCurrentIndex(1)
-    assert d.tabs.tabText(2) == "Z Grid" and d.z_table.rowCount() == 3
+    assert d.tabs.tabText(3) == "Z Grid" and d.z_table.rowCount() == 3
     d._add_row(d.z_table, ("Roof", 9.0))
     d.accept()
     m = window.doc.model
@@ -1054,7 +1054,9 @@ def test_cad_rotate_mirror_trim_extend_paste_and_shortcuts(window, app):
     assert window.menu_actions["edit.move"] is window.tool_actions["move"] is window.act_move
     edit = window.menuBar().actions()[1].menu()
     texts = [a.text() for a in edit.actions()]
-    assert sum(t.startswith("Move") for t in texts) == 1 and not any("Offset..." in t for t in texts)
+    # (Move Objects with Grid Lines is an option, not a second Move command)
+    assert sum(t.startswith("Move") and "Grid Lines" not in t for t in texts) == 1 and \
+        not any("Offset..." in t for t in texts)
     assert sum(t.startswith("Paste") for t in texts) == 1
     # snaps and guides: every one has a switch (Snap To menu + status bar strip)
     from structstudio.app.snap import SNAP_KEYS

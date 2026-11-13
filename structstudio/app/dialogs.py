@@ -350,6 +350,7 @@ class GridStoriesDialog(QtWidgets.QDialog):
         lay.addWidget(self.tabs, 1)
         self.x_table = self._table(["Name", "X ordinate"], [])
         self.y_table = self._table(["Name", "Y ordinate"], [])
+        self.g_table = self._table(["Name", "X1", "Y1", "X2", "Y2"], [])
         self._current = None
         for name in self._systems:
             self.system_box.addItem(name)
@@ -362,6 +363,10 @@ class GridStoriesDialog(QtWidgets.QDialog):
         self.z_table = self._table(["Name", "Z ordinate"], zl or [(s.name, s.elevation) for s in stories])
         self.tabs.addTab(self._with_buttons(self.x_table, ("", 0.0)), "X Grid")
         self.tabs.addTab(self._with_buttons(self.y_table, ("", 0.0)), "Y Grid")
+        self.g_page = self._with_buttons(self.g_table, ("", 0.0, 0.0, 1.0, 0.0))
+        self.tabs.addTab(self.g_page, "General")
+        self.tabs.setTabToolTip(2, "Grid lines at any angle: two points in the grid system's axes "
+                                   "(drawn in Edit Grids on Screen, or typed here)")
         self.story_page = self._with_buttons(self.story_table, ("", 3.0))
         self.z_page = self._with_buttons(self.z_table, ("", 0.0))
         self._level_tab = None
@@ -379,17 +384,17 @@ class GridStoriesDialog(QtWidgets.QDialog):
         elif add in ("Cartesian", "Cylindrical"):
             self._add_system(add)
         if show_levels:
-            self.tabs.setCurrentIndex(2)
+            self.tabs.setCurrentWidget(self._level_tab)
         if line and system and system in self._systems:
             self.select_line(line)
 
     def select_line(self, name: str) -> bool:
         """Show the grid line ``name`` of the current system: its tab, its row selected."""
-        for k, t in enumerate((self.x_table, self.y_table)):
+        for t in (self.x_table, self.y_table, self.g_table):
             for r in range(t.rowCount()):
                 it = t.item(r, 0)
                 if it is not None and it.text().strip() == name:
-                    self.tabs.setCurrentIndex(k)
+                    self.tabs.setCurrentWidget(t.parentWidget())
                     t.setCurrentCell(r, 1)
                     t.selectRow(r)
                     t.scrollToItem(it)
@@ -419,6 +424,15 @@ class GridStoriesDialog(QtWidgets.QDialog):
             # Cartesian: a = X lines, b = Y lines; cylindrical: a = radial lines (T, angle),
             # b = circles (R, radius) - the ETABS directions
             sysd["a" if g.direction in ("X", "T") else "b"].append((g.name, g.ordinate))
+        for g in m.grid_lines:  # General lines (two points, in the system's axes)
+            if g.direction != "General" or not g.start or not g.end:
+                continue
+            if mine is not None and g.system not in mine:
+                continue
+            sysd = out.get(g.system or "G1")
+            if sysd is not None:
+                sysd.setdefault("g", []).append((g.name, float(g.start[0]), float(g.start[1]),
+                                                 float(g.end[0]), float(g.end[1])))
         if not out:
             name = "G1" if tower is None else f"{tower}-G1"
             k = 2
@@ -436,6 +450,8 @@ class GridStoriesDialog(QtWidgets.QDialog):
             return
         d = self._systems[name]
         d["a"], d["b"] = self._rows(self.x_table), self._rows(self.y_table)
+        if d["type"] == "Cartesian":
+            d["g"] = self._grows(self.g_table)
         d["origin"] = (float(self.ox.text() or 0), float(self.oy.text() or 0))
         d["rotation"] = float(self.rot.text() or 0)
 
@@ -459,10 +475,11 @@ class GridStoriesDialog(QtWidgets.QDialog):
         self.tabs.setTabText(1, tb)
         self.x_table.setHorizontalHeaderLabels(["Name", "Angle [deg]" if kind == "Cylindrical" else "X ordinate"])
         self.y_table.setHorizontalHeaderLabels(["Name", "Radius" if kind == "Cylindrical" else "Y ordinate"])
-        for t, rows in ((self.x_table, d["a"]), (self.y_table, d["b"])):
+        for t, rows in ((self.x_table, d["a"]), (self.y_table, d["b"]), (self.g_table, d.get("g", []))):
             t.setRowCount(0)
             for row in rows:
                 self._add_row(t, row)
+        self.tabs.setTabEnabled(self.tabs.indexOf(self.g_page), kind == "Cartesian")
         self.type_label.setText(kind)
         self.ox.setText(f"{d['origin'][0]:g}")
         self.oy.setText(f"{d['origin'][1]:g}")
@@ -576,7 +593,7 @@ class GridStoriesDialog(QtWidgets.QDialog):
 
     def _show_level_tab(self, mode: str):
         if self._level_tab is not None:
-            self.tabs.removeTab(2)
+            self.tabs.removeTab(self.tabs.indexOf(self._level_tab))
         page, title = (self.z_page, "Z Grid") if mode == "xyz" else (self.story_page, "Story")
         self.tabs.addTab(page, title)
         self._level_tab = page
@@ -600,7 +617,7 @@ class GridStoriesDialog(QtWidgets.QDialog):
                     self._add_row(target, (name, z if prev is None else z - prev))
                     prev = z
         self._show_level_tab(mode)
-        self.tabs.setCurrentIndex(2)
+        self.tabs.setCurrentWidget(self._level_tab)
 
     # ------------------------------------------------------------- values
     @staticmethod
@@ -612,6 +629,24 @@ class GridStoriesDialog(QtWidgets.QDialog):
             if not name:
                 continue
             out.append((name, float(b.text()) if b and b.text().strip() else 0.0))
+        return out
+
+    @staticmethod
+    def _grows(table):
+        """General lines: (name, x1, y1, x2, y2) rows; a line needs two different points."""
+        out = []
+        for r in range(table.rowCount()):
+            it = table.item(r, 0)
+            name = it.text().strip() if it else ""
+            if not name:
+                continue
+            v = []
+            for c in range(1, 5):
+                cell = table.item(r, c)
+                v.append(float(cell.text()) if cell and cell.text().strip() else 0.0)
+            if abs(v[0] - v[2]) + abs(v[1] - v[3]) <= 0:
+                raise ValueError(f"General line {name}: its two points are the same")
+            out.append((name, *v))
         return out
 
     def _levels_from(self, table, mode) -> list:
@@ -703,8 +738,12 @@ class GridStoriesDialog(QtWidgets.QDialog):
                         gl = _dc.replace(prev, ordinate=o) if prev is not None else \
                             GridLine(system=sname, name=n, direction=dirn, ordinate=o)
                         lines.append(gl)
-                # general lines of the system are kept
-                lines += [g for (s_, dd, _), g in extras.items() if s_ == sname and dd == "General"]
+                # General lines (the General tab)
+                for n, x1, y1, x2, y2 in (d.get("g", []) if d["type"] == "Cartesian" else []):
+                    prev = extras.get((sname, "General", n))
+                    lines.append(_dc.replace(prev, start=(x1, y1), end=(x2, y2)) if prev is not None else
+                                 GridLine(system=sname, name=n, direction="General", start=(x1, y1),
+                                          end=(x2, y2)))
             model.grid_lines = lines
             for pn, (dx, dy) in shifted.items():
                 model.points[pn].x += dx

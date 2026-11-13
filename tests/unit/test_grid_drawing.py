@@ -163,3 +163,31 @@ def test_towers_draw_into_the_tower_of_the_plan():
     assert g.direction == "X" and g.ordinate == 40.0
     assert doc.model.tower_of_system("T2-G1") == "T2"
     assert draw_grid_line(doc, (18.0, 0.0), (18.0, 5.0), tower="T1") == "D"  # T1: after A, B, C
+
+
+def test_move_and_copy_several_lines_by_a_vector():
+    from structstudio.app.grid_tools import move_grid_lines
+    doc = _doc()
+    name = draw_grid_line(doc, (0.0, 0.0), (6.0, 5.0))
+    made = move_grid_lines(doc, [("G1", "B"), ("G1", "2"), ("G1", name)], 1.0, -2.0, copy=True)
+    m = doc.model
+    assert sorted(n for _, n in made) == sorted(["B'", "2'", name + "'"])
+    assert _line(m, "B'").ordinate == 7.0 and _line(m, "2'").ordinate == 3.0
+    assert tuple(_line(m, name + "'").start) == pytest.approx((1.0, -2.0))
+    assert _line(m, "B").ordinate == 6.0  # (copies: the originals stay)
+    move_grid_lines(doc, [("G1", "B"), ("G1", "C")], 6.0, 0.0)  # B onto C while C moves on: allowed
+    assert (_line(doc.model, "B").ordinate, _line(doc.model, "C").ordinate) == (12.0, 18.0)
+    with pytest.raises(ModelError):
+        move_grid_lines(doc, [("G1", "A")], 7.0, 0.0)  # onto B' (7)
+    doc.undo()
+    assert (_line(doc.model, "B").ordinate, _line(doc.model, "C").ordinate) == (6.0, 12.0)
+
+
+def test_grid_line_properties_edit():
+    from structstudio.app.grid_tools import edit_grid_line
+    doc = _doc()
+    edit_grid_line(doc, "G1", "B", new_name="B2", ordinate=7.0, visible=False, bubble="Start")
+    g = _line(doc.model, "B2")
+    assert (g.ordinate, g.visible, g.bubble_location) == (7.0, False, "Start")
+    with pytest.raises(ModelError):
+        edit_grid_line(doc, "G1", "B2", ordinate=12.0)  # C is there

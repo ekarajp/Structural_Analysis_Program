@@ -508,25 +508,26 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
                            checked=(b == self.color_settings.color_by))
             self.color_by_group.addAction(a)
             self.color_by_actions[b] = a
-        # grid lines drawn / offset in plan (Draw menu); Edit > Grid Lines options
-        for key, label in (("grid_line", "Draw Grid Line"), ("grid_offset", "Offset Grid Line")):
-            a = self._make(label, lambda _=False, k=key: st.set_tool(k), checkable=True)
+        # Grid Mode (Edit > Edit Grids on Screen): its tools are on the Grid Mode toolbar only
+        for key, label, sc in (("grid_select", "Select Grid Lines", None), ("grid_line", "Draw Grid Line", None),
+                               ("grid_offset", "Offset Grid Line", None), ("grid_move", "Move Grid Lines", None),
+                               ("grid_copy", "Copy Grid Lines", None)):
+            a = self._make(label, lambda _=False, k=key: self._grid_tool(k), checkable=True)
             self.tool_group.addAction(a)
             self.tool_actions[key] = a
+        self.act_grid_mode = self._make(
+            "Edit Grids on Screen", lambda on: st.set_grid_mode(on), "G, G", checkable=True, icon_name="grid",
+            tip="Grid Mode: draw, select, move, copy, offset and delete grid lines in the plan windows like CAD "
+                "- the model is shown faded and is not changed.  The grid lines are the same as in Edit "
+                "Stories and Grid Systems (table).  Esc or Done leaves the mode")
+        st.grid_mode_changed.connect(self._grid_mode_changed)
         store = self.settings_store()
-
-        def _flag(key, default):
-            v = store.value(key, default)
-            return v if isinstance(v, bool) else str(v).lower() in ("1", "true", "yes")
-        self.doc.glue_grids = _flag("grid/move_objects", True)
-        self.doc.lock_grids = _flag("grid/lock_dragging", False)
+        v = store.value("grid/move_objects", False)
+        self.doc.glue_grids = v if isinstance(v, bool) else str(v).lower() in ("1", "true", "yes")
         self.act_glue_grids = self._make(
             "Move Objects with Grid Lines", self.set_glue_grids, checkable=True, checked=self.doc.glue_grids,
-            tip="On: when a grid line is moved (dragged by its bubble, Move..., or a new ordinate in the grid "
-                "form) the joints on it - and the members on them - move with it")
-        self.act_lock_grids = self._make(
-            "Lock Grid Lines Against Dragging", self.set_lock_grids, checkable=True, checked=self.doc.lock_grids,
-            tip="On: grid bubbles cannot be dragged in the plan windows (Move... and the grid form still work)")
+            tip="Off (default): moving a grid line - on screen or a new ordinate in the table - moves only the "
+                "line.  On: the joints on it, and the members on them, move with it")
         # measure tools (View > Measure) are tools like the draw commands
         for key, label in (("measure_line", "Measure Line"), ("measure_area", "Measure Area"),
                            ("measure_angle", "Measure Angle")):
@@ -540,7 +541,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         # ---- command id -> existing action
         acts = {f"tool.{k}": a for k, a in self.tool_actions.items()}
         acts.update({
-            "edit.glue_joints": self.act_glue_grids, "edit.lock_grid": self.act_lock_grids,
+            "edit.glue_joints": self.act_glue_grids, "edit.grids_on_screen": self.act_grid_mode,
             "edit.undo": self.act_undo, "edit.redo": self.act_redo, "edit.delete": self.act_delete,
             "edit.move": self.act_move, "edit.divide_frames": self.act_divide, "edit.replicate": self.act_replicate,
             "analyze.run": self.act_run, "analyze.lock": self.act_lock,
@@ -1333,7 +1334,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         if getattr(self, "_pending_assign", None) is not None:
             self.run_pending_assign()
             return
-        hit = vp.grid_line_under(x, y) if hasattr(vp, "grid_line_under") else None
+        hit = vp.grid_line_under(x, y) if hasattr(vp, "grid_line_under") and not self.state.grid_mode else None
         if hit is not None:
             from .grid_tools import grid_line_menu
             grid_line_menu(self, vp, hit, x, y)
@@ -1344,7 +1345,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             # the selection first (the window was right-clicked beside it)
             menu.addAction(self.tool_actions["reshape"])
             menu.addSeparator()
-        for cid in ("tool.grid_line", "-", "view.show_selected", "view.invert_visibility", "view.hide_selected",
+        for cid in ("view.show_selected", "view.invert_visibility", "view.hide_selected",
                     "view.restore_visibility", "view.show_all", "-", "draw.snap_options", "options.colors_display"):
             if cid == "-":
                 menu.addSeparator()
@@ -2173,9 +2174,52 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         self.statusBar().showMessage("Moved grid lines carry the joints on them" if on
                                      else "Moved grid lines leave the objects where they are", 4000)
 
-    def set_lock_grids(self, on: bool):
-        self.doc.lock_grids = bool(on)
-        self.settings_store().setValue("grid/lock_dragging", bool(on))
+    def _grid_tool(self, key: str):
+        if not self.state.grid_mode:
+            self.state.set_grid_mode(True)
+        self.state.set_tool(key)
+
+    def _grid_mode_changed(self, on: bool):
+        """Grid Mode on / off: its toolbar in place of the draw palette."""
+        self.act_grid_mode.blockSignals(True)
+        self.act_grid_mode.setChecked(on)
+        self.act_grid_mode.blockSignals(False)
+        bar = getattr(self, "grid_bar", None)
+        if bar is None:
+            bar = self.grid_bar = QtWidgets.QToolBar("Grid Mode")
+            bar.setObjectName("grid_mode")
+            bar.setOrientation(QtCore.Qt.Vertical)
+            bar.setToolButtonStyle(QtCore.Qt.ToolButtonTextUnderIcon)
+            title = QtWidgets.QLabel(" GRID MODE ")
+            title.setStyleSheet("color: white; background: #d35400; font-weight: bold; padding: 3px;")
+            bar.addWidget(title)
+            for k in ("grid_select", "grid_line", "grid_offset", "grid_move", "grid_copy"):
+                bar.addAction(self.tool_actions[k])
+            bar.addSeparator()
+            from .grid_tools import show_all_grid_lines
+            bar.addAction(self._make("Show Hidden", lambda: self._info(
+                f"{show_all_grid_lines(self.doc)} hidden grid line(s) shown"),
+                tip="Show all hidden grid lines"))
+            bar.addAction(self._make("Table...", self.edit_grid_stories,
+                                     tip="Edit Stories and Grid Systems: the same grid lines in the table"))
+            bar.addSeparator()
+            bar.addAction(self._make("Done", lambda: self.state.set_grid_mode(False),
+                                     tip="Leave Grid Mode (Esc with nothing selected)"))
+            self.addToolBar(QtCore.Qt.LeftToolBarArea, bar)
+        if on:
+            self._draw_bar_was = self.draw_toolbar.isVisible()
+            self.draw_toolbar.setVisible(False)
+            bar.setVisible(True)
+            plans = [v for v in self.views.visible_viewports() if v.config.kind == "plan"]
+            if not plans:
+                self._info("Grid Mode works in plan windows: switch a window to a plan")
+        else:
+            bar.setVisible(False)
+            self.draw_toolbar.setVisible(getattr(self, "_draw_bar_was", True))
+
+    def grid_line_properties(self, hit):
+        from .grid_tools import grid_line_properties
+        return grid_line_properties(self, hit)
 
     def set_start_page_at_startup(self, on: bool):
         from .start_page import KEY_SHOW

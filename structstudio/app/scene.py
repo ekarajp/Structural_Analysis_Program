@@ -821,8 +821,10 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
     # (a plan: also the grids of the other towers with a story at its level)
     if model.multi_tower:
         if story is not None and story in model.stories:
-            grid_models = [(model.view(model.tower_of_story(st)), st)
-                           for st in model.same_level_stories(story) if st in plan_ss or st == story]
+            # (the plan's own tower first: its grid actors carry no "@k" suffix)
+            grid_models = sorted([(model.view(model.tower_of_story(st)), st)
+                                  for st in model.same_level_stories(story) if st in plan_ss or st == story],
+                                 key=lambda t: t[1] != story)
         elif tower is not None:
             grid_models = [(model.view(tower), story)]
         else:
