@@ -1453,7 +1453,8 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         from . import locate
         m = self.doc.model
         X = np.array([hit.xyz], float)
-        st = m.story_at(float(X[0, 2]), max(m.options.merge_tolerance, 1e-3) * 10)
+        st = m.story_at(float(X[0, 2]), max(m.options.merge_tolerance, 1e-3) * 10,
+                        xy=(float(X[0, 0]), float(X[0, 1])))
         shown = 0
         for vp in self.views.visible_viewports():
             if vp.config.kind == "plan" and st and vp.config.story != st.name and not vp.shows_points(X):
@@ -1786,6 +1787,12 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         return getattr(table.get(name), "color", None)
 
     def set_grid_mode(self, mode: str):
+        if mode == "xyz" and self.doc.model.multi_tower:
+            QtWidgets.QMessageBox.information(self, "Grid system", "A model with several towers uses stories "
+                                              "(X-Y-Story).  Combine the towers first (Edit > Edit Stories and "
+                                              "Grid Systems > Allow multiple towers off).")
+            self._sync_grid_mode()
+            return
         if dialogs.apply_grid_mode(self.doc, mode):
             label = dialogs.GRID_MODE_LABELS[mode].replace("  ", " ")
             self.logger.log(f"Grid system: {label}")

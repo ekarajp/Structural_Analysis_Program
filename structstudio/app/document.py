@@ -38,6 +38,7 @@ class Document:
         # mirror ...): the window warns and offers to undo it
         self.check_duplicates = True
         self.duplicates: list = []
+        self.active_tower = None  # several towers: the tower of the active window (new objects go there)
         self._geometry_before = None
 
     # snapshots for undo / redo: a pickle of the model is ~10x faster to make than
@@ -150,7 +151,12 @@ class Document:
         redo = list(self._redo)
         self.begin_edit()
         try:
-            func(self.model)
+            # several towers: new objects go to the tower of the window drawn in
+            self.model.active_tower = getattr(self, "active_tower", None)
+            try:
+                func(self.model)
+            finally:
+                self.model.active_tower = None
             bad = nonfinite_points(self.model)
             if bad:  # never commit a model with inf / NaN coordinates (refused, never clamped)
                 p = self.model.points[bad[0]]

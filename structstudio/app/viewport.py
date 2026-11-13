@@ -160,8 +160,9 @@ def view_snap_objects(view):
     vis = None
     try:
         plane_of = getattr(view, "_scene_plane", None)
+        tf = getattr(view, "tower_filter", None)
         vis = scene.visible_sets(m, view.config.story if view.config.kind == "plan" else None,
-                                 plane_of() if plane_of else None)
+                                 plane_of() if plane_of else None, tower=tf() if tf else None)
     except Exception:
         vis = None
     hf, ha, hp = getattr(view, "hidden", (set(), set(), set()))
@@ -298,13 +299,17 @@ class ViewConfig:
     z: Optional[float] = None
     # elevation at a free ordinate (x for Y-Z views, y for X-Z views)
     ordinate: Optional[float] = None
+    # several towers: the tower an elevation / 3D window shows (None: all); plans show
+    # the tower of their story
+    tower: Optional[str] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> "ViewConfig":
-        return cls(**{k: d[k] for k in ("kind", "story", "grid", "results", "display", "z", "ordinate") if k in d})
+        return cls(**{k: d[k] for k in ("kind", "story", "grid", "results", "display", "z", "ordinate", "tower")
+                     if k in d})
 
 
 class ModelViewport(QtWidgets.QWidget):
@@ -364,8 +369,12 @@ class ModelViewport(QtWidgets.QWidget):
         for key, label in VIEW_KINDS:
             self.kind_box.addItem(icon("view_" + key), label, key)
         self.where_box = _ShrinkCombo()
+        # several towers: which tower the window shows (hidden with one tower)
+        self.tower_box = _ShrinkCombo()
+        self.tower_box.setToolTip("Tower shown in this window")
+        self.tower_box.setVisible(False)
         # the combos shrink to a few characters in a narrow header (the full text is in the list)
-        for box in (self.kind_box, self.where_box):
+        for box in (self.kind_box, self.tower_box, self.where_box):
             box.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
             box.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
         self.title = ElidedLabel("")
@@ -391,6 +400,7 @@ class ModelViewport(QtWidgets.QWidget):
             b.setCursor(QtCore.Qt.PointingHandCursor)
             b.setFixedSize(22, 20)
         hl.addWidget(self.kind_box)
+        hl.addWidget(self.tower_box)
         hl.addWidget(self.where_box)
         hl.addWidget(self.step_up)
         hl.addWidget(self.step_down)
@@ -502,6 +512,7 @@ class ModelViewport(QtWidgets.QWidget):
 
         self.kind_box.currentIndexChanged.connect(self._header_changed)
         self.where_box.currentIndexChanged.connect(self._header_changed)
+        self.tower_box.currentIndexChanged.connect(self._tower_changed)
         self.results_box.toggled.connect(self._results_toggled)
         self.doc.on_change(self._on_doc_change)
         self.state.selection_changed.connect(self._on_selection_changed)
@@ -547,10 +558,27 @@ class ModelViewport(QtWidgets.QWidget):
         self.kind_box.blockSignals(True)
         self.kind_box.setCurrentIndex(max(0, [k for k, _ in VIEW_KINDS].index(c.kind)))
         self.kind_box.blockSignals(False)
+        multi = m.multi_tower
+        if c.tower is not None and c.tower not in m.towers:
+            c.tower = None
+        self.tower_box.blockSignals(True)
+        self.tower_box.clear()
+        if multi:
+            if c.kind != "plan":
+                self.tower_box.addItem("All Towers", None)
+            for t in m.tower_names():
+                self.tower_box.addItem(t, t)
+            shown = self.window_tower() if c.kind == "plan" else c.tower
+            i = self.tower_box.findData(shown)
+            self.tower_box.setCurrentIndex(max(i, 0))
+        self.tower_box.setVisible(multi)
+        self.tower_box.blockSignals(False)
         self.where_box.blockSignals(True)
         self.where_box.clear()
         if c.kind == "plan":
-            levels = m.levels()[::-1]
+            # several towers: the stories of the plan's tower
+            levels = m.levels()[::-1] if not multi else \
+                [(s.name, s.elevation) for s in m.stories_of(self.window_tower())][::-1]
             names = [n for n, _ in levels]
             for n, z in levels:
                 self.where_box.addItem(n if m.grid_mode == "story" else f"{n}  (Z={z:g})", n)
@@ -615,12 +643,17 @@ class ModelViewport(QtWidgets.QWidget):
         d = {"xz": "Y", "yz": "X"}.get(self.config.kind)
         if d is None:
             return []
+        gm = m.view(self.tower_filter())  # several towers: the lines of the window's tower
         out = []
-        for g in m.grid_lines:
-            if g.direction == d:
-                v = global_ordinate(m, g)  # (Cartesian systems along the axes)
-                if v is not None:
-                    out.append((g.name, f"{d}={v:g}", v))
+        lines = [(g, global_ordinate(gm, g)) for g in gm.grid_lines if g.direction == d]
+        lines = [(g, v) for g, v in lines if v is not None]  # (Cartesian systems along the axes)
+        count = {}
+        for g, _ in lines:
+            count[g.name] = count.get(g.name, 0) + 1
+        for g, v in lines:
+            # a name used by two systems (two towers' "A"): told apart by the system
+            name = g.name if count[g.name] == 1 else f"{g.name} [{g.system}]"
+            out.append((name, f"{d}={v:g}", v))
         return out
 
     def _update_title(self):
@@ -631,16 +664,62 @@ class ModelViewport(QtWidgets.QWidget):
             pl = self.plane()
             z = pl.value
             where = pl.story or ("custom" if c.z is not None else "-")
+            if m.multi_tower:
+                where = f"{self.window_tower()} / {where}"
             self.title.setText(f"X-Y Plane @ Z = {z:g}  ({where})" if sap
                                else f"Plan View - {where} - Z = {z:g}")
         elif c.kind in ("xz", "yz"):
             pl = self.plane()
             axis = "Y" if c.kind == "xz" else "X"
             where = c.grid or ("custom" if c.ordinate is not None else "-")
+            if m.multi_tower:
+                where = f"{c.tower or 'All Towers'} / {where}"
             self.title.setText(f"{c.kind.upper()[0]}-Z Plane @ {axis} = {pl.value:g}  ({where})" if sap
                                else f"Elevation View - {where} @ {axis} = {pl.value:g}")
         else:
-            self.title.setText("3-D View")
+            self.title.setText("3-D View" + (f" - {c.tower or 'All Towers'}" if m.multi_tower else ""))
+
+    def window_tower(self) -> Optional[str]:
+        """Several towers: the tower this window shows - a plan's story's tower, else the
+        window's tower (None: all towers, or one tower)."""
+        m = self.doc.model
+        if not m.multi_tower:
+            return None
+        c = self.config
+        if c.kind == "plan":
+            if c.story in m.stories:
+                return m.tower_of_story(c.story)
+            return c.tower if c.tower in m.towers else m.default_tower()
+        return c.tower if c.tower in m.towers else None
+
+    def tower_filter(self) -> Optional[str]:
+        """The tower whose objects an elevation / 3D window shows (None: all)."""
+        return None if self.config.kind == "plan" else self.window_tower()
+
+    def _tower_changed(self, *_):
+        m = self.doc.model
+        c = self.config
+        t = self.tower_box.currentData()
+        if c.kind == "plan":
+            # the story of the new tower nearest in elevation to the one shown
+            if t is not None and t != self.window_tower():
+                z = m.stories[c.story].elevation if c.story in m.stories else 0.0
+                ss = m.stories_of(t)
+                ss = ss[1:] if len(ss) > 1 else ss  # (a story above the tower's base)
+                if ss:
+                    c.story = min(ss, key=lambda st: abs(st.elevation - z)).name
+                    c.z = None
+            c.tower = t
+        else:
+            c.tower = t
+            if c.kind in ("xz", "yz") and c.grid is not None and c.grid not in [n for n, _, _ in self._elevation_lines()]:
+                c.grid = None
+        self._fill_header()
+        self.state.tool.cancel()
+        self.invalidate("scene", "overlays")
+        self.apply_camera()
+        self.activate()
+        self.view_changed.emit(self)
 
     def _header_changed(self, *_):
         kind = self.kind_box.currentData()
@@ -687,7 +766,8 @@ class ModelViewport(QtWidgets.QWidget):
         c = self.config
         if c.kind == "plan":
             c.z = float(value)
-            st = self.doc.model.story_at(c.z, max(self.doc.model.options.merge_tolerance, 1e-6))
+            st = self.doc.model.story_at(c.z, max(self.doc.model.options.merge_tolerance, 1e-6),
+                                         tower=self.window_tower())
             c.story = st.name if st else None
             if st is not None:
                 c.z = None  # on a level: the ordinary story plan
@@ -897,6 +977,8 @@ class ModelViewport(QtWidgets.QWidget):
         return False
 
     def activate(self, focus: bool = True):
+        # several towers: what is drawn in this window goes to its tower
+        self.doc.active_tower = self.window_tower()
         self.activated.emit(self)
         if focus and not self.vtk_widget.hasFocus():
             self.vtk_widget.setFocus(QtCore.Qt.MouseFocusReason)  # Esc / Enter / typed lengths come here
@@ -907,7 +989,7 @@ class ModelViewport(QtWidgets.QWidget):
         m = self.doc.model
         if c.kind == "plan":
             if c.z is not None:  # free plan: a story only when a level sits exactly there
-                st = m.story_at(c.z, max(m.options.merge_tolerance, 1e-6))
+                st = m.story_at(c.z, max(m.options.merge_tolerance, 1e-6), tower=self.window_tower())
                 return Plane("plan", float(c.z), st.name if st else None)
             z = m.stories[c.story].elevation if c.story in m.stories else 0.0
             return Plane("plan", z, c.story)
@@ -935,7 +1017,7 @@ class ModelViewport(QtWidgets.QWidget):
 
     def visible(self):
         base = scene.make_visibility(self.doc.model, self.config.story if self.config.kind == "plan" else None,
-                                     self._scene_plane())
+                                     self._scene_plane(), tower=self.tower_filter())
         hf, ha, _ = self.hidden
         if not (hf or ha):
             return base
@@ -1196,7 +1278,7 @@ class ModelViewport(QtWidgets.QWidget):
         return scene.build_model_actors(self.doc.model, st.show_labels, st.extruded, st.frames, story=story,
                                         selected_areas=st.areas, selected_points=st.points,
                                         plane=self._scene_plane(), options=self.display_options,
-                                        hidden=self.hidden, layers=layers)
+                                        hidden=self.hidden, layers=layers, tower=self.tower_filter())
 
     def _build_scene(self):
         for a in self._scene_actors:
@@ -1966,7 +2048,8 @@ class ModelViewport(QtWidgets.QWidget):
         eng = SnapEngine(m, pl, st.snap, self._display, self._plane_point, prev,
                          max(m.options.merge_tolerance, 1e-6), refs, depth=depth,
                          objects=view_snap_objects(self), near=near, px_scale=view_dpr(self),
-                         plane_tol=plane_band(m))
+                         plane_tol=plane_band(m),
+                         tower=self.window_tower() if hasattr(self, "window_tower") else None)
         eng.override = getattr(st, "snap_override", None)
         return eng
 

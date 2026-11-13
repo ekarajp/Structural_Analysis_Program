@@ -21,6 +21,7 @@ class Node:
     mass: np.ndarray = field(default_factory=lambda: np.zeros(6))  # kg, kg·m² (global, diagonal)
     point: Optional[str] = None  # source point object name (None for mesh-generated nodes)
     story: Optional[str] = None
+    tower: Optional[str] = None  # the tower of the node (models with several towers only)
     diaphragm: Optional[str] = None  # diaphragm name this node belongs to (if any)
     is_master: bool = False  # virtual master node of a constraint
     # joint local axes (rows = local 1, 2, 3 in global): restraints and springs act in them
@@ -198,6 +199,7 @@ class AnalysisModel:
     quiet_nodes: List[int] = field(default_factory=list)
     point_to_node: Dict[str, int] = field(default_factory=dict)
     story_elevations: Dict[str, float] = field(default_factory=dict)
+    story_towers: Dict[str, str] = field(default_factory=dict)  # story -> tower (several towers only)
     warnings: List[str] = field(default_factory=list)
     # load panels: {panel name: {pattern: (applied, carried)}} totals (force, SI) for checks
     panel_report: Dict[str, Dict[str, Tuple[float, float]]] = field(default_factory=dict)

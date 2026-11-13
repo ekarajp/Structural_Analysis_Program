@@ -69,8 +69,11 @@ def membrane_stories(model) -> List[str]:
     """Stories (bottom up) with membrane floor slabs - the floors a Slab Design Model is for."""
     tol = _tol(model)
     out = []
+    multi = model.multi_tower
     for st in model.stories_bottom_up():
-        if any(_is_membrane(model, a) and _area_at(model, a, st.elevation, tol) for a in model.areas.values()):
+        tw = model.tower_of_story(st.name) if multi else None
+        if any(_is_membrane(model, a) and _area_at(model, a, st.elevation, tol)
+               and (tw is None or model.tower_of_object("area", a.name) == tw) for a in model.areas.values()):
             out.append(st.name)
     return out
 
@@ -89,13 +92,18 @@ def build_slab_model(model, story: str, beams: str = "flexible", columns: str = 
     notes: List[str] = []
     tol = _tol(m)
     z = m.stories[story].elevation
-    story_z = sorted(s.elevation for s in m.stories.values())
+    # several towers: the floor, beams and stubs of the story's own tower only
+    tower = m.tower_of_story(story) if m.multi_tower else None
+    story_z = sorted(s.elevation for s in (m.stories_of(tower) if tower else m.stories.values()))
+
+    def mine(kind: str, name: str) -> bool:
+        return tower is None or m.tower_of_object(kind, name) == tower
 
     def at_level(pt: str) -> bool:
         return abs(m.points[pt].z - z) <= tol
 
     # ---- the floor
-    floors = [a for a in m.areas.values() if _is_slab_floor(m, a) and _area_at(m, a, z, tol)]
+    floors = [a for a in m.areas.values() if _is_slab_floor(m, a) and _area_at(m, a, z, tol) and mine("area", a.name)]
     if not any(_is_membrane(m, a) for a in floors):
         raise ModelError("NO_MEMBRANE_FLOOR", f"Story {story} has no membrane floor slab: its slabs (shells) are "
                                               "designed with the forces of the building model")
@@ -103,7 +111,8 @@ def build_slab_model(model, story: str, beams: str = "flexible", columns: str = 
         floors = [a for a in floors if _is_membrane(m, a)]
     keep_areas: Set[str] = {a.name for a in floors}
     for a in m.areas.values():  # openings of the level
-        if a.name not in keep_areas and (a.type == "Opening" or a.section is None) and _area_at(m, a, z, tol):
+        if a.name not in keep_areas and (a.type == "Opening" or a.section is None) and _area_at(m, a, z, tol) \
+                and mine("area", a.name):
             keep_areas.add(a.name)
     level_pts: Set[str] = {p for n in keep_areas for p in m.areas[n].points}
 
@@ -116,7 +125,7 @@ def build_slab_model(model, story: str, beams: str = "flexible", columns: str = 
     # the beams: frames lying at the level and touching the floor
     keep_frames: Set[str] = set()
     for f in m.frames.values():
-        if f.type == "Null" or not (at_level(f.point_i) and at_level(f.point_j)):
+        if f.type == "Null" or not (at_level(f.point_i) and at_level(f.point_j)) or not mine("frame", f.name):
             continue
         keep_frames.add(f.name)
     level_pts |= {p for n in keep_frames for p in (m.frames[n].point_i, m.frames[n].point_j)}

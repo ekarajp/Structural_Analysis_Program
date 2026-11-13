@@ -16,7 +16,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from ..model import Model, ModelError
-from ..model.objects import Area, Frame, Point
+from ..model.objects import Area, Frame, Point, Story
 from .document import Document
 
 XY = Tuple[float, float]
@@ -618,6 +618,9 @@ class Tool:
             self.cancel()
         self.plane = plane
         self.story = plane.story if plane.kind == "plan" else None
+        m = self.model
+        if m.multi_tower and self.story in m.stories:  # several towers: drawing in this story's tower
+            self.doc.active_tower = m.tower_of_story(self.story)
 
     def elevation(self) -> float:
         if self.story and self.story in self.model.stories:
@@ -628,8 +631,31 @@ class Tool:
         return self.plane.to3(pt)
 
     def _story_at(self, z: float) -> Optional[str]:
-        s = self.model.story_at(z, max(self.model.options.merge_tolerance, 1e-6))
+        s = self.model.story_at(z, max(self.model.options.merge_tolerance, 1e-6), tower=self.tower)
         return s.name if s else None
+
+    @property
+    def tower(self) -> Optional[str]:
+        """Several towers: the tower drawn in - of the plan's story, else of the window
+        (None: all towers / one tower)."""
+        m = self.model
+        if not m.multi_tower:
+            return None
+        if self.story in m.stories:
+            return m.tower_of_story(self.story)
+        t = getattr(self.doc, "active_tower", None)
+        return t if t in m.towers else None
+
+    def _levels(self) -> List[Tuple[str, float]]:
+        """(name, z) of the levels of the tower drawn in (all levels with one tower)."""
+        t = self.tower
+        if t is None:
+            return self.model.levels()
+        return [(s.name, s.elevation) for s in self.model.stories_of(t)]
+
+    def _stories(self) -> List[Story]:
+        t = self.tower
+        return self.model.stories_of(t) if t is not None else self.model.stories_bottom_up()
 
     def _level_snapped(self, p: XYZ, skip_base: bool = False) -> XYZ:
         """In an elevation: the point moved to the nearest story level (columns and
@@ -637,7 +663,7 @@ class Tool:
         ``skip_base``: the lowest level is not a top (a column needs a story below)."""
         if self.plane.kind not in ("xz", "yz"):
             return p
-        lv = [z for _, z in self.model.levels()]
+        lv = [z for _, z in self._levels()]
         if skip_base and len(lv) > 1:
             lv = lv[1:]
         if not lv:
@@ -658,7 +684,8 @@ class Tool:
             return []
         if not self.settings.all_stories:
             return [story]
-        stories = self.model.stories_bottom_up()
+        m = self.model  # (the stories of the story's own tower)
+        stories = m.stories_of(m.tower_of_story(story)) if m.multi_tower and story in m.stories else m.stories_bottom_up()
         return [s.name for s in stories[1:]] if len(stories) > 1 else [story]
 
     @property
@@ -1091,7 +1118,7 @@ class ColumnTool(Tool):
         if self.plane.kind == "plan" and self.story is None:
             # free plan (any Z): the column runs from the level below the plane up to it
             top = p[2]
-            lv = [z for _, z in self.model.levels() if z < top - self.tol]
+            lv = [z for _, z in self._levels() if z < top - self.tol]
             bot = max(lv) if lv else None
             if bot is None:
                 raise ModelError("NO_LEVEL_BELOW", "No level below this plane for the column to start from")
@@ -1151,13 +1178,13 @@ class WallTool(Tool):
         if hi - lo <= self.tol:
             return [self._require_story(hi)]
         m = self.model
-        levels = [z for _, z in m.levels()]
+        levels = [z for _, z in self._levels()]
         for z in (lo, hi):
             if not any(abs(z - lv) <= self.tol for lv in levels):
                 raise ModelError("NOT_AT_STORY", f"Wall: Z = {z:g} is not a story level - pick both ends at "
                                                  f"story levels (the wall spans whole stories)")
         out = []
-        for st in m.stories_bottom_up():
+        for st in self._stories():
             below = m.story_below(st.name)
             if below is None:
                 continue
@@ -2186,16 +2213,11 @@ def move_objects(doc: Document, frames: Sequence[str], areas: Sequence[str], poi
         for n in names:
             p = model.points[n]
             p.x, p.y, p.z = p.x + dx, p.y + dy, p.z + dz
-            s = model.story_at(p.z, model.options.merge_tolerance)
-            p.story = s.name if s else p.story
+            p.story = model.story_for(p, "point") or p.story  # (in its own tower)
         for f in model.frames.values():
-            top = max(model.points[f.point_i].z, model.points[f.point_j].z)
-            s = model.story_at(top, model.options.merge_tolerance)
-            f.story = s.name if s else f.story
+            f.story = model.story_for(f, "frame") or f.story
         for a in model.areas.values():
-            top = max(model.points[p].z for p in a.points)
-            s = model.story_at(top, model.options.merge_tolerance)
-            a.story = s.name if s else a.story
+            a.story = model.story_for(a, "area") or a.story
 
     doc.edit(mutate)
     return len(names)
@@ -2322,8 +2344,7 @@ def set_point_coordinates(doc: Document, point: str, x: float, y: float, z: floa
     def mutate(model: Model):
         p = model.points[point]
         p.x, p.y, p.z = x, y, z
-        s = model.story_at(z, model.options.merge_tolerance)
-        p.story = s.name if s else p.story
+        p.story = model.story_for(p, "point") or p.story
 
     doc.edit(mutate)
 

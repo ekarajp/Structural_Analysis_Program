@@ -323,11 +323,37 @@ def wall_footprint(model: Model, area) -> Optional[List[Tuple[float, float]]]:
     return [tuple(a - n), tuple(b - n), tuple(b + n), tuple(a + n)]
 
 
+def tower_sets(model: Model, tower: str):
+    """(frames, areas, points) of one tower: the objects on its stories (and the joints
+    they use - a tower's columns on a podium show their podium joints)."""
+    frames = {n for n in model.frames if model.tower_of_object("frame", n) == tower}
+    areas = {n for n in model.areas if model.tower_of_object("area", n) == tower}
+    points = set()
+    for n in frames:
+        f = model.frames[n]
+        points |= {f.point_i, f.point_j}
+    for n in areas:
+        points |= set(model.areas[n].points)
+    used = {q for f in model.frames.values() for q in (f.point_i, f.point_j)}
+    used |= {q for a in model.areas.values() for q in a.points}
+    for n, p in model.points.items():
+        if n not in used and model.tower_of_point(n) == tower:
+            points.add(n)  # free joints of the tower
+    return frames, areas, points
+
+
 def visible_sets(model: Model, story: Optional[str] = None, plane: Optional[Tuple[str, float]] = None,
-                 tol: Optional[float] = None):
+                 tol: Optional[float] = None, tower: Optional[str] = None):
     """Objects shown by a filtered window: ``story`` (plan view of one story)
-    or ``plane`` = ("x"|"y", ordinate) (elevation on a grid line).
+    or ``plane`` = ("x"|"y", ordinate) (elevation on a grid line); ``tower`` (several
+    towers): only that tower's objects.
     Returns (frames, areas, points) name sets, or None when unfiltered."""
+    if tower is not None and model.multi_tower and story is None:
+        tf, ta, tp = tower_sets(model, tower)
+        base = visible_sets(model, None, plane, tol)
+        if base is None:
+            return tf, ta, tp
+        return base[0] & tf, base[1] & ta, base[2] & tp
     if story is None and plane is None:
         return None
     pts = model.points
@@ -357,9 +383,10 @@ def visible_sets(model: Model, story: Optional[str] = None, plane: Optional[Tupl
     return frames, areas, points
 
 
-def make_visibility(model: Model, story: Optional[str] = None, plane: Optional[Tuple[str, float]] = None):
+def make_visibility(model: Model, story: Optional[str] = None, plane: Optional[Tuple[str, float]] = None,
+                    tower: Optional[str] = None):
     """Predicate obj -> bool (frames and areas) for the objects a window shows."""
-    vis = visible_sets(model, story, plane)
+    vis = visible_sets(model, story, plane, tower=tower)
     if vis is None:
         return lambda obj: True
     frames, areas, _ = vis
@@ -440,7 +467,7 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
                        selected_areas: Optional[set] = None, selected_points: Optional[set] = None,
                        plane: Optional[Tuple[str, float]] = None, options=None,
                        hidden: Optional[Tuple[set, set, set]] = None,
-                       layers: Sequence[str] = MODEL_LAYERS) -> SceneActors:
+                       layers: Sequence[str] = MODEL_LAYERS, tower: Optional[str] = None) -> SceneActors:
     """Actors for the model.  ``story`` limits the display to one story (plan
     view), ``plane`` to one elevation; ``selection``/``selected_areas``/
     ``selected_points`` are highlighted.  ``options`` (:class:`~.display.DisplayOptions`)
@@ -460,7 +487,7 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
     selected_areas = selected_areas or set()
     selected_points = selected_points or set()
     pts = model.points
-    vis = visible_sets(model, story, plane)
+    vis = visible_sets(model, story, plane, tower=tower)
     if hidden is not None and any(hidden):  # View > Make Selected Objects Invisible / Show Selected Only
         base = vis or (set(model.frames), set(model.areas), set(model.points))
         hf, ha, hp = hidden
@@ -777,52 +804,65 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
     # ---- grids ----------------------------------------------------------------
     # the grid names (bubbles) belong to the grid lines: hiding the lines hides them too
     bubbles_on = opts.grid_bubbles and opts.grid_lines
-    if not base_on:
-        pass
-    elif plane is not None and plane[0] == "z":  # free plan: the plan grid at that elevation
-        if opts.grid_lines:
-            g = build_grid_actor(model, None, levels=[float(plane[1])])
-            if g is not None:
-                out.actors["grids"] = g
-        if bubbles_on and model.grid_lines and model.stories:
-            out.actors["grid_bubbles"] = build_grid_bubbles(model, None, z=float(plane[1]))
-    elif plane is not None:
-        if opts.grid_lines:
-            elev = build_elevation_grid(model, plane)
-            for k, a in enumerate(elev):
-                if (k == 0 and opts.grid_lines) or (k > 0 and bubbles_on):
-                    out.actors[f"elev_grid_{k}"] = a
+    # several towers: each tower's grids at its own levels (a plan: its story's tower; a
+    # window showing one tower: that tower's)
+    if model.multi_tower:
+        if story is not None and story in model.stories:
+            grid_models = [model.view(model.tower_of_story(story))]
+        elif tower is not None:
+            grid_models = [model.view(tower)]
+        else:
+            grid_models = [model.view(t) for t in model.tower_names()]
     else:
-        levels = None if story is not None else grid_levels(model, opts.grid_3d)
-        if opts.grid_lines:
-            if story is None and levels and len(levels) > 1:
-                # 3D, every level: the base grid is the reference (strong), the stories above fainter
-                base = build_grid_actor(model, None, levels=levels[:1])
-                upper = build_grid_actor(model, None, levels=levels[1:])
-                if base is not None:
-                    base.GetProperty().SetOpacity(0.85)
-                    base.GetProperty().SetLineWidth(1.4)
-                    out.actors["grids"] = base
-                if upper is not None:
-                    upper.GetProperty().SetOpacity(0.6)
-                    out.actors["grids_upper"] = upper
-                if bubbles_on:
-                    lab = build_story_labels_3d(model, levels)
-                    if lab is not None:
-                        out.actors["story_labels"] = lab
-            else:
-                grid_actor = build_grid_actor(model, story, levels=levels)
-                if grid_actor is not None:
-                    if story is None:  # 3D: the base grid is the reference - draw it stronger
-                        grid_actor.GetProperty().SetOpacity(0.85)
-                        grid_actor.GetProperty().SetLineWidth(1.4)
-                    out.actors["grids"] = grid_actor
-            if story is None and opts.grid_vertical:
-                vert = build_vertical_grid_actor(model)
-                if vert is not None:
-                    out.actors["grid_vertical"] = vert
-        if bubbles_on and model.grid_lines and model.stories:
-            out.actors["grid_bubbles"] = build_grid_bubbles(model, story, z=levels[0] if levels else None)
+        grid_models = [model]
+    for gi, gm in enumerate(grid_models):
+        sfx = "" if gi == 0 else f"@{gi}"
+        if not base_on:
+            pass
+        elif plane is not None and plane[0] == "z":  # free plan: the plan grid at that elevation
+            if opts.grid_lines:
+                g = build_grid_actor(gm, None, levels=[float(plane[1])])
+                if g is not None:
+                    out.actors["grids" + sfx] = g
+            if bubbles_on and gm.grid_lines and gm.stories:
+                out.actors["grid_bubbles" + sfx] = build_grid_bubbles(gm, None, z=float(plane[1]))
+        elif plane is not None:
+            if opts.grid_lines:
+                elev = build_elevation_grid(gm, plane)
+                for k, a in enumerate(elev):
+                    if (k == 0 and opts.grid_lines) or (k > 0 and bubbles_on):
+                        out.actors[f"elev_grid_{k}" + sfx] = a
+        else:
+            levels = None if story is not None else grid_levels(gm, opts.grid_3d)
+            if opts.grid_lines:
+                if story is None and levels and len(levels) > 1:
+                    # 3D, every level: the base grid is the reference (strong), the stories above fainter
+                    base = build_grid_actor(gm, None, levels=levels[:1])
+                    upper = build_grid_actor(gm, None, levels=levels[1:])
+                    if base is not None:
+                        base.GetProperty().SetOpacity(0.85)
+                        base.GetProperty().SetLineWidth(1.4)
+                        out.actors["grids" + sfx] = base
+                    if upper is not None:
+                        upper.GetProperty().SetOpacity(0.6)
+                        out.actors["grids_upper" + sfx] = upper
+                    if bubbles_on:
+                        lab = build_story_labels_3d(gm, levels)
+                        if lab is not None:
+                            out.actors["story_labels" + sfx] = lab
+                else:
+                    grid_actor = build_grid_actor(gm, story, levels=levels)
+                    if grid_actor is not None:
+                        if story is None:  # 3D: the base grid is the reference - draw it stronger
+                            grid_actor.GetProperty().SetOpacity(0.85)
+                            grid_actor.GetProperty().SetLineWidth(1.4)
+                        out.actors["grids" + sfx] = grid_actor
+                if story is None and opts.grid_vertical:
+                    vert = build_vertical_grid_actor(gm)
+                    if vert is not None:
+                        out.actors["grid_vertical" + sfx] = vert
+            if bubbles_on and gm.grid_lines and gm.stories:
+                out.actors["grid_bubbles" + sfx] = build_grid_bubbles(gm, story, z=levels[0] if levels else None)
     # ---- reference lines (CYPE 3D) --------------------------------------------
     if base_on and getattr(opts, "reference_lines", False):
         from .snap import reference_lines_for

@@ -207,6 +207,11 @@ class E2KImporter:
             return
         name = toks[1][0]
         d = _kv(toks, 2)
+        if "TOWER" in d and not getattr(self, "_tower_warned", False):
+            self._tower_warned = True
+            self.warnings.append("The e2k file defines multiple towers: they are read as one tower (story names "
+                                 "must be unique) - check the stories and define the towers in Edit > Edit Towers, "
+                                 "Stories and Grid Systems")
         self._story_order.append((name, d.get("HEIGHT"), d.get("ELEV")))
 
     def _finish_stories(self):

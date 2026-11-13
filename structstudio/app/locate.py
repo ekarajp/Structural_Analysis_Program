@@ -45,7 +45,8 @@ def object_story(model: Model, attr: str, name: str) -> Optional[str]:
     X = object_xyz(model, attr, name)
     if X is None:
         return None
-    st = model.story_at(float(X[:, 2].max()), model.options.merge_tolerance)
+    st = model.story_at(float(X[:, 2].max()), model.options.merge_tolerance,
+                        xy=(float(X[:, 0].mean()), float(X[:, 1].mean())))
     return st.name if st else None
 
 

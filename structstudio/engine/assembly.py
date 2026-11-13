@@ -145,17 +145,38 @@ class Assembler:
             return self._lump_map
         xyz = am.coords()
         tol = 1e-4
+        out = []
+        # several towers: each tower's joints go to the levels of that tower only (and to
+        # its own joints there)
+        towers = sorted(set(am.story_towers.values())) if am.story_towers else [None]
+        node_tower = np.array([n.tower for n in am.nodes], dtype=object)
+        for tw in towers:
+            if tw is None:
+                elevs = am.story_elevations.values()
+                mine = np.ones(am.n_nodes, dtype=bool)
+            else:
+                elevs = [z for s, z in am.story_elevations.items() if am.story_towers.get(s) == tw]
+                mine = node_tower == tw
+            self._lump_levels(xyz, tol, elevs, mine, out)
+        self._lump_map = out
+        return out
+
+    def _lump_levels(self, xyz, tol, elevs, mine, out):
+        am = self.am
         # levels that carry joints (a story with no joint has nothing to take the mass)
-        levels = sorted(z for z in set(float(z) for z in am.story_elevations.values())
+        levels = sorted(z for z in set(float(z) for z in elevs)
                         if np.any(np.abs(xyz[:, 2] - z) <= tol))
         if len(levels) < 2:
-            self._lump_map = []
-            return []
+            return
         at_level = {}
         for k, z in enumerate(levels):
-            at_level[k] = np.where(np.abs(xyz[:, 2] - z) <= tol)[0]
-        out = []
-        for nid in range(am.n_nodes):
+            here = np.abs(xyz[:, 2] - z) <= tol
+            own = np.where(mine & here)[0]
+            # a level of the tower without joints of its own (a tower standing on a podium:
+            # its base joints are the podium's) takes the joints there
+            at_level[k] = own if len(own) else np.where(here)[0]
+        for nid in np.flatnonzero(mine):
+            nid = int(nid)
             z = xyz[nid, 2]
             if z <= levels[0] + tol or z >= levels[-1] - tol:
                 continue
@@ -173,8 +194,6 @@ class Assembler:
                 targets.append((int(cand[int(np.argmin(d))]), float(w)))
             if targets:
                 out.append((nid, targets))
-        self._lump_map = out
-        return out
 
     def _lump_to_stories(self, M: np.ndarray, stride: int) -> np.ndarray:
         """Move the lateral (UX, UY) mass of joints between story levels to the levels."""

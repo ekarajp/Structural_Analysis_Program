@@ -116,10 +116,12 @@ class ModelTree(QtWidgets.QTreeWidget):
         u = m.units.shown("length")
         title = "Levels (Z grid)" if m.grid_mode == "xyz" else "Stories"
         sto = self._node(lay, title, len(m.stories), data=("stories", ""), key="stories")
-        for name in self._story_order():
-            s = m.stories[name]
-            self._node(sto, f"{name}   (z = {s.elevation:g} {u})", data=("story", name), key=name,
-                       tip="Click: show this story in the active plan window")
+        towers = m.tower_names() if m.multi_tower else [None]
+        for t in towers:  # several towers: the stories under each tower
+            parent = sto if t is None else self._node(sto, f"Tower {t}", len(m.stories_of(t)), key=f"tower:{t}")
+            for s in reversed(m.stories_of(t) if t is not None else m.stories_bottom_up()):
+                self._node(parent, f"{s.name}   (z = {s.elevation:g} {u})", data=("story", s.name), key=s.name,
+                           tip="Click: show this story in the active plan window")
         grids = [g for g in m.grid_lines if g.direction in ("X", "Y", "R", "T", "General")]
         gn = self._node(lay, "Grid Lines", len(grids), key="grids")
         systems = {}
@@ -130,7 +132,8 @@ class ModelTree(QtWidgets.QTreeWidget):
             parent = gn
             if len(systems) > 1:
                 kind = gs.type if gs is not None else "Cartesian"
-                parent = self._node(gn, f"{sysname}   ({kind})", len(lines), key=f"gs:{sysname}")
+                tw = f", tower {m.tower_of_system(sysname)}" if m.multi_tower else ""
+                parent = self._node(gn, f"{sysname}   ({kind}{tw})", len(lines), key=f"gs:{sysname}")
             for g in lines:
                 what = {"T": f"θ = {g.ordinate:g}°", "R": f"R = {g.ordinate:g} {u}"}.get(
                     g.direction, f"{g.direction} = {g.ordinate:g} {u}")

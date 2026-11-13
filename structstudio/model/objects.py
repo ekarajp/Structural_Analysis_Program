@@ -370,6 +370,17 @@ class Story:
     is_master: bool = False
     similar_to: Optional[str] = None
     color: Optional[str] = None
+    tower: Optional[str] = None  # the tower the story belongs to (None: the first / only tower)
+
+
+@dataclass
+class Tower:
+    """ETABS "multiple towers": a building of the model with its own stories and grid
+    systems.  Story names stay unique in the model (the stories of every tower are in
+    ``Model.stories``), so everything keyed by story (diaphragms, drifts, results)
+    keeps the towers apart."""
+
+    name: str
 
 
 @dataclass
@@ -393,6 +404,7 @@ class GridSystem:
     origin: Tuple[float, float] = qlist("length", lambda: (0.0, 0.0))
     rotation: float = 0.0  # degrees
     bubble_size: float = q("length", 1.25)
+    tower: Optional[str] = None  # the tower the system belongs to (None: the first / only tower)
 
 
 @dataclass

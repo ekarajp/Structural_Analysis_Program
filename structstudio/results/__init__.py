@@ -553,19 +553,26 @@ class Results:
         out = []
         disp = h["displacements"]
         mon = h["monitor_nodes"]
-        stories = []
+        st = self.am.story_towers  # several towers: each tower's diaphragms apart, from its own base
+        groups = {}
         for c in self.am.constraints:
             if c.master in mon and c.story in self.am.story_elevations:
-                stories.append((self.am.story_elevations[c.story], c.story, mon.index(c.master)))
-        stories.sort()
-        prev_z, prev_i = None, None
-        base = min(self.am.story_elevations.values()) if self.am.story_elevations else 0.0
-        for z, name, i in stories:
-            dz = z - (prev_z if prev_z is not None else base)
-            for comp, k in (("X", 0), ("Y", 1)):
-                d = disp[:, i, k] - (disp[:, prev_i, k] if prev_i is not None else 0.0)
-                out.append({"Story": name, "Direction": comp, "MaxDrift": float(np.max(np.abs(d)) / dz) if dz else 0.0})
-            prev_z, prev_i = z, i
+                groups.setdefault(st.get(c.story), []).append(
+                    (self.am.story_elevations[c.story], c.story, mon.index(c.master)))
+        for tw, stories in groups.items():
+            stories.sort()
+            prev_z, prev_i = None, None
+            elevs = [z for n, z in self.am.story_elevations.items() if st.get(n) == tw] if tw is not None \
+                else list(self.am.story_elevations.values())
+            base = min(elevs) if elevs else 0.0
+            for z, name, i in stories:
+                dz = z - (prev_z if prev_z is not None else base)
+                for comp, k in (("X", 0), ("Y", 1)):
+                    d = disp[:, i, k] - (disp[:, prev_i, k] if prev_i is not None else 0.0)
+                    row = {"Story": name, **({"Tower": tw} if tw is not None else {}), "Direction": comp,
+                           "MaxDrift": float(np.max(np.abs(d)) / dz) if dz else 0.0}
+                    out.append(row)
+                prev_z, prev_i = z, i
         return out
 
     # ------------------------------------------------------------- modal
@@ -667,11 +674,10 @@ class Results:
         """Maximum drift ratio per story in X and Y (point-based, like CSI): the drift of
         every pair of points above each other is formed from the signed displacements of
         each case / mode first, then combined (never the difference of two envelopes)."""
-        stories = self.model.stories_bottom_up()
+        steps = self._story_steps()  # (story, story below) in each tower
         pairs = []  # (story index, point, node above, node below, height SI)
         L = self.U.factor("length")
-        for k in range(1, len(stories)):
-            s, below = stories[k], stories[k - 1]
+        for k, (s, below) in enumerate(steps):
             h = s.elevation - below.elevation
             if h <= 0:
                 continue
@@ -706,8 +712,8 @@ class Results:
             env_d = self._signed_envelope(case, lambda u: C @ u)
         mag = np.maximum(np.abs(env_d.max), np.abs(env_d.min))
         rows = []
-        for k in range(1, len(stories)):
-            s, below = stories[k], stories[k - 1]
+        multi = self.model.multi_tower
+        for k, (s, below) in enumerate(steps):
             if s.elevation - below.elevation <= 0:
                 continue
             for j, lab in ((0, "X"), (1, "Y")):
@@ -715,11 +721,45 @@ class Results:
                 for m, pr in enumerate(pairs):
                     if pr[0] == k and mag[2 * m + j] > best[0]:
                         best = (float(mag[2 * m + j]), pr[1])
-                row = {"Story": s.name, "OutputCase": case, "Direction": lab, "Drift": best[0], "Label": best[1]}
+                row = {"Story": s.name, **({"Tower": self.model.tower_of_story(s.name)} if multi else {}),
+                       "OutputCase": case, "Direction": lab, "Drift": best[0], "Label": best[1]}
                 if bound:
                     row["Bound"] = True  # from the joint envelopes: an upper bound
                 rows.append(row)
         return rows
+
+    def _story_steps(self) -> List[tuple]:
+        """(story, the story below it) of every tower, bottom-up per tower (towers in
+        model order): drifts and story shears are per tower."""
+        out = []
+        for t in self.model.tower_names():
+            ss = self.model.stories_of(t) if self.model.multi_tower else self.model.stories_bottom_up()
+            out += [(ss[k], ss[k - 1]) for k in range(1, len(ss))]
+        return out
+
+    def _elements_of_tower(self, tower: Optional[str]):
+        """(frame mask, shell mask) of the analysis elements of a tower (None: all)."""
+        asm = self.engine.asm
+        if tower is None or not self.model.multi_tower:
+            return None, None
+        cache = getattr(self, "_tower_masks", None)
+        if cache is None:
+            cache = self._tower_masks = {}
+        if tower not in cache:
+            m = self.model
+            memo = {}
+
+            def tw(kind, name):
+                if (kind, name) not in memo:
+                    try:
+                        memo[(kind, name)] = m.tower_of_object(kind, name)
+                    except KeyError:
+                        memo[(kind, name)] = None
+                return memo[(kind, name)]
+            fm = np.array([tw("frame", fe.el.object) == tower for fe in asm.frames], dtype=bool)
+            sm = {se.el.id: tw("area", se.el.object) == tower for se in asm.shells}
+            cache[tower] = (fm, sm)
+        return cache[tower]
 
     def _th_drift(self, C, h) -> Optional[Envelope]:
         """Drifts over a time history from the recorded joints, None when a point is not recorded."""
@@ -750,31 +790,36 @@ class Results:
         if r is not None and isinstance(r.history, dict) and "envelope" in r.history:
             raise ModelError("NOT_AVAILABLE", f"Story shears of the time history {case!r} are not available (only "
                                               "the final step is kept); use the base reaction history")
-        cuts = []
         L = self.U.factor("length")
-        for k in range(1, len(stories)):
-            s, below = stories[k], stories[k - 1]
-            cuts.append((s.name, (s.elevation - 0.02 * (s.elevation - below.elevation)) * L))
-        if not cuts:
-            return []
-        z_cuts = np.array([z for _, z in cuts])
+        multi = self.model.multi_tower
+        rows = []
+        for tower in (self.model.tower_names() if multi else [None]):
+            ss = self.model.stories_of(tower) if multi else stories
+            cuts = [(ss[k].name, (ss[k].elevation - 0.02 * (ss[k].elevation - ss[k - 1].elevation)) * L)
+                    for k in range(1, len(ss))]
+            if cuts:
+                rows += self._story_shear_rows(case, cuts, tower, F)
+        return rows
 
+    def _story_shear_rows(self, case, cuts, tower, F) -> List[dict]:
+        z_cuts = np.array([z for _, z in cuts])
         env = self._signed_envelope(
-            case, lambda u: self._story_cut_forces(u, z_cuts, None).reshape(-1),
-            lambda rc: self._story_cut_forces(rc.displacements.reshape(-1), z_cuts, rc).reshape(-1))
+            case, lambda u: self._story_cut_forces(u, z_cuts, None, tower).reshape(-1),
+            lambda rc: self._story_cut_forces(rc.displacements.reshape(-1), z_cuts, rc, tower).reshape(-1))
         tmax = env.max.reshape(-1, 3)
         tmin = env.min.reshape(-1, 3)
         rows = []
         for k, (name, _) in enumerate(cuts):
-            row = {"Story": name, "OutputCase": case, "VX": float(tmax[k, 0] / F), "VY": float(tmax[k, 1] / F),
-                   "P": float(tmax[k, 2] / F)}
+            row = {"Story": name, **({"Tower": tower} if tower is not None else {}), "OutputCase": case,
+                   "VX": float(tmax[k, 0] / F), "VY": float(tmax[k, 1] / F), "P": float(tmax[k, 2] / F)}
             if not np.allclose(tmax[k], tmin[k]):
                 row.update({"VXMin": float(tmin[k, 0] / F), "VYMin": float(tmin[k, 1] / F),
                             "PMin": float(tmin[k, 2] / F)})
             rows.append(row)
         return rows
 
-    def _story_cut_forces(self, u_full: np.ndarray, z_cuts: np.ndarray, r: Optional[CaseResult]) -> np.ndarray:
+    def _story_cut_forces(self, u_full: np.ndarray, z_cuts: np.ndarray, r: Optional[CaseResult],
+                          tower: Optional[str] = None) -> np.ndarray:
         """(n_cuts, 3) global force transferred from below to above each cut (SI), for the
         displacements ``u_full``; with the element loads (and the nonlinear end forces) of
         case ``r``, or without any (a spectrum mode) when ``r`` is None."""
@@ -785,9 +830,13 @@ class Results:
             if hasattr(self.engine, "asm_for_case") else asm
         ZA, ZB = self._frame_end_z()
         ZLO, ZHI = np.minimum(ZA, ZB), np.maximum(ZA, ZB)
+        fmask, smask = self._elements_of_tower(tower)  # several towers: the tower's own elements
         out = np.zeros((len(z_cuts), 3))
         for k, z_cut in enumerate(z_cuts):
-            for i in np.flatnonzero((ZLO < z_cut) & (z_cut < ZHI)):
+            cross = (ZLO < z_cut) & (z_cut < ZHI)
+            if fmask is not None:
+                cross &= fmask
+            for i in np.flatnonzero(cross):
                 fe = frames[int(i)]
                 za, zb = float(ZA[i]), float(ZB[i])
                 x = np.array([(z_cut - za) / (zb - za) * fe.kin.L])
@@ -812,6 +861,8 @@ class Results:
                 lds = getattr(case_obj, "loads", None)
                 pats = lds if isinstance(lds, dict) else {}
             for se in shells:
+                if smask is not None and not smask.get(se.el.id, False):
+                    continue
                 zs = nz[list(se.el.nodes)]
                 hit = [k for k, z_cut in enumerate(z_cuts) if zs.min() < z_cut < zs.max()]
                 if not hit:

@@ -58,7 +58,8 @@ class AnalysisError(ModelError):
 # ------------------------------------------------------------------ locating
 def _where(model, xyz) -> str:
     from .app.locate import grid_ref
-    st = model.story_at(float(xyz[2]), model.options.merge_tolerance) if model.stories else None
+    st = model.story_at(float(xyz[2]), model.options.merge_tolerance, xy=(float(xyz[0]), float(xyz[1]))) \
+        if model.stories else None
     u = model.units.label("length")
     s = f"{st.name}, " if st else ""
     return f"{s}grid {grid_ref(model, xyz)}, ({xyz[0]:.3f}, {xyz[1]:.3f}, {xyz[2]:.3f}) {u}"

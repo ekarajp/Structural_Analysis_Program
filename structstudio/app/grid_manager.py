@@ -16,6 +16,7 @@ from typing import List, Optional, Tuple
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from ..model.base import ModelError
 from ..model.grids import CYLINDRICAL, GridGeometry, grid_geometry, to_global
 from .document import Document
 
@@ -213,21 +214,175 @@ def grid_icon(model, name: str, size: int = 22) -> QtGui.QIcon:
     return QtGui.QIcon(pm)
 
 
+class TowerDialog(QtWidgets.QDialog):
+    """ETABS "Quick Story Definition for New Tower": the tower's name, its stories (number,
+    typical and bottom story height, base elevation) and its grid - a copy of another
+    tower's grid systems moved by dX / dY, or a new Cartesian grid."""
+
+    def __init__(self, model, parent=None):
+        super().__init__(parent)
+        self.model = model
+        self.setWindowTitle("New Tower")
+        u = model.units.label("length")
+        lay = QtWidgets.QVBoxLayout(self)
+        f = QtWidgets.QFormLayout()
+        k = len(model.tower_names()) + 1
+        while f"T{k}" in model.towers:
+            k += 1
+        self.name = QtWidgets.QLineEdit(f"T{k}")
+        self.n = QtWidgets.QSpinBox()
+        self.n.setRange(1, 300)
+        self.n.setValue(4)
+        self.typical = QtWidgets.QLineEdit("3")
+        self.bottom = QtWidgets.QLineEdit("3")
+        self.base = QtWidgets.QLineEdit("0")
+        self.prefix = QtWidgets.QLineEdit("")
+        self.prefix.setPlaceholderText("default: <tower>-Story")
+        f.addRow("Tower name", self.name)
+        f.addRow("Number of stories", self.n)
+        f.addRow(f"Typical story height [{u}]", self.typical)
+        f.addRow(f"Bottom story height [{u}]", self.bottom)
+        f.addRow(f"Base elevation [{u}]", self.base)
+        f.addRow("Story names", self.prefix)
+        lay.addLayout(f)
+        g = QtWidgets.QGroupBox("Grid")
+        gl = QtWidgets.QGridLayout(g)
+        self.copy_grid = QtWidgets.QRadioButton("Copy the grid systems of tower")
+        self.src = QtWidgets.QComboBox()
+        self.src.addItems(model.tower_names())
+        self.dx, self.dy = QtWidgets.QLineEdit("0"), QtWidgets.QLineEdit("0")
+        self.new_grid = QtWidgets.QRadioButton("New Cartesian grid")
+        self.xs, self.ys = QtWidgets.QLineEdit("6, 6, 6"), QtWidgets.QLineEdit("6, 6")
+        self.ox, self.oy = QtWidgets.QLineEdit("0"), QtWidgets.QLineEdit("0")
+        self.new_grid.setChecked(True)
+        gl.addWidget(self.copy_grid, 0, 0, 1, 2)
+        gl.addWidget(self.src, 0, 2)
+        gl.addWidget(QtWidgets.QLabel(f"moved by dX / dY [{u}]"), 1, 0)
+        gl.addWidget(self.dx, 1, 1)
+        gl.addWidget(self.dy, 1, 2)
+        gl.addWidget(self.new_grid, 2, 0, 1, 3)
+        gl.addWidget(QtWidgets.QLabel(f"X spacings [{u}]"), 3, 0)
+        gl.addWidget(self.xs, 3, 1, 1, 2)
+        gl.addWidget(QtWidgets.QLabel(f"Y spacings [{u}]"), 4, 0)
+        gl.addWidget(self.ys, 4, 1, 1, 2)
+        gl.addWidget(QtWidgets.QLabel(f"Origin X / Y [{u}]"), 5, 0)
+        gl.addWidget(self.ox, 5, 1)
+        gl.addWidget(self.oy, 5, 2)
+        lay.addWidget(g)
+        note = QtWidgets.QLabel("Story names are unique in the model: the stories of the new tower are "
+                                "named after it.  Every object belongs to the tower of its story; use a "
+                                "different diaphragm for each tower's floors.")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+        bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+
+    @staticmethod
+    def _spacings(text: str) -> List[float]:
+        from .templates import parse_spacings
+        return [float(v) for v in parse_spacings(text)]
+
+    def values(self) -> dict:
+        """The tower data (raises ValueError on bad input)."""
+        name = self.name.text().strip()
+        if not name:
+            raise ValueError("Give the tower a name")
+        if name in self.model.towers or (not self.model.towers and name == self.model.DEFAULT_TOWER):
+            raise ValueError(f"Tower {name!r} exists already")
+        d = {"name": name, "n": self.n.value(), "typical": float(self.typical.text()),
+             "bottom": float(self.bottom.text()), "base": float(self.base.text() or 0),
+             "prefix": self.prefix.text().strip() or None, "copy": self.copy_grid.isChecked(),
+             "src": self.src.currentText(), "dx": float(self.dx.text() or 0), "dy": float(self.dy.text() or 0)}
+        if not d["copy"]:
+            d["xs"], d["ys"] = self._spacings(self.xs.text()), self._spacings(self.ys.text())
+            d["ox"], d["oy"] = float(self.ox.text() or 0), float(self.oy.text() or 0)
+        if d["typical"] <= 0 or d["bottom"] <= 0:
+            raise ValueError("Story heights must be greater than zero")
+        return d
+
+    def accept(self):
+        try:
+            self.values()
+        except (ValueError, ModelError) as exc:
+            QtWidgets.QMessageBox.warning(self, "New tower", str(exc))
+            return
+        super().accept()
+
+
+def add_tower_from(model, d: dict) -> None:
+    """Make the tower of :class:`TowerDialog` values ``d`` in ``model``."""
+    from ..model.objects import GridLine, GridSystem
+    name = d["name"]
+    model.add_tower_stories(name, d["n"], d["typical"], d["bottom"], d["base"], d["prefix"])
+    if d["copy"]:
+        src = d["src"]
+        for sname in model.grid_systems_of(src):
+            gs = model.grid_systems[sname]
+            n, k = f"{name}-{sname}", 2
+            while n in model.grid_systems:
+                n, k = f"{name}-{sname}{k}", k + 1
+            o = gs.origin or (0.0, 0.0)
+            import dataclasses as _dc
+            model.grid_systems[n] = _dc.replace(gs, name=n, origin=(o[0] + d["dx"], o[1] + d["dy"]), tower=name)
+            model.grid_lines += [_dc.replace(g, system=n) for g in model.grid_lines
+                                 if g.system == sname and g.direction != "Z"]
+    else:
+        n, k = f"{name}-G1", 2
+        while n in model.grid_systems:
+            n, k = f"{name}-G{k}", k + 1
+        model.grid_systems[n] = GridSystem(name=n, origin=(d["ox"], d["oy"]), tower=name)
+        x = 0.0
+        letters = [chr(65 + i) if i < 26 else f"A{chr(65 + i - 26)}" for i in range(len(d["xs"]) + 1)]
+        for i, lab in enumerate(letters):
+            model.grid_lines.append(GridLine(system=n, name=f"{name}-{lab}", direction="X", ordinate=x))
+            if i < len(d["xs"]):
+                x += d["xs"][i]
+        y = 0.0
+        for i in range(len(d["ys"]) + 1):
+            model.grid_lines.append(GridLine(system=n, name=f"{name}-{i + 1}", direction="Y", ordinate=y))
+            if i < len(d["ys"]):
+                y += d["ys"][i]
+
+
 class GridSystemsManager(QtWidgets.QDialog):
-    """Stories and Grid Systems: the list of grid systems and the stories; the
-    selected system drawn; Add / Copy / Modify / Delete."""
+    """Towers, Stories and Grid Systems: the towers (ETABS "Allow Multiple Towers"), the
+    grid systems and stories of the selected tower, the selected system drawn; Add /
+    Copy / Modify / Delete for towers and grid systems."""
 
     COLUMNS = ("Name", "Type", "Lines", "Origin", "Rotation")
+    TOWER_COLUMNS = ("Tower", "Stories", "Base", "Top", "Grid systems")
 
     def __init__(self, doc: Document, parent=None):
         super().__init__(parent)
         self.doc = doc
-        self.setWindowTitle("Stories and Grid Systems")
-        self.resize(1120, 640)
+        self.setWindowTitle("Towers, Stories and Grid Systems")
+        self.resize(1160, 700)
         lay = QtWidgets.QHBoxLayout(self)
         # --- lists
         left = QtWidgets.QVBoxLayout()
+        self.allow = QtWidgets.QCheckBox("Allow multiple towers")
+        self.allow.setToolTip("Several buildings in one model, each with its own stories and grid systems "
+                              "(ETABS Options > Allow Multiple Towers)")
+        self.allow.toggled.connect(self._allow_toggled)
+        left.addWidget(self.allow)
+        self.tbox = QtWidgets.QGroupBox("Towers")
+        tl = QtWidgets.QVBoxLayout(self.tbox)
+        self.towers = QtWidgets.QTableWidget(0, len(self.TOWER_COLUMNS))
+        self.towers.setHorizontalHeaderLabels(self.TOWER_COLUMNS)
+        self.towers.verticalHeader().setVisible(False)
+        self.towers.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.towers.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        self.towers.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.towers.setAlternatingRowColors(True)
+        self.towers.horizontalHeader().setStretchLastSection(True)
+        self.towers.itemSelectionChanged.connect(self._tower_selected)
+        self.towers.itemDoubleClicked.connect(lambda *_: self.modify_stories())
+        tl.addWidget(self.towers)
+        left.addWidget(self.tbox, 2)
         gbox = QtWidgets.QGroupBox("Grid Systems")
+        self.gbox = gbox
         gl = QtWidgets.QVBoxLayout(gbox)
         self.table = QtWidgets.QTableWidget(0, len(self.COLUMNS))
         self.table.setHorizontalHeaderLabels(self.COLUMNS)
@@ -246,6 +401,7 @@ class GridSystemsManager(QtWidgets.QDialog):
         gl.addWidget(self.table, 1)
         left.addWidget(gbox, 3)
         sbox = QtWidgets.QGroupBox("Stories")
+        self.sbox = sbox
         sl = QtWidgets.QVBoxLayout(sbox)
         self.levels_label = QtWidgets.QLabel("")
         sl.addWidget(self.levels_label)
@@ -257,10 +413,26 @@ class GridSystemsManager(QtWidgets.QDialog):
         self.stories.horizontalHeader().setStretchLastSection(True)
         self.stories.itemDoubleClicked.connect(lambda *_: self.modify_stories())
         sl.addWidget(self.stories, 1)
-        left.addWidget(sbox, 2)
+        left.addWidget(sbox, 3)
         lay.addLayout(left, 5)
         # --- buttons
         mid = QtWidgets.QVBoxLayout()
+        self.tbtn = QtWidgets.QGroupBox("Towers")
+        tb = QtWidgets.QVBoxLayout(self.tbtn)
+        self.btn_tower_add = QtWidgets.QPushButton("Add New Tower...")
+        self.btn_tower_copy = QtWidgets.QPushButton("Add Copy of Tower...")
+        self.btn_tower_rename = QtWidgets.QPushButton("Rename Tower...")
+        self.btn_tower_delete = QtWidgets.QPushButton("Delete Tower")
+        for b, fn, tip in ((self.btn_tower_add, self.add_tower, "A new tower with its stories and grid"),
+                           (self.btn_tower_copy, self.copy_tower, "A new tower with the stories and grid systems "
+                                                                  "of the selected one (no objects)"),
+                           (self.btn_tower_rename, self.rename_tower, "Rename the selected tower"),
+                           (self.btn_tower_delete, self.delete_tower, "Delete the selected tower with its stories "
+                                                                      "and grid systems (it must have no objects)")):
+            b.clicked.connect(lambda _=False, fn=fn: fn())
+            b.setToolTip(tip)
+            tb.addWidget(b)
+        mid.addWidget(self.tbtn)
         box = QtWidgets.QGroupBox("Grid systems")
         bl = QtWidgets.QVBoxLayout(box)
         self.btn_add = QtWidgets.QPushButton("Add New Grid System...")
@@ -318,23 +490,161 @@ class GridSystemsManager(QtWidgets.QDialog):
         QtGui.QShortcut(QtGui.QKeySequence.Delete, self.table, activated=self.delete)
         QtGui.QShortcut(QtGui.QKeySequence("Ctrl+D"), self, activated=self.copy_system)
         self.refresh()
-        if self.table.rowCount():
-            self.table.selectRow(0)
 
     @property
     def model(self):
         return self.doc.model
 
+    def done(self, r):
+        # the lists are not rebuilt while the window is torn down (selection signals of
+        # tables being deleted would reach a half-deleted window)
+        for sig in (self.towers.itemSelectionChanged, self.table.itemSelectionChanged):
+            try:
+                sig.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+        super().done(r)
+
+    def _edit(self, fn) -> bool:
+        try:
+            self.doc.edit(fn)
+            return True
+        except (ModelError, ValueError) as exc:
+            QtWidgets.QMessageBox.warning(self, "Towers, Stories and Grid Systems", str(exc))
+            return False
+
+    # -- towers
+    def selected_tower(self) -> Optional[str]:
+        """The tower whose systems and stories are listed (None: one tower)."""
+        m = self.model
+        if not m.multi_tower:
+            return None
+        rows = {i.row() for i in self.towers.selectedIndexes()}
+        if len(rows) == 1:
+            it = self.towers.item(rows.pop(), 0)
+            if it is not None and it.text() in m.towers:
+                return it.text()
+        return m.default_tower()
+
+    def _refresh_towers(self, select: Optional[str] = None):
+        m = self.model
+        allowed = bool(m.towers)
+        self.allow.blockSignals(True)
+        self.allow.setChecked(allowed)
+        self.allow.blockSignals(False)
+        self.tbox.setVisible(allowed)
+        self.tbtn.setVisible(allowed)
+        keep = select if select is not None else (self.selected_tower() if self.towers.rowCount() else None)
+        self.towers.blockSignals(True)
+        self.towers.setRowCount(0)
+        names = m.tower_names() if allowed else []
+        self.towers.setRowCount(len(names))
+        for i, t in enumerate(names):
+            ss = m.stories_of(t) if m.multi_tower else m.stories_bottom_up()
+            gs = m.grid_systems_of(t) if m.multi_tower else list(m.grid_systems)
+            row = (t, str(max(len(ss) - 1, 0)), f"{ss[0].elevation:g}" if ss else "-",
+                   f"{ss[-1].elevation:g}" if ss else "-", ", ".join(gs) or "(none)")
+            for j, txt in enumerate(row):
+                it = QtWidgets.QTableWidgetItem(txt)
+                if j in (1, 2, 3):
+                    it.setTextAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+                self.towers.setItem(i, j, it)
+        self.towers.resizeColumnsToContents()
+        self.towers.horizontalHeader().setStretchLastSection(True)
+        if names:
+            self.towers.selectRow(names.index(keep) if keep in names else 0)
+        self.towers.blockSignals(False)
+        self.btn_tower_delete.setEnabled(m.multi_tower)
+        self.btn_tower_rename.setEnabled(allowed)
+        self.btn_tower_copy.setEnabled(allowed)
+        tw = self.selected_tower()
+        self.gbox.setTitle("Grid Systems" + (f" - tower {tw}" if tw else ""))
+        self.sbox.setTitle("Stories" + (f" - tower {tw}" if tw else ""))
+
+    def _tower_selected(self):
+        tw = self.selected_tower()
+        self.gbox.setTitle("Grid Systems" + (f" - tower {tw}" if tw else ""))
+        self.sbox.setTitle("Stories" + (f" - tower {tw}" if tw else ""))
+        self.refresh(towers=False)
+
+    def _allow_toggled(self, on: bool):
+        m = self.model
+        if on:
+            self._edit(lambda mm: mm.allow_towers(True))
+        else:
+            keep = m.default_tower()
+            if m.multi_tower:
+                names = m.tower_names()
+                keep, ok = QtWidgets.QInputDialog.getItem(
+                    self, "Do not allow multiple towers",
+                    "Combine every tower into tower (stories at the same elevation are merged):",
+                    names, 0, False)
+                if not ok:
+                    self._refresh_towers()
+                    return
+            self._edit(lambda mm: mm.allow_towers(False, keep))
+        self.refresh()
+
+    def add_tower(self):
+        d = TowerDialog(self.model, self)
+        if d.exec() != QtWidgets.QDialog.Accepted:
+            return
+        vals = d.values()
+        if self._edit(lambda mm: add_tower_from(mm, vals)):
+            self.refresh(tower=vals["name"])
+
+    def copy_tower(self):
+        src = self.selected_tower() or self.model.default_tower()
+        name, ok = QtWidgets.QInputDialog.getText(self, "Add copy of tower", f"New tower (a copy of {src}'s stories "
+                                                  "and grid systems):", text=f"{src}_copy")
+        name = (name or "").strip()
+        if not ok or not name:
+            return
+        u = self.model.units.label("length")
+        text, ok = QtWidgets.QInputDialog.getText(self, "Add copy of tower", f"Move its grid by dX, dY [{u}]:",
+                                                  text="0, 0")
+        if not ok:
+            return
+        try:
+            dx, dy = (float(v) for v in text.replace(";", ",").split(",")[:2])
+        except ValueError:
+            QtWidgets.QMessageBox.warning(self, "Add copy of tower", "Give dX, dY as two numbers")
+            return
+        if self._edit(lambda mm: mm.copy_tower(src, name, dx, dy)):
+            self.refresh(tower=name)
+
+    def rename_tower(self):
+        old = self.selected_tower() or self.model.default_tower()
+        new, ok = QtWidgets.QInputDialog.getText(self, "Rename tower", "Name", text=old)
+        new = (new or "").strip()
+        if ok and new and new != old and self._edit(lambda mm: mm.rename_tower(old, new)):
+            self.refresh(tower=new)
+
+    def delete_tower(self):
+        t = self.selected_tower()
+        if t is None:
+            return
+        if QtWidgets.QMessageBox.question(self, "Delete tower", f"Delete tower {t} with its stories and grid "
+                                          "systems?") != QtWidgets.QMessageBox.Yes:
+            return
+        if self._edit(lambda mm: mm.delete_tower(t)):
+            self.refresh()
+
     # -- lists
     def system_names(self) -> List[str]:
         m = self.model
+        tw = self.selected_tower()
+        if tw is not None:
+            return m.grid_systems_of(tw)
         names = list(m.grid_systems)
         for g in m.grid_lines:
             if g.direction != "Z" and (g.system or "G1") not in names:
                 names.append(g.system or "G1")
         return names
 
-    def refresh(self, select: Optional[str] = None):
+    def refresh(self, select: Optional[str] = None, tower: Optional[str] = None, towers: bool = True):
+        if towers:
+            self._refresh_towers(tower)
         m = self.model
         keep = select if select is not None else self.selected_name()
         self.table.setRowCount(0)
@@ -365,6 +675,7 @@ class GridSystemsManager(QtWidgets.QDialog):
             u = m.units.label("length")
         except Exception:  # noqa: BLE001
             u = ""
+        tw = self.selected_tower()
         if xyz:
             self.levels_label.setText("Levels from the Z grid lines (SAP2000 mode)")
             levels = list(reversed(m.levels()))
@@ -372,11 +683,12 @@ class GridSystemsManager(QtWidgets.QDialog):
             self.stories.setHorizontalHeaderLabels(["Z line", f"Z [{u}]"])
             rows = [(n, f"{z:g}") for n, z in levels]
         else:
-            self.levels_label.setText("Stories (ETABS mode), top down")
-            ss = list(reversed(m.stories_bottom_up()))
+            self.levels_label.setText("Stories (ETABS mode), top down" + (f" - tower {tw}" if tw else ""))
+            ss = list(reversed(m.stories_of(tw) if tw else m.stories_bottom_up()))
             self.stories.setColumnCount(3)
             self.stories.setHorizontalHeaderLabels(["Story", f"Height [{u}]", f"Elevation [{u}]"])
-            rows = [(s.name, "" if k == len(ss) - 1 else f"{s.height:g}", f"{s.elevation:g}") for k, s in enumerate(ss)]
+            rows = [(s.name, "" if k == len(ss) - 1 else f"{s.elevation - ss[k + 1].elevation:g}", f"{s.elevation:g}")
+                    for k, s in enumerate(ss)]
         self.stories.setRowCount(len(rows))
         for i, row in enumerate(rows):
             for j, t in enumerate(row):
@@ -410,7 +722,8 @@ class GridSystemsManager(QtWidgets.QDialog):
         m = self.model
         gs = m.grid_systems.get(name)
         kind = gs.type if gs is not None and gs.type == CYLINDRICAL else "Cartesian"
-        self.title.setText(f"{name}  -  {kind}")
+        tw = f"  (tower {m.tower_of_system(name)})" if m.multi_tower else ""
+        self.title.setText(f"{name}  -  {kind}{tw}")
         lines = [g for g in m.grid_lines if (g.system or "G1") == name]
         if kind == CYLINDRICAL:
             angs = sorted(g.ordinate for g in lines if g.direction == "T")
@@ -428,12 +741,13 @@ class GridSystemsManager(QtWidgets.QDialog):
     def _editor(self, **kw):
         from .dialogs import GridStoriesDialog
         before = set(self.system_names())
-        d = GridStoriesDialog(self.doc, self, **kw)
+        tw = self.selected_tower()
+        d = GridStoriesDialog(self.doc, self, tower=tw, **kw)
         ok = d.exec() == QtWidgets.QDialog.Accepted
         current = getattr(d, "_current", None)
         after = self.system_names()
         new = [n for n in after if n not in before]
-        self.refresh(select=(new[0] if new else current) if ok else None)
+        self.refresh(select=(new[0] if new else current) if ok else None, tower=tw)
         return ok
 
     def add(self, kind: str):
@@ -457,7 +771,8 @@ class GridSystemsManager(QtWidgets.QDialog):
         if name is None:
             return
         if len(self.system_names()) <= 1:
-            QtWidgets.QMessageBox.information(self, "Grid systems", "The model keeps at least one grid system")
+            QtWidgets.QMessageBox.information(self, "Grid systems", "The model keeps at least one grid system"
+                                              + (" in each tower" if self.model.multi_tower else ""))
             return
         n = sum(1 for g in self.model.grid_lines if (g.system or "G1") == name)
         if QtWidgets.QMessageBox.question(self, "Delete grid system",
@@ -468,5 +783,5 @@ class GridSystemsManager(QtWidgets.QDialog):
             m.grid_systems.pop(name, None)
             m.grid_lines = [g for g in m.grid_lines if g.direction == "Z" or (g.system or "G1") != name]
 
-        self.doc.edit(edit)
+        self._edit(edit)
         self.refresh()

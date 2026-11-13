@@ -20,15 +20,16 @@ from .loads import (ComboItem, LinearBucklingCase, LinearStaticCase, LoadCombina
                     TimeHistoryFunction)
 from .objects import (Area, AreaLoad, Diaphragm, Frame, FrameLoad, GridLine, GridSystem, GroundDisplacement, Group,
                       LineSpring, PanelLoad, PanelLoadCase, Point, PointLoad, Story, Tendon, TendonLoad,
-                      TendonPoint, FREE)
+                      TendonPoint, Tower, FREE)
 from .properties import FrameModifiers, FrameSection, Material, RebarSize, ShellModifiers, ShellSection
 from .design import DesignPreferences, SlabColumnDriftPrefs, SlabDesignModelPrefs
 from .nonlinear import (NONLINEAR_TYPES, FiberSectionDef, FrameHingeAssignment, FrameNonlinearProperty,
                         HingeProperty, LinkDOF, LinkObject, LinkProperty, NonlinearMaterial, NonlinearStaticCase,
                         TimeHistoryCase, TimeHistoryLoad)
 
-SCHEMA_VERSION = "2.2"  # 2.1: area loads are load panels made from the areas (PanelLoad.area)
+SCHEMA_VERSION = "2.3"  # 2.1: area loads are load panels made from the areas (PanelLoad.area)
 # 2.2: the mesh refinement check is off by default (files before 2.2 saved it on by default)
+# 2.3: multiple towers (Model.towers, Story.tower, GridSystem.tower)
 
 def _version_tuple(text) -> tuple:
     try:
@@ -38,7 +39,7 @@ def _version_tuple(text) -> tuple:
 
 
 _KNOWN_KEYS = {"schema_version", "units", "display_units", "info", "options", "materials", "rebar_sizes",
-               "frame_sections", "shell_sections", "stories", "grid_systems", "grid_lines", "diaphragms", "points",
+               "frame_sections", "shell_sections", "stories", "towers", "grid_systems", "grid_lines", "diaphragms", "points",
                "frames", "areas", "groups", "line_springs", "tendons", "panel_loads", "load_patterns", "mass_sources",
                "functions", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",
                "frame_nonlinear", "hinge_properties", "link_properties", "links", "design"}
@@ -57,7 +58,7 @@ _TYPE_REGISTRY = {
     cls.__name__: cls for cls in (
         Material, RebarSize, FrameModifiers, FrameSection, ShellModifiers, ShellSection, Point, Frame, Area, PointLoad,
         GroundDisplacement, Tendon, TendonLoad, TendonPoint, PanelLoad, PanelLoadCase,
-        FrameLoad, AreaLoad, Story, GridLine, GridSystem, Diaphragm, Group, LineSpring, LoadPattern, MassSource,
+        FrameLoad, AreaLoad, Story, Tower, GridLine, GridSystem, Diaphragm, Group, LineSpring, LoadPattern, MassSource,
         ResponseSpectrumFunction, TimeHistoryFunction, LinearStaticCase, ModalCase, ResponseSpectrumCase,
         PDeltaCase, LinearBucklingCase, ComboItem, LoadCombination, SpectrumLoad,
         DesignPreferences, SlabColumnDriftPrefs, SlabDesignModelPrefs,
@@ -174,6 +175,10 @@ class Model:
         self.frame_sections: Dict[str, FrameSection] = {}
         self.shell_sections: Dict[str, ShellSection] = {}
         self.stories: Dict[str, Story] = {}
+        # ETABS "multiple towers": empty (or one entry) = one building; the stories and grid
+        # systems name their tower (None = the first)
+        self.towers: Dict[str, Tower] = {}
+        self.active_tower: Optional[str] = None  # not saved: the tower new objects go to (see story_at)
         self.grid_systems: Dict[str, GridSystem] = {}
         self.grid_lines: List[GridLine] = []
         self.diaphragms: Dict[str, Diaphragm] = {}
@@ -306,6 +311,10 @@ class Model:
         stories are rebuilt from the Z grid lines and the Z lines are removed."""
         if mode not in self.GRID_MODES:
             raise ModelError("INVALID_GRID_MODE", f"Grid mode must be one of {self.GRID_MODES}")
+        if mode == "xyz" and self.multi_tower:
+            raise ModelError("TOWERS_USE_STORIES", "A model with several towers uses stories (X-Y-Story): the "
+                                                   "Z grid would put every tower on one set of levels.  Combine the "
+                                                   "towers first (Edit > Edit Stories and Grid Systems)")
         if mode == self.grid_mode and (mode == "story" or self.z_grid_lines()):
             return
         if mode == "xyz":
@@ -348,36 +357,388 @@ class Model:
             prev = z
         self.reassign_stories()
 
-    def reassign_stories(self) -> None:
-        """Re-derive the story of every point / frame / area from its elevation."""
+    def object_towers(self) -> Dict[Tuple[str, str], str]:
+        """(kind, name) -> tower of every point / frame / area that is on a story now
+        (several towers only): taken before the stories change, so that every object
+        stays in its tower (:meth:`reassign_stories`)."""
+        if not self.multi_tower:
+            return {}
+        out = {}
+        for kind, table in (("point", self.points), ("frame", self.frames), ("area", self.areas)):
+            for n, o in table.items():
+                if o.story in self.stories:
+                    out[(kind, n)] = self.tower_of_story(o.story)
+        return out
+
+    def reassign_stories(self, towers: Optional[Dict[Tuple[str, str], str]] = None) -> None:
+        """Re-derive the story of every point / frame / area from its elevation (each
+        object stays in its tower: ``towers`` from :meth:`object_towers` taken before
+        the stories changed, else the tower of its present story)."""
         tol = self.options.merge_tolerance
+        towers = dict(towers) if towers is not None else self.object_towers()
         for p in self.points.values():
-            s = self.story_at(p.z, tol)
+            s = self.story_at(p.z, tol, tower=towers.get(("point", p.name)), xy=(p.x, p.y))
             p.story = s.name if s else None
         for f in self.frames.values():
-            top = max(self.points[f.point_i].z, self.points[f.point_j].z)
-            s = self.story_at(top, tol)
-            f.story = s.name if s else f.story
+            pi, pj = self.points[f.point_i], self.points[f.point_j]
+            top = max(pi.z, pj.z)
+            hint = towers.get(("frame", f.name)) or self._tower_hint((pi, pj))
+            s = self.story_at(top, tol, tower=hint, xy=((pi.x + pj.x) / 2, (pi.y + pj.y) / 2))
+            f.story = s.name if s else (f.story if f.story in self.stories else None)
         for a in self.areas.values():
-            top = max(self.points[n].z for n in a.points)
-            s = self.story_at(top, tol)
-            a.story = s.name if s else a.story
+            pp = [self.points[n] for n in a.points]
+            top = max(q.z for q in pp)
+            hint = towers.get(("area", a.name)) or self._tower_hint(pp)
+            s = self.story_at(top, tol, tower=hint, xy=(sum(q.x for q in pp) / len(pp), sum(q.y for q in pp) / len(pp)))
+            a.story = s.name if s else (a.story if a.story in self.stories else None)
+
+    def set_tower_stories(self, tower: Optional[str], levels: Sequence[Tuple[str, float]]) -> None:
+        """Replace the stories of one tower by (name, elevation) levels (the lowest is its
+        base); the other towers' stories stay.  Objects keep their tower."""
+        levels = sorted(((str(n), float(z)) for n, z in levels), key=lambda t: t[1])
+        names = [n for n, _ in levels]
+        if len(set(names)) != len(names):
+            raise ModelError("DUPLICATE_NAME", "Story names must be unique")
+        if not self.multi_tower:
+            self._stories_from_levels(levels)
+            return
+        t = self._tower(tower)
+        mine = {st.name for st in self.stories_of(t)}
+        clash = [n for n in names if n in self.stories and n not in mine]
+        if clash:
+            raise ModelError("DUPLICATE_NAME", f"Story name {clash[0]!r} is used by tower "
+                                               f"{self.tower_of_story(clash[0])} (story names are unique in the model)")
+        keep = self.object_towers()
+        old = {n: self.stories.pop(n) for n in mine}
+        prev = None
+        for name, z in levels:
+            kw = {}
+            if name in old:
+                o = old[name]
+                kw = {"is_master": o.is_master, "similar_to": o.similar_to, "color": o.color}
+            self.add_story(name, z, 0.0 if prev is None else z - prev, tower=t, **kw)
+            prev = z
+        self.reassign_stories(keep)
+
+    def add_tower_stories(self, tower: str, n_stories: int, typical: float, bottom: Optional[float] = None,
+                          base_elevation: float = 0.0, prefix: Optional[str] = None) -> List[Story]:
+        """ETABS "Quick Story Definition for New Tower": a new tower with a base and
+        ``n_stories`` stories (the bottom one ``bottom`` high, the others ``typical``)."""
+        if n_stories < 1 or typical <= 0 or (bottom is not None and bottom <= 0):
+            raise ModelError("INVALID_STORIES", "A tower needs at least one story and story heights > 0")
+        prefix = prefix if prefix is not None else f"{tower}-Story"
+        base = f"{tower}-Base"
+        names = [base] + [f"{prefix}{k}" for k in range(1, n_stories + 1)]
+        used = [n for n in names if n in self.stories]
+        if used:
+            raise ModelError("DUPLICATE_NAME", f"Story {used[0]!r} exists already")
+        self.add_tower(tower)
+        out = [self.add_story(base, float(base_elevation), 0.0, tower=tower)]
+        z = float(base_elevation)
+        for k in range(1, n_stories + 1):
+            h = float(bottom if (k == 1 and bottom is not None) else typical)
+            z += h
+            out.append(self.add_story(names[k], z, h, tower=tower))
+        return out
+
+    def copy_tower(self, src: str, name: str, dx: float = 0.0, dy: float = 0.0, dz: float = 0.0) -> Tower:
+        """A new tower with the stories (renamed ``<name>-<story>``) and the grid systems
+        (``<name>-<system>``, moved by dx, dy) of tower ``src`` - its definition only,
+        as ETABS "Add Copy of Tower" (no objects)."""
+        if src not in self.tower_names():
+            raise ModelError("UNKNOWN_TOWER", f"No tower {src!r}")
+        src = self._tower(src)
+        stories = self.stories_of(src)
+        systems = self.grid_systems_of(src)
+        self.add_tower(name)
+        src = self._tower(src)
+        for st in stories:
+            n = f"{name}-{st.name}"
+            if n in self.stories:
+                raise ModelError("DUPLICATE_NAME", f"Story {n!r} exists already")
+            self.add_story(n, st.elevation + dz, st.height, tower=name, color=st.color)
+        for sname in systems:
+            gs = self.grid_systems[sname]
+            n = f"{name}-{sname}"
+            k = 2
+            while n in self.grid_systems:
+                n, k = f"{name}-{sname}{k}", k + 1
+            o = gs.origin or (0.0, 0.0)
+            self.grid_systems[n] = dataclasses.replace(gs, name=n, origin=(o[0] + dx, o[1] + dy), tower=name)
+            self.grid_lines += [dataclasses.replace(g, system=n) for g in self.grid_lines
+                                if g.system == sname and g.direction != "Z"]
+        return self.towers[name]
+
+    def combine_towers(self, keep: str) -> None:
+        """ETABS "Do Not Allow Multiple Towers": every tower combined into ``keep`` - a
+        story at the same elevation as one of ``keep``'s takes its place (its objects
+        move to that story), the others join ``keep``'s stories; grid systems too."""
+        if not self.towers:
+            return
+        keep = self._tower(keep)
+        tol = self.options.merge_tolerance
+        mine = self.stories_of(keep)
+        rename = {}
+        for st in list(self.stories.values()):
+            if self._tower(st.tower) == keep:
+                continue
+            same = next((k for k in mine if abs(k.elevation - st.elevation) <= tol), None)
+            if same is not None:
+                rename[st.name] = same.name
+                del self.stories[st.name]
+        for table in (self.points, self.frames, self.areas, self.panel_loads):
+            for o in table.values():
+                if getattr(o, "story", None) in rename:
+                    o.story = rename[o.story]
+        self.towers.clear()
+        for st in self.stories.values():
+            st.tower = None
+        for gs in self.grid_systems.values():
+            gs.tower = None
+        prev = None  # heights follow the combined order
+        for st in self.stories_bottom_up():
+            st.height = 0.0 if prev is None else st.elevation - prev
+            prev = st.elevation
+
+    def story_for(self, obj, kind: Optional[str] = None) -> Optional[str]:
+        """The story an object belongs to from its present elevation, in its own tower
+        (the tower of its present story, else of its joints): a point -> the story at
+        its z; a frame / area -> the story at its top.  None off the levels."""
+        tol = self.options.merge_tolerance
+        kind = kind or ("point" if isinstance(obj, Point) else "frame" if isinstance(obj, Frame) else "area")
+        if kind == "point":
+            hint = self.tower_of_story(obj.story) if obj.story in self.stories and self.multi_tower else None
+            s = self.story_at(obj.z, tol, tower=hint, xy=(obj.x, obj.y))
+            return s.name if s else None
+        pts = [self.points[obj.point_i], self.points[obj.point_j]] if kind == "frame" else \
+            [self.points[n] for n in obj.points]
+        hint = None
+        if self.multi_tower:
+            hint = self.tower_of_story(obj.story) if obj.story in self.stories else self._tower_hint(pts)
+        top = max(q.z for q in pts)
+        s = self.story_at(top, tol, tower=hint, xy=(sum(q.x for q in pts) / len(pts), sum(q.y for q in pts) / len(pts)))
+        return s.name if s else None
+
+    # ------------------------------------------------------------------ towers
+    DEFAULT_TOWER = "T1"
+
+    @property
+    def multi_tower(self) -> bool:
+        """More than one tower (ETABS "Allow multiple towers" with a second tower)."""
+        return len(self.towers) > 1
+
+    def tower_names(self) -> List[str]:
+        return list(self.towers) or [self.DEFAULT_TOWER]
+
+    def default_tower(self) -> str:
+        return next(iter(self.towers), self.DEFAULT_TOWER)
+
+    def _tower(self, name: Optional[str]) -> str:
+        """A stored tower name (None or unknown -> the first tower)."""
+        return name if name is not None and name in self.towers else self.default_tower()
+
+    def tower_of_story(self, story: Optional[str]) -> str:
+        s = self.stories.get(story) if story is not None else None
+        return self._tower(s.tower if s is not None else None)
+
+    def tower_of_system(self, system: Optional[str]) -> str:
+        gs = self.grid_systems.get(system) if system is not None else None
+        return self._tower(gs.tower if gs is not None else None)
+
+    def tower_of_point(self, name: str) -> str:
+        """The tower of a point: its story's, else that of a frame / area on it."""
+        p = self.points[name]
+        if p.story in self.stories:
+            return self.tower_of_story(p.story)
+        if not self.multi_tower:
+            return self.default_tower()
+        for f in self.frames.values():
+            if (f.point_i == name or f.point_j == name) and f.story in self.stories:
+                return self.tower_of_story(f.story)
+        for a in self.areas.values():
+            if name in a.points and a.story in self.stories:
+                return self.tower_of_story(a.story)
+        t = self.tower_at(p.x, p.y)
+        return t if t is not None else self.default_tower()
+
+    def tower_of_object(self, kind: str, name: str) -> str:
+        """Tower of a "point" / "frame" / "area"."""
+        if kind == "point":
+            return self.tower_of_point(name)
+        obj = (self.frames if kind == "frame" else self.areas)[name]
+        if obj.story in self.stories:
+            return self.tower_of_story(obj.story)
+        pts = [obj.point_i, obj.point_j] if kind == "frame" else list(obj.points)
+        return self._tower_hint([self.points[n] for n in pts]) or self.default_tower()
+
+    def _tower_hint(self, pts) -> Optional[str]:
+        """The tower of the first of ``pts`` that is on a story (None: none is)."""
+        if not self.multi_tower:
+            return None
+        for p in sorted(pts, key=lambda q: -q.z):
+            if p.story in self.stories:
+                return self.tower_of_story(p.story)
+        return None
+
+    def tower_at(self, x: float, y: float) -> Optional[str]:
+        """The tower whose grid systems alone cover plan point (x, y); None with one
+        tower, when no tower's grid covers it or when several do (a tower on a
+        podium: the plan position does not tell)."""
+        if not self.multi_tower:
+            return None
+        found = [t for t, ext in self._tower_extents().items()
+                 if ext is not None and ext[0] <= x <= ext[1] and ext[2] <= y <= ext[3]]
+        return found[0] if len(found) == 1 else None
+
+    def _tower_extents(self) -> Dict[str, Optional[Tuple[float, float, float, float]]]:
+        """Plan extent of the grid of each tower (cached on the grid data)."""
+        sig = (tuple((n, gs.type, tuple(gs.origin or (0, 0)), gs.rotation, gs.tower) for n, gs in self.grid_systems.items()),
+               tuple((g.system, g.direction, g.ordinate, tuple(g.start or ()), tuple(g.end or ()), g.visible)
+                     for g in self.grid_lines), tuple(self.towers))
+        cache = getattr(self, "_tower_ext_cache", None)
+        if cache is not None and cache[0] == sig:
+            return cache[1]
+        from .grids import grid_geometry
+        out = {t: grid_geometry(_TowerGrids(self, t)).extent for t in self.towers}
+        self._tower_ext_cache = (sig, out)
+        return out
+
+    def view(self, tower: Optional[str] = None):
+        """The model seen through ``tower`` (a :class:`TowerView`); the model itself
+        with one tower or when ``tower`` is None (all towers)."""
+        if tower is None or not self.multi_tower:
+            return self
+        return TowerView(self, tower)
+
+    def stories_of(self, tower: Optional[str] = None) -> List[Story]:
+        """The stories of a tower, bottom-up (all stories when ``tower`` is None)."""
+        if tower is None:
+            return self.stories_bottom_up()
+        t = self._tower(tower)
+        return [s for s in self.stories_bottom_up() if self._tower(s.tower) == t]
+
+    def grid_systems_of(self, tower: Optional[str] = None) -> List[str]:
+        if tower is None:
+            return list(self.grid_systems)
+        t = self._tower(tower)
+        return [n for n, gs in self.grid_systems.items() if self._tower(gs.tower) == t]
+
+    def allow_towers(self, on: bool, keep: Optional[str] = None) -> None:
+        """ETABS Options > Allow Multiple Towers: on - the model's stories and grid systems
+        become tower T1; off - every tower combined into ``keep`` (the first by default)."""
+        if on:
+            if not self.towers:
+                self.towers[self.DEFAULT_TOWER] = Tower(self.DEFAULT_TOWER)
+                for st in self.stories.values():
+                    st.tower = self.DEFAULT_TOWER
+                for gs in self.grid_systems.values():
+                    gs.tower = self.DEFAULT_TOWER
+            return
+        self.combine_towers(keep if keep is not None else self.default_tower())
+
+    def add_tower(self, name: str) -> Tower:
+        """A new tower (the model's first towers: the existing stories / systems become
+        the first tower)."""
+        if name in self.towers:
+            raise ModelError("DUPLICATE_NAME", f"Tower {name!r} already exists", f"towers.{name}")
+        if not self.towers:
+            first = self.DEFAULT_TOWER if name != self.DEFAULT_TOWER else "T0"
+            self.towers[first] = Tower(first)
+            for s in self.stories.values():
+                s.tower = s.tower or first
+            for gs in self.grid_systems.values():
+                gs.tower = gs.tower or first
+        t = self.towers[name] = Tower(name)
+        return t
+
+    def rename_tower(self, old: str, new: str) -> None:
+        if old not in self.towers:
+            raise ModelError("UNKNOWN_TOWER", f"No tower {old!r}")
+        if new in self.towers and new != old:
+            raise ModelError("DUPLICATE_NAME", f"Tower {new!r} already exists")
+        self.towers = {(new if k == old else k): (Tower(new) if k == old else v) for k, v in self.towers.items()}
+        for s in self.stories.values():
+            if s.tower == old:
+                s.tower = new
+        for gs in self.grid_systems.values():
+            if gs.tower == old:
+                gs.tower = new
+
+    def delete_tower(self, name: str) -> None:
+        """Remove a tower with its stories and grid systems; refused while an object is on
+        one of its stories or it is the last tower."""
+        if name not in self.towers:
+            raise ModelError("UNKNOWN_TOWER", f"No tower {name!r}")
+        if len(self.towers) <= 1:
+            raise ModelError("LAST_TOWER", "The model keeps at least one tower")
+        stories = {s.name for s in self.stories_of(name)}
+        used = [n for n, p in self.points.items() if p.story in stories] + \
+            [n for n, f in self.frames.items() if f.story in stories] + \
+            [n for n, a in self.areas.items() if a.story in stories]
+        if used:
+            raise ModelError("TOWER_IN_USE", f"Tower {name!r} has {len(used)} object(s) on its stories "
+                                             f"(first: {used[0]}); delete them first")
+        systems = set(self.grid_systems_of(name))
+        first = self.default_tower() == name
+        for s in stories:
+            del self.stories[s]
+        for g in systems:
+            del self.grid_systems[g]
+        self.grid_lines = [g for g in self.grid_lines if g.system not in systems or g.direction == "Z"]
+        del self.towers[name]
+        if first:  # the stories / systems that meant "the first tower" by None now name it
+            for s in self.stories.values():
+                s.tower = s.tower or None
+        if len(self.towers) == 1:  # back to one building
+            self.towers.clear()
+            for s in self.stories.values():
+                s.tower = None
+            for gs in self.grid_systems.values():
+                gs.tower = None
 
     def stories_bottom_up(self) -> List[Story]:
         return sorted(self.stories.values(), key=lambda s: s.elevation)
 
     def story_below(self, story: str) -> Optional[Story]:
-        ordered = self.stories_bottom_up()
+        """The story below ``story`` in its own tower."""
+        if story not in self.stories:
+            return None
+        ordered = self.stories_of(self.tower_of_story(story))
         for k, s in enumerate(ordered):
             if s.name == story:
                 return ordered[k - 1] if k > 0 else None
         return None
 
-    def story_at(self, z: float, tol: float = 1e-6) -> Optional[Story]:
-        for s in self.stories.values():
-            if abs(s.elevation - z) <= tol:
-                return s
-        return None
+    def story_at(self, z: float, tol: float = 1e-6, tower: Optional[str] = None,
+                 xy: Optional[Tuple[float, float]] = None) -> Optional[Story]:
+        """The story at elevation z: of ``tower`` when given; with several towers having a
+        story there, the one whose grid covers plan point ``xy`` (else the first tower's)."""
+        hits = [s for s in self.stories.values() if abs(s.elevation - z) <= tol]
+        if not hits:
+            return None
+        if not self.multi_tower:
+            return hits[0]
+        if tower is None:  # the tower of the window being drawn in (set by the program per command)
+            tower = getattr(self, "active_tower", None)
+            if tower is not None and tower not in self.towers:
+                tower = None
+        if len(hits) == 1:
+            own = self._tower(hits[0].tower)
+            if tower is not None:
+                return hits[0] if own == self._tower(tower) else None
+            t = self.tower_at(*xy) if xy is not None else None
+            return hits[0] if t is None or t == own else None  # inside another tower: between its levels
+        if tower is not None:
+            t = self._tower(tower)
+            mine = [s for s in hits if self._tower(s.tower) == t]
+            return mine[0] if mine else None
+        t = self.tower_at(*xy) if xy is not None else None
+        if t is not None:
+            mine = [s for s in hits if self._tower(s.tower) == t]
+            if mine:
+                return mine[0]
+        order = {n: k for k, n in enumerate(self.towers)}
+        return min(hits, key=lambda s: order.get(self._tower(s.tower), 0))
 
     def add_diaphragm(self, name: str, rigid: bool = True) -> Diaphragm:
         d = Diaphragm(name, rigid)
@@ -400,7 +761,7 @@ class Model:
             raise ModelError("DUPLICATE_NAME", f"Point {name!r} already exists", f"points.{name}")
         p = Point(name=name, x=x, y=y, z=z, **kw)
         if p.story is None:
-            s = self.story_at(z, self.options.merge_tolerance)
+            s = self.story_at(z, self.options.merge_tolerance, xy=(x, y))
             p.story = s.name if s else None
         self.points[name] = p
         if self._pindex is not None:
@@ -489,7 +850,8 @@ class Model:
         f = Frame(name=name, point_i=pi.name, point_j=pj.name, section=section, type=type, **kw)
         if f.story is None:
             top = max(pi.z, pj.z)
-            s = self.story_at(top, self.options.merge_tolerance)
+            s = self.story_at(top, self.options.merge_tolerance, tower=self._tower_hint((pi, pj)),
+                              xy=((pi.x + pj.x) / 2, (pi.y + pj.y) / 2))
             f.story = s.name if s else None
         self.frames[name] = f
         return f
@@ -513,7 +875,9 @@ class Model:
         a = Area(name=name, points=pts, section=section, type=type, **kw)
         if a.story is None:
             top = max(self.points[p].z for p in pts)
-            s = self.story_at(top, self.options.merge_tolerance)
+            pp = [self.points[p] for p in pts]
+            s = self.story_at(top, self.options.merge_tolerance, tower=self._tower_hint(pp),
+                              xy=(sum(q.x for q in pp) / len(pp), sum(q.y for q in pp) / len(pp)))
             a.story = s.name if s else None
         self.areas[name] = a
         return a
@@ -1012,7 +1376,7 @@ class Model:
         src = self.units
         out = Model(self.info.name, new_units)
         out.info = dataclasses.replace(self.info)
-        for attr in ("materials", "rebar_sizes", "frame_sections", "shell_sections", "stories", "grid_systems", "diaphragms",
+        for attr in ("materials", "rebar_sizes", "frame_sections", "shell_sections", "stories", "towers", "grid_systems", "diaphragms",
                      "points", "frames", "areas", "groups", "line_springs", "tendons", "panel_loads", "load_patterns", "mass_sources",
                      "functions", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",
                      "frame_nonlinear", "hinge_properties", "link_properties", "links"):
@@ -1075,6 +1439,7 @@ class Model:
             "frame_sections": to_dict(self.frame_sections),
             "shell_sections": to_dict(self.shell_sections),
             "stories": to_dict(self.stories),
+            "towers": to_dict(self.towers),
             "grid_systems": to_dict(self.grid_systems),
             "grid_lines": to_dict(self.grid_lines),
             "diaphragms": to_dict(self.diaphragms),
@@ -1141,7 +1506,7 @@ class Model:
         m.options = AnalysisOptions(**_coerce_tuples(_strip(data.get("options", {}))))
         if isinstance(data.get("design"), dict):
             m.design = _from_dict(data["design"], "design")
-        for attr in ("materials", "rebar_sizes", "frame_sections", "shell_sections", "stories", "grid_systems", "diaphragms",
+        for attr in ("materials", "rebar_sizes", "frame_sections", "shell_sections", "stories", "towers", "grid_systems", "diaphragms",
                      "points", "frames", "areas", "groups", "line_springs", "tendons", "panel_loads", "load_patterns", "mass_sources",
                      "functions", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",
                      "frame_nonlinear", "hinge_properties", "link_properties", "links"):
@@ -1235,3 +1600,44 @@ def _from_dict(d, path: str = ""):
     if isinstance(d, list):
         return [_from_dict(v, f"{path}[{i}]") for i, v in enumerate(d)]
     return d
+
+
+class TowerView:
+    """A model seen through one of its towers: that tower's grid systems, grid lines
+    and stories; everything else is the model's (read through to it).  What draws or
+    snaps to grids and levels takes it in place of the model."""
+
+    def __init__(self, model: "Model", tower: str):
+        self._model = model
+        self.tower = model._tower(tower)
+        names = model.grid_systems_of(self.tower)
+        self.grid_systems = {n: model.grid_systems[n] for n in names}
+        keep = set(names)
+        self.grid_lines = [g for g in model.grid_lines if g.system in keep]
+        self.stories = {st.name: st for st in model.stories_of(self.tower)}
+
+    def __getattr__(self, name):
+        return getattr(self._model, name)
+
+    multi_tower = False
+
+    def stories_bottom_up(self) -> List[Story]:
+        return list(self.stories.values())
+
+    def levels(self) -> List[Tuple[str, float]]:
+        return [(st.name, st.elevation) for st in self.stories.values()]
+
+    def story_at(self, z: float, tol: float = 1e-6, tower: Optional[str] = None, xy=None) -> Optional[Story]:
+        return self._model.story_at(z, tol, tower=self.tower, xy=xy)
+
+    def view(self, tower: Optional[str] = None):
+        return self if tower is None or self._model._tower(tower) == self.tower else self._model.view(tower)
+
+
+class _TowerGrids:
+    """The grid systems and lines of one tower, as ``grid_geometry`` reads a model."""
+
+    def __init__(self, model: "Model", tower: str):
+        names = set(model.grid_systems_of(tower))
+        self.grid_systems = {n: model.grid_systems[n] for n in names}
+        self.grid_lines = [g for g in model.grid_lines if g.system in names]

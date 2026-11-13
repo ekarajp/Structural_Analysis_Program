@@ -200,8 +200,7 @@ def merge_shells(doc: Document, areas: Sequence[str]) -> Result:
                 a.mesh_divisions = None
             for n in removed:
                 model.areas.pop(n)
-            s = model.story_at(max(model.points[p].z for p in loop), model.options.merge_tolerance)
-            a.story = s.name if s else a.story
+            a.story = model.story_for(a, "area") or a.story
         _drop_points(model, old)
 
     doc.edit(mutate)
@@ -251,8 +250,7 @@ def expand_shells(doc: Document, areas: Sequence[str], offset: float) -> Result:
             a = model.areas[n]
             old |= set(a.points)
             a.points = [model.add_point(*map(float, x)).name for x in X]
-            s = model.story_at(max(model.points[p].z for p in a.points), model.options.merge_tolerance)
-            a.story = s.name if s else a.story
+            a.story = model.story_for(a, "area") or a.story
         _drop_points(model, old)
 
     doc.edit(mutate)

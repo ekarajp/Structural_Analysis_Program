@@ -293,27 +293,34 @@ class GridStoriesDialog(QtWidgets.QDialog):
     tab (X-Y-Z mode).  The switch at the top changes the grid system."""
 
     def __init__(self, doc: Document, parent=None, system: Optional[str] = None, add: Optional[str] = None,
-                 copy_of: Optional[str] = None, show_levels: bool = False):
+                 copy_of: Optional[str] = None, show_levels: bool = False, tower: Optional[str] = None):
         """``system``: the grid system shown first; ``add``: start with a new system of
         that type ("Cartesian" / "Cylindrical"); ``copy_of``: start with a copy of that
-        system; ``show_levels``: open on the Story / Z Grid tab."""
+        system; ``show_levels``: open on the Story / Z Grid tab; ``tower`` (several
+        towers): the tower whose grid systems and stories are edited (the others stay)."""
         super().__init__(parent)
         self.doc = doc
-        self.setWindowTitle("Grid Systems and Levels")
-        self.resize(620, 520)
         m = doc.model
+        self.tower = m._tower(tower if tower is not None else (system and m.tower_of_system(system))) \
+            if m.multi_tower else None
+        self.setWindowTitle("Grid Systems and Levels" if self.tower is None
+                            else f"Tower {self.tower} - Grid Systems and Stories")
+        self.resize(620, 520)
         lay = QtWidgets.QVBoxLayout(self)
         top = QtWidgets.QHBoxLayout()
         top.addWidget(QtWidgets.QLabel("Levels"))
         self.switch = GridModeSwitch()
         self.switch.set_mode(m.grid_mode)
         self.switch.mode_changed.connect(self._mode_changed)
+        if self.tower is not None:  # towers have stories (the ETABS mode)
+            self.switch.setEnabled(False)
+            self.switch.setToolTip("A model with several towers uses stories (ETABS mode)")
         top.addWidget(self.switch)
         top.addStretch(1)
         lay.addLayout(top)
         # grid systems (ETABS: several Cartesian and cylindrical systems): the X / Y tabs
         # show the lines of the system chosen here
-        self._systems = self._systems_from(m)
+        self._systems = self._systems_from(m, self.tower)
         self._extras = {(g.system, g.direction, g.name): g for g in m.grid_lines}
         srow = QtWidgets.QHBoxLayout()
         srow.addWidget(QtWidgets.QLabel("Grid system"))
@@ -346,9 +353,10 @@ class GridStoriesDialog(QtWidgets.QDialog):
         self._current = None
         for name in self._systems:
             self.system_box.addItem(name)
-        stories = m.stories_bottom_up()
+        stories = m.stories_of(self.tower) if self.tower is not None else m.stories_bottom_up()
         # Story tab: name, height (bottom-up; the first row is the base level with its elevation)
-        rows = [(s.name, s.elevation if k == 0 else s.height) for k, s in enumerate(stories)]
+        rows = [(s.name, s.elevation if k == 0 else s.elevation - stories[k - 1].elevation)
+                for k, s in enumerate(stories)]
         self.story_table = self._table(["Story (bottom up)", "Height (base: elevation)"], rows)
         self.z_table = self._table(["Name", "Z ordinate"], m.levels())
         self.tabs.addTab(self._with_buttons(self.x_table, ("", 0.0)), "X Grid")
@@ -374,15 +382,21 @@ class GridStoriesDialog(QtWidgets.QDialog):
 
     # ------------------------------------------------------------ grid systems
     @staticmethod
-    def _systems_from(m) -> dict:
-        """name -> {type, origin, rotation, a: rows of X / radial lines, b: rows of Y / circles}."""
+    def _systems_from(m, tower: Optional[str] = None) -> dict:
+        """name -> {type, origin, rotation, a: rows of X / radial lines, b: rows of Y / circles}
+        (several towers: the systems of ``tower``)."""
         out = {}
+        mine = set(m.grid_systems_of(tower)) if tower is not None else None
         for name, gs in m.grid_systems.items():
+            if mine is not None and name not in mine:
+                continue
             out[name] = {"type": gs.type if gs.type in ("Cartesian", "Cylindrical") else "Cartesian",
                          "origin": tuple(gs.origin or (0.0, 0.0)), "rotation": float(gs.rotation or 0.0),
                          "a": [], "b": []}
         for g in m.grid_lines:
             if g.direction not in ("X", "Y", "R", "T"):
+                continue
+            if mine is not None and g.system not in mine:
                 continue
             sysd = out.setdefault(g.system or "G1", {"type": "Cylindrical" if g.direction in ("R", "T") else "Cartesian",
                                                      "origin": (0.0, 0.0), "rotation": 0.0, "a": [], "b": []})
@@ -390,7 +404,11 @@ class GridStoriesDialog(QtWidgets.QDialog):
             # b = circles (R, radius) - the ETABS directions
             sysd["a" if g.direction in ("X", "T") else "b"].append((g.name, g.ordinate))
         if not out:
-            out["G1"] = {"type": "Cartesian", "origin": (0.0, 0.0), "rotation": 0.0, "a": [], "b": []}
+            name = "G1" if tower is None else f"{tower}-G1"
+            k = 2
+            while name in m.grid_systems:
+                name, k = f"{tower}-G{k}", k + 1
+            out[name] = {"type": "Cartesian", "origin": (0.0, 0.0), "rotation": 0.0, "a": [], "b": []}
         return out
 
     def _tab_titles(self, kind: str):
@@ -436,7 +454,8 @@ class GridStoriesDialog(QtWidgets.QDialog):
 
     def _new_name(self, base: str) -> str:
         k = 1
-        while f"{base}{k}" in self._systems:
+        taken = set(self._systems) | set(self.doc.model.grid_systems)  # (the other towers' too)
+        while f"{base}{k}" in taken:
             k += 1
         return f"{base}{k}"
 
@@ -466,7 +485,7 @@ class GridStoriesDialog(QtWidgets.QDialog):
             return
         import copy as _copy
         name, k = f"{src}_copy", 2
-        while name in self._systems:
+        while name in self._systems or name in self.doc.model.grid_systems:
             name, k = f"{src}_copy{k}", k + 1
         self._systems[name] = _copy.deepcopy(self._systems[src])
         import dataclasses as _dc
@@ -484,7 +503,7 @@ class GridStoriesDialog(QtWidgets.QDialog):
         new = (new or "").strip()
         if not ok or not new or new == old:
             return
-        if new in self._systems:
+        if new in self._systems or (new in self.doc.model.grid_systems and new not in self._systems):
             QtWidgets.QMessageBox.warning(self, "Grid systems", f"A grid system {new!r} exists already")
             return
         self._save_system()
@@ -611,17 +630,35 @@ class GridStoriesDialog(QtWidgets.QDialog):
                 QtWidgets.QMessageBox.warning(self, "Grid systems", f"{sname}: circle radii must be greater than zero")
                 return
         extras = self._extras
+        tower = self.tower
+        if tower is not None:
+            m0 = self.doc.model
+            mine = {st.name for st in m0.stories_of(tower)}
+            clash = [n for n in names if n in m0.stories and n not in mine]
+            if clash:
+                QtWidgets.QMessageBox.warning(self, "Levels", f"Story name {clash[0]!r} is used by tower "
+                                              f"{m0.tower_of_story(clash[0])} - story names are unique in the model")
+                return
+            clash = [n for n in systems if n in m0.grid_systems and m0.tower_of_system(n) != tower]
+            if clash:
+                QtWidgets.QMessageBox.warning(self, "Grid systems", f"Grid system {clash[0]!r} belongs to tower "
+                                              f"{m0.tower_of_system(clash[0])}")
+                return
 
         def mutate(model: Model):
             import dataclasses as _dc
             from ..model.objects import GridSystem
             old = model.grid_systems
-            model.grid_systems = {}
-            lines = []
+            # several towers: the other towers' systems and lines stay as they are
+            edited = set(model.grid_systems_of(tower)) if tower is not None else set(old)
+            model.grid_systems = {n: gs for n, gs in old.items() if n not in edited}
+            lines = [g for g in model.grid_lines if g.system not in edited and g.direction != "Z"] \
+                if tower is not None else []
             for sname, d in systems.items():
                 gs0 = old.get(sname)
                 gs = _dc.replace(gs0, name=sname) if gs0 is not None else GridSystem(name=sname)
                 gs.type, gs.origin, gs.rotation = d["type"], tuple(d["origin"]), float(d["rotation"])
+                gs.tower = tower if tower is not None else gs.tower
                 model.grid_systems[sname] = gs
                 da, db = ("T", "R") if d["type"] == "Cylindrical" else ("X", "Y")
                 for dirn, rows in ((da, d["a"]), (db, d["b"])):
@@ -633,7 +670,10 @@ class GridStoriesDialog(QtWidgets.QDialog):
                 # general lines of the system are kept
                 lines += [g for (s_, dd, _), g in extras.items() if s_ == sname and dd == "General"]
             model.grid_lines = lines
-            if mode == "xyz":
+            if tower is not None:
+                model.options.grid_mode = "story"
+                model.set_tower_stories(tower, levels)
+            elif mode == "xyz":
                 model.options.grid_mode = "xyz"
                 model.set_z_grid(levels)
             else:

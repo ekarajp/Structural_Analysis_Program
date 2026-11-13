@@ -75,16 +75,13 @@ def _area_kwargs(a: Area) -> dict:
 
 
 def _restory(model: Model) -> None:
-    tol = model.options.merge_tolerance
+    # (each object stays in its tower)
     for p in model.points.values():
-        s = model.story_at(p.z, tol)
-        p.story = s.name if s else p.story
+        p.story = model.story_for(p, "point") or p.story
     for f in model.frames.values():
-        s = model.story_at(max(model.points[f.point_i].z, model.points[f.point_j].z), tol)
-        f.story = s.name if s else f.story
+        f.story = model.story_for(f, "frame") or f.story
     for a in model.areas.values():
-        s = model.story_at(max(model.points[p].z for p in a.points), tol)
-        a.story = s.name if s else a.story
+        a.story = model.story_for(a, "area") or a.story
 
 
 def _unused_points(model: Model) -> List[str]:
@@ -292,15 +289,12 @@ def paste_objects(doc: Document, clip: Clipboard, dx: float, dy: float, dz: floa
 
 
 def _restory_new(model: Model, sel: Selection) -> None:
-    tol = model.options.merge_tolerance
     for n in sel[0]:
         f = model.frames[n]
-        s = model.story_at(max(model.points[f.point_i].z, model.points[f.point_j].z), tol)
-        f.story = s.name if s else f.story
+        f.story = model.story_for(f, "frame") or f.story
     for n in sel[1]:
         a = model.areas[n]
-        s = model.story_at(max(model.points[p].z for p in a.points), tol)
-        a.story = s.name if s else a.story
+        a.story = model.story_for(a, "area") or a.story
 
 
 # ------------------------------------------------------------ replicate (Edit)

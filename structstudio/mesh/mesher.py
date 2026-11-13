@@ -129,6 +129,8 @@ class Mesher:
         if m.options.gravity:
             am.gravity = float(m.options.gravity) * self.U.factor("length")
         am.story_elevations = {s.name: s.elevation * self.U.factor("length") for s in m.stories.values()}
+        if m.multi_tower:
+            am.story_towers = {s.name: m.tower_of_story(s.name) for s in m.stories.values()}
         for p in m.load_patterns.values():
             if p.self_weight_multiplier:
                 am.self_weight[p.name] = float(p.self_weight_multiplier)
@@ -258,16 +260,45 @@ class Mesher:
                 if node.point is None and node.id not in self._internal_nodes and abs(node.xyz[2] - base_z) <= self.tol:
                     node.restraints[:] = True
 
+        # several towers: the tower of every node (from its point / the objects of its
+        # elements) and the story of generated nodes at a level of their own tower
+        if m.multi_tower:
+            self._assign_node_towers()
+            # a tower standing on the ground at its own (higher) base level - all its joints
+            # there supported - has its generated base joints restrained too (a tower on a
+            # podium has not: its base joints are the podium's)
+            if m.options.auto_base_restraints and am.story_elevations:
+                base_z = min(am.story_elevations.values())
+                for t in m.tower_names():
+                    ss = m.stories_of(t)
+                    if not ss:
+                        continue
+                    zt = ss[0].elevation * self.U.factor("length")
+                    if abs(zt - base_z) <= self.tol:
+                        continue
+                    pts = [n for n in am.nodes if n.point is not None and n.tower == t
+                           and abs(n.xyz[2] - zt) <= self.tol]
+                    if not pts or not all(n.restraints[:3].all() for n in pts):
+                        continue
+                    for node in am.nodes:
+                        if node.point is None and node.tower == t and node.id not in self._internal_nodes \
+                                and abs(node.xyz[2] - zt) <= self.tol:
+                            node.restraints[:] = True
+
         # 4c. generated nodes at a story level join the diaphragm defined at that level
-        # (CSI: wall/floor mesh joints at a story are part of the story diaphragm)
+        # (CSI: wall/floor mesh joints at a story are part of the story diaphragm) - of
+        # their own tower when the model has several
         level_diaphragms = {}
         for (dname, story, zkey), nodes in self._diaphragm_nodes.items():
-            level_diaphragms.setdefault(zkey, (dname, story))
+            tw = am.story_towers.get(story) if story is not None else None
+            if tw is None and nodes:
+                tw = am.nodes[next(iter(nodes))].tower
+            level_diaphragms.setdefault((tw, zkey), (dname, story))
         for node in am.nodes:
             if node.point is not None or node.id in self._internal_nodes:
                 continue
             zkey = round(node.xyz[2] / self.tol)
-            hit = level_diaphragms.get(zkey)
+            hit = level_diaphragms.get((node.tower, zkey))
             if hit is not None:
                 self._diaphragm_nodes.setdefault((hit[0], hit[1], zkey), set()).add(node.id)
 
@@ -368,6 +399,49 @@ class Mesher:
         if story is not None and node.story is None:
             node.story = story
         return nid
+
+    def _assign_node_towers(self):
+        """Several towers: node.tower for every node and, for generated nodes, the story
+        at their level in that tower (None between its levels)."""
+        m, am = self.model, self.am
+        cache = {}
+
+        def tw(kind, name):
+            key = (kind, name)
+            if key not in cache:
+                try:
+                    cache[key] = m.tower_of_object(kind, name)
+                except KeyError:
+                    cache[key] = None
+            return cache[key]
+
+        for fe in am.frames:
+            t = tw("frame", fe.object)
+            for n in (fe.node_i, fe.node_j):
+                if am.nodes[n].tower is None:
+                    am.nodes[n].tower = t
+        for se in am.shells:
+            t = tw("area", se.object)
+            for n in se.nodes:
+                if am.nodes[n].tower is None:
+                    am.nodes[n].tower = t
+        for name, nodes in self._membrane_nodes.items():
+            t = tw("area", name)
+            for n in nodes:
+                if am.nodes[n].tower is None:
+                    am.nodes[n].tower = t
+        for node in am.nodes:
+            if node.point is not None and node.point in m.points:
+                p = m.points[node.point]
+                node.tower = m.tower_of_story(p.story) if p.story in m.stories else (node.tower or m.tower_of_point(p.name))
+            elif node.tower is None:
+                node.tower = m.default_tower()
+            if node.point is None and node.story is not None and am.story_towers.get(node.story) != node.tower:
+                node.story = None
+                for sname, elev in am.story_elevations.items():
+                    if am.story_towers.get(sname) == node.tower and abs(elev - node.xyz[2]) <= self.tol:
+                        node.story = sname
+                        break
 
     def _story_of(self, z: float) -> Optional[str]:
         for name, elev in self.am.story_elevations.items():
@@ -1873,8 +1947,11 @@ class Mesher:
             k = int(np.argmax(np.abs(nrm)))
             if nrm[k] < 0:
                 nrm = -nrm
-            # parallel planes (every floor, every wall facing one way) share their mesh lines
+            # parallel planes (every floor, every wall facing one way) share their mesh lines -
+            # within one tower when the model has several (towers do not share their meshes)
             key = tuple(int(round(c * 1e5)) for c in nrm)
+            if m.multi_tower:
+                key = key + (m.tower_of_object("area", ar.name),)
             self._plane_groups.setdefault(key, []).append(ar.name)
             self._plane_of[ar.name] = key
         self._group_cache: Dict[tuple, tuple] = {}
@@ -1967,7 +2044,7 @@ class Mesher:
         if g is None:
             first = self.model.areas[self._plane_groups[key][0]]
             P0 = np.array([self._xyz(self.model.points[p]) for p in first.points])
-            nrm = np.array(key, float) / 1e5
+            nrm = np.array(key[:3], float) / 1e5
             nrm /= np.linalg.norm(nrm)
             if abs(nrm[2]) > 1 - 1e-6:
                 hint = np.array([1.0, 0.0, 0.0])
@@ -2507,7 +2584,8 @@ class Mesher:
             coords = np.array([am.nodes[n].xyz for n in node_list])
             center = coords.mean(axis=0)
             mid = len(am.nodes)
-            master = Node(id=mid, xyz=center, story=story, is_master=True, diaphragm=name)
+            master = Node(id=mid, xyz=center, story=story, is_master=True, diaphragm=name,
+                          tower=am.story_towers.get(story) or am.nodes[node_list[0]].tower)
             am.nodes.append(master)
             for n in node_list:
                 am.nodes[n].diaphragm = name

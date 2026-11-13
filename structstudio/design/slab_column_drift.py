@@ -339,6 +339,15 @@ class _Checker:
             self.adj.setdefault(f.point_i, []).append(f.name)
             self.adj.setdefault(f.point_j, []).append(f.name)
         self.story_z = sorted(s.elevation for s in self.m.stories.values())
+        # several towers: the story levels of each tower (a column's story is in its tower)
+        self._tower_z = {t: [s.elevation for s in self.m.stories_of(t)] for t in self.m.tower_names()} \
+            if self.m.multi_tower else None
+
+    def levels_of(self, pt: str) -> List[float]:
+        """The story elevations (model units) of the tower of joint ``pt``."""
+        if self._tower_z is None:
+            return self.story_z
+        return self._tower_z.get(self.m.tower_of_point(pt), self.story_z)
 
     # ---- geometry
     def xyz(self, pt: str) -> np.ndarray:
@@ -402,7 +411,7 @@ class _Checker:
                 return None
             seen.add(nxt)
             z = self.xyz(nxt)[2]
-            if any(abs(z - zs * self.Lf) <= self.tol for zs in self.story_z):
+            if any(abs(z - zs * self.Lf) <= self.tol for zs in self.levels_of(pt)):
                 return nxt, abs(z - z0)
             cur = nxt
 
@@ -571,7 +580,7 @@ class _Checker:
             if below is None:
                 continue
             xyz = self.xyz(pt)
-            if not any(abs(xyz[2] - zs * self.Lf) <= self.tol for zs in self.story_z):
+            if not any(abs(xyz[2] - zs * self.Lf) <= self.tol for zs in self.levels_of(pt)):
                 continue
             lv = self.level(xyz[2])
             if not lv.floors:
@@ -591,7 +600,8 @@ class _Checker:
         p = self.p
         P = self.m.points[pt]
         above = self.column_end(pt, up=True)
-        story = P.story or (self.m.story_at(P.z).name if self.m.story_at(P.z) else "")
+        st = self.m.story_at(P.z, tower=self.m.tower_of_point(pt)) if not P.story else None
+        story = P.story or (st.name if st else "")
         c = SlabColumnCheck(story=story, point=pt, column=below, column_above=above, x=P.x, y=P.y, z=P.z)
         dirs = self.beam_directions(pt)
         if any(abs(float(a[0] * b[1] - a[1] * b[0])) > 0.17 for a in dirs for b in dirs):

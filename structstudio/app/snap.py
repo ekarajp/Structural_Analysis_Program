@@ -216,8 +216,14 @@ class SnapEngine:
                  reference_lines: Sequence[Tuple[XYZ, XYZ]] = (),
                  depth: Optional[Callable[[Sequence[float]], float]] = None,
                  objects: Optional[Tuple[Optional[set], Optional[set], Optional[set]]] = None,
-                 near: Optional[float] = None, px_scale: float = 1.0, plane_tol: Optional[float] = None):
+                 near: Optional[float] = None, px_scale: float = 1.0, plane_tol: Optional[float] = None,
+                 tower: Optional[str] = None):
         self.model = model
+        # several towers: the grids and levels snapped to are the tower's (of the plan's
+        # story, else of the window); all towers' when None
+        if tower is None and plane.kind == "plan" and plane.story in model.stories and model.multi_tower:
+            tower = model.tower_of_story(plane.story)
+        self.gmodel = model.view(tower)
         self.plane = plane
         self.opt = options
         self.project = project
@@ -299,7 +305,7 @@ class SnapEngine:
         every level, the vertical lines at the grid points in 3D; in an elevation the
         lines crossing it (Cartesian systems along the axes) and the levels."""
         from ..model.grids import grid_geometry
-        m = self.model
+        m = self.gmodel
         pl = self.plane
         out: List[_Seg] = []
         if pl.kind in ("plan", "3d"):
@@ -370,6 +376,7 @@ class SnapEngine:
                         out.append(SnapHit(tuple(s.b.tolist()), "end", s.name))
         if o.grid:
             from .tools import grid_intersections
+            m = self.gmodel
             xs, ys = grid_ordinates(m)
             gpts = grid_intersections(m)
             levels = story_levels(m)
