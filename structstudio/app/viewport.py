@@ -2124,6 +2124,28 @@ class ModelViewport(QtWidgets.QWidget):
         self._update_preview(x, y)
         self._check_pending_panel()
 
+    def _near_grid_point_unsnapped(self, p) -> bool:
+        """The cursor is at a grid intersection but grid snapping is switched off (the
+        status bar GRID button turns grid snapping off, not the grid display)."""
+        o = self.state.snap
+        if o.grid and o.osnap:
+            return False
+        try:
+            from .tools import grid_ordinates
+            xs, ys = grid_ordinates(self.doc.model)
+            if not xs or not ys or self._last_xy is None:
+                return False
+            cx, cy = self._last_xy
+            tol = 12.0 * view_dpr(self)
+            for x in xs:
+                for y in ys:
+                    dx, dy = self._display((x, y, p[2]))
+                    if abs(dx - cx) <= tol and abs(dy - cy) <= tol:
+                        return True
+        except Exception:
+            return False
+        return False
+
     def _check_pending_panel(self):
         tool = self.state.tool
         pending = getattr(tool, "pending", None)
@@ -3011,6 +3033,8 @@ class ModelViewport(QtWidgets.QWidget):
             if not snapped and res.plane:
                 where += f"  (free, {res.plane})"
             tip.append(where)
+            if not snapped and self._near_grid_point_unsnapped(p):
+                tip.append("grid snap is off - switch GRID on (status bar) to snap to grid points")
         if pv.text:
             import re
             # lengths of the tools are in model units: show them in the display unit, with the unit
