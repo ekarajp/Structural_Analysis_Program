@@ -802,8 +802,12 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
                     base.GetProperty().SetLineWidth(1.4)
                     out.actors["grids"] = base
                 if upper is not None:
-                    upper.GetProperty().SetOpacity(0.4)
+                    upper.GetProperty().SetOpacity(0.6)
                     out.actors["grids_upper"] = upper
+                if bubbles_on:
+                    lab = build_story_labels_3d(model, levels)
+                    if lab is not None:
+                        out.actors["story_labels"] = lab
             else:
                 grid_actor = build_grid_actor(model, story, levels=levels)
                 if grid_actor is not None:
@@ -1439,8 +1443,9 @@ def build_vertical_grid_actor(model: Model) -> Optional[vtk.vtkActor]:
     zs = sorted({z for _, z in model.levels()}) or sorted({s.elevation for s in model.stories.values()})
     if len(zs) < 2:
         return None
-    xs, ys = g[0], g[1]
-    z0, z1 = zs[0], zs[-1]
+    xs, ys, ext = g[0], g[1], g[6]
+    e = 0.5 * ext  # past the base and the roof: visible where a column stands on the line too
+    z0, z1 = zs[0] - e, zs[-1] + e
     coords = [(x, y, z) for x in xs for y in ys for z in (z0, z1)]
     lines = vtk.vtkCellArray()
     for k in range(len(coords) // 2):
@@ -1450,8 +1455,33 @@ def build_vertical_grid_actor(model: Model) -> Optional[vtk.vtkActor]:
     poly = vtk.vtkPolyData()
     poly.SetPoints(_points(np.array(coords, float)))
     poly.SetLines(lines)
-    return _actor_from_polydata(poly, COLORS["grid"], gsize("grid_width"), opacity=gopacity("grid_lines") * 0.58,
-                                lighting=False)
+    actor = _actor_from_polydata(poly, COLORS["grid"], gsize("grid_width"), opacity=gopacity("grid_lines") * 0.75,
+                                 lighting=False)
+    actor.GetProperty().SetLineStipplePattern(0xFF00)
+    return actor
+
+
+def build_story_labels_3d(model: Model, levels: Sequence[float]) -> Optional[vtk.vtkProp]:
+    """3D windows: the story names at the corner of the grid of each level."""
+    g = _grid_extent(model)
+    if g is None or not model.stories:
+        return None
+    xs, ys, x0, x1, y0, y1, ext = g
+    by_z = {}
+    for st in model.stories.values():
+        by_z.setdefault(round(st.elevation, 9), st.name)
+    pts = vtk.vtkPoints()
+    texts = vtk.vtkStringArray()
+    texts.SetName("labels")
+    for z in levels:
+        name = by_z.get(round(z, 9))
+        if name is None:
+            continue
+        pts.InsertNextPoint(x1 + 0.4 * ext, y0 - 0.4 * ext, z)
+        texts.InsertNextValue(name)
+    if pts.GetNumberOfPoints() == 0:
+        return None
+    return _text_labels(pts, texts, COLORS["grid_text"], _text_pt(2))
 
 
 def build_label_actor(model: Model, frames: Optional[set] = None, labels_on: bool = True,

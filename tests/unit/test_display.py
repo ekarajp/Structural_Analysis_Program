@@ -34,7 +34,8 @@ def test_vertical_grid_lines_in_3d_only():
     assert "grid_vertical" in keys
     vert = scene.build_model_actors(m, options=DisplayOptions()).actors["grid_vertical"]
     b = vert.GetMapper().GetInput().GetBounds()
-    assert (b[4], b[5]) == (0.0, 6.0)
+    e = 0.5 * scene._grid_extent(m)[6]  # (v6) past the base and the roof, so they show where columns stand
+    assert (b[4], b[5]) == pytest.approx((0.0 - e, 6.0 + e))
     assert vert.GetMapper().GetInput().GetNumberOfLines() == 3 * 2  # 3 x-lines * 2 y-lines
     story = next(iter(m.stories))
     assert "grid_vertical" not in scene.build_model_actors(m, story=story, options=DisplayOptions()).actors

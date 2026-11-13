@@ -290,3 +290,21 @@ def test_gui_place_in_view(tmp_path, monkeypatch):
     w.close()
     for _ in range(3):
         app.processEvents()
+
+
+def test_3d_grid_segments_and_display_migration():
+    """3D windows: the grid of every level and the vertical lines at the intersections
+    are snap lines too; display options saved before v6 get them back."""
+    from structstudio.app.display import DisplayOptions
+    from structstudio.app.snap import SnapEngine, SnapOptions
+    from structstudio.app.tools import Plane
+    m = _bldg()
+    eng = SnapEngine(m, Plane("3d"), SnapOptions(), lambda xyz: (0.0, 0.0), lambda x, y: None, None, 1e-6, ())
+    segs = [s for s in eng.segments() if s.kind == "grid"]
+    vertical = [s for s in segs if abs(s.a[0] - s.b[0]) < 1e-12 and abs(s.a[1] - s.b[1]) < 1e-12]
+    assert len(vertical) == 3 * 2 and all(min(s.a[2], s.b[2]) == 0.0 and max(s.a[2], s.b[2]) == 9.5 for s in vertical)
+    assert len(segs) - len(vertical) == 4 * (3 + 2)  # 4 levels x 5 lines
+    o = DisplayOptions.from_dict({"version": 5, "grid_vertical": False, "grid_3d": "base"})
+    assert o.grid_vertical and o.grid_3d == "all"
+    o = DisplayOptions.from_dict({"version": 6, "grid_vertical": False, "grid_3d": "base"})
+    assert not o.grid_vertical and o.grid_3d == "base"

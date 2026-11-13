@@ -319,6 +319,20 @@ class SnapEngine:
             for z in levels:
                 a, b = pl.to3((us[0] - ext, z)), pl.to3((us[-1] + ext, z))
                 out.append(_Seg(np.array(a), np.array(b), "grid", f"Z={z:g}"))
+        elif pl.kind == "3d":
+            # the grid of every level and the vertical lines at the grid intersections (as drawn)
+            levels = story_levels(m)
+            if not levels:
+                return []
+            for z in levels:
+                for x in xs:
+                    out.append(_Seg(np.array([x, ys[0] - ext, z]), np.array([x, ys[-1] + ext, z]), "grid", f"X={x:g}"))
+                for y in ys:
+                    out.append(_Seg(np.array([xs[0] - ext, y, z]), np.array([xs[-1] + ext, y, z]), "grid", f"Y={y:g}"))
+            z0, z1 = min(levels), max(levels)
+            for x in xs:
+                for y in ys:
+                    out.append(_Seg(np.array([x, y, z0]), np.array([x, y, z1]), "grid", f"X={x:g} Y={y:g}"))
         return out
 
     # --------------------------------------------------------- candidates

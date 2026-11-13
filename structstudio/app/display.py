@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, fields
 from typing import Dict, List, Tuple
 
 GRID_3D = ("all", "base", "top")
-VERSION = 5  # v2: line view by default, vertical grid lines in 3D; v3: 3D grid at every story; v4: joints shown;
+VERSION = 6  # v6: vertical grid lines and the grid at every story in 3D on again; v2: line view by default, vertical grid lines in 3D; v3: 3D grid at every story; v4: joints shown;
 # v5: spring supports shown
 GRID_3D_LABELS = {"base": "At the base level", "all": "At every story / level", "top": "At the top level"}
 
@@ -70,6 +70,8 @@ class DisplayOptions:
                     continue  # v1 windows were saved with extrusion on by default
                 if ver < 3 and f.name == "grid_3d":
                     continue
+                if ver < 6 and f.name in ("grid_3d", "grid_vertical"):
+                    continue  # (the story grids / column lines were often switched off and not found again)
                 if ver < 4 and f.name in ("joints", "releases"):
                     continue  # older windows were saved with the joints hidden by default  # v1/v2 windows were saved with the grid at the base only
                 if ver < 5 and f.name == "springs":
