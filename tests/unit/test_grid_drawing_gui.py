@@ -132,12 +132,32 @@ def test_draw_a_grid_line_with_two_clicks_on_grid_points(window):
 
 
 @gui
-def test_offset_grid_line_by_clicking_its_side(window):
+def test_offset_grid_line_as_cad_offset(window):
+    """Click the line, then type the distance + Enter (to the cursor's side); or click the
+    point the copy passes through; Enter alone repeats the last distance; Esc drops the line."""
     vp = _plan(window)
     window.state.set_tool("grid_offset")
-    window.state.settings.grid_offset_distance = 1.5
-    _click(vp, 6.05, 2.5, 3.5)  # on B, a little to its right
-    assert _line(window.doc.model, "B'").ordinate == pytest.approx(7.5)
+    tool = window.state.tool
+    _click(vp, 6.0, 2.5, 3.5)  # picks B
+    assert tool.picked == ("G1", "B")
+    vp.interactor.SetEventPosition(*_display(vp, 8.0, 2.5, 3.5))  # cursor right of B
+    vp.style.InvokeEvent("MouseMoveEvent")
+    for ch in "1.5":
+        vp._typed += ch
+    vp._apply_typed()
+    m = window.doc.model
+    assert _line(m, "B'").ordinate == pytest.approx(7.5) and tool.picked is None
+    _click(vp, 6.0, 2.5, 3.5)  # B again; the cursor left of it; Enter = 1.5 again
+    vp.interactor.SetEventPosition(*_display(vp, 4.0, 2.5, 3.5))
+    vp.style.InvokeEvent("MouseMoveEvent")
+    assert tool.key("Return")
+    assert _line(window.doc.model, "B''").ordinate == pytest.approx(4.5)
+    _click(vp, 0.0, 2.5, 3.5)  # A, then the point the copy passes through
+    _click(vp, -2.0, 2.5, 3.5)
+    assert _line(window.doc.model, "A'").ordinate == pytest.approx(-2.0, abs=0.05)
+    _click(vp, 12.0, 2.5, 3.5)  # C picked, Esc drops it (the tool stays)
+    assert tool.picked is not None and tool.key("Escape") and tool.picked is None
+    assert window.state.tool is tool
 
 
 @gui

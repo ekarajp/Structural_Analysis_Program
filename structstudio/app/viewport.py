@@ -2303,7 +2303,8 @@ class ModelViewport(QtWidgets.QWidget):
                 st.status.emit(f"{st.tool.title} works in plan windows")
                 return
             st.tool.set_plane(self.plane())
-            cursor = self._plane_point(x, y)
+            cursor = self._snapped(x, y)[0] if getattr(st.tool, "wants_snap", False) else None
+            cursor = cursor if cursor is not None else self._plane_point(x, y)
             try:
                 st.tool.grid_click(self.grid_line_under(x, y), None if cursor is None else (cursor[0], cursor[1]))
             except Exception as exc:
@@ -3193,15 +3194,20 @@ class ModelViewport(QtWidgets.QWidget):
             return
         if getattr(st.tool, "picks_grids", False):  # Offset Grid Line: the grid line under the cursor
             st.tool.set_plane(self.plane())
-            cursor = self._plane_point(x, y)
+            snap = None
+            cursor = None
+            if getattr(st.tool, "wants_snap", False):  # a through point: snapped like any point
+                cursor, snap = self._snapped(x, y)
+            cursor = cursor if cursor is not None else self._plane_point(x, y)
+            self._last_cursor = cursor  # (a typed distance goes to the cursor's side)
             hit = self.grid_line_under(x, y)
             try:
                 pv = st.tool.grid_preview(hit, None if cursor is None else (cursor[0], cursor[1]))
             except Exception:
                 self.render()
                 return
-            self._grid_highlight(hit)
-            self._draw_preview(pv, None, x, y)
+            self._grid_highlight(getattr(st.tool, "picked", None) or hit)
+            self._draw_preview(pv, snap, x, y)
             return
         if getattr(st.tool, "picks_frames", False):  # Trim / Extend / Offset: the frame under the cursor
             st.tool.set_plane(self.plane())

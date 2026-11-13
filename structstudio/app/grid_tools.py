@@ -521,75 +521,136 @@ class GridLineTool(Tool):
 
 
 class OffsetGridTool(Tool):
-    """Draw > Offset Grid Line: click a grid line on the side of the copy."""
+    """Draw > Offset Grid Line, as CAD OFFSET: click a grid line, then type the distance +
+    Enter (the copy goes to the side of the cursor), or click the point the copy passes
+    through.  Enter alone repeats the last distance; Esc drops the line."""
 
     name = "grid_offset"
     title = "Offset Grid Line"
-    prompt = "click a grid line on the side of the new line (type a number + Enter = distance)"
+    prompt = "click the grid line to offset"
     views = ("plan",)
     picks_grids = True  # the viewport passes the grid line under the cursor
     takes_typed_points = False
 
     def activate(self, state) -> None:
         self.state = state
+        self.picked: Optional[Tuple[str, str]] = None
+
+    @property
+    def wants_snap(self) -> bool:  # (a through point snaps like any point)
+        return getattr(self, "picked", None) is not None
 
     def hint(self, state=None) -> str:
-        return next_step(f"{self.title} ({self.settings.grid_offset_distance:g})", self.prompt,
-                         "type a new distance + Enter", "Esc = done")
+        if getattr(self, "picked", None) is not None:
+            return next_step(f"{self.title} - line {self.picked[1]}",
+                             "type the distance + Enter (the copy goes to the cursor's side)",
+                             "or click the point the copy passes through",
+                             f"Enter = {self.settings.grid_offset_distance:g} again", "Esc = another line")
+        return next_step(self.title, self.prompt, "Esc = done")
+
+    def _status(self, text: str):
+        st = getattr(self, "state", None)
+        if st is not None:
+            st.status.emit(text)
+
+    def cancel(self):
+        super().cancel()
+        self.picked = None
+
+    def _offset(self, distance: float, side: XY) -> str:
+        system, name = self.picked
+        new = offset_grid_line(self.doc, system, name, distance, side)
+        self.settings.grid_offset_distance = distance
+        self.picked = None
+        self._status(f"Offset grid line {name} by {distance:g} -> {new}")
+        return new
 
     def typed(self, text: str, toward=None):
         v = float(text)
         if v <= 0:
             raise ValueError("The offset distance must be positive")
-        self.settings.grid_offset_distance = v
-        st = getattr(self, "state", None)
-        if st is not None:
-            st.update_hint()
-            st.status.emit(f"Grid offset distance {v:g}")
+        if self.picked is None:  # before a line is picked: the distance for the next one
+            self.settings.grid_offset_distance = v
+            self._status(f"Offset distance {v:g} - click a grid line")
+            return None
+        if toward is None:
+            raise ValueError("Move the cursor to the side of the new line, then type the distance")
+        self._offset(v, (toward[0], toward[1]))
         return None
 
-    def grid_click(self, hit: Optional[Tuple[str, str]], xy: Optional[XY]) -> bool:
-        if hit is None or xy is None:
+    def key(self, k: str) -> bool:
+        if getattr(self, "picked", None) is None:
             return False
-        new = offset_grid_line(self.doc, hit[0], hit[1], self.settings.grid_offset_distance, xy)
-        st = getattr(self, "state", None)
-        if st is not None:
-            st.status.emit(f"Offset grid line {hit[1]} -> {new}")
+        if k == "Escape":
+            self.picked = None
+            self._status("Offset Grid Line: click the grid line to offset")
+            return True
+        if k in ("Return", "KP_Enter"):
+            cur = getattr(self, "_cursor", None)
+            if cur is not None:
+                try:
+                    self._offset(self.settings.grid_offset_distance, cur)
+                except Exception as exc:  # noqa: BLE001
+                    st = getattr(self, "state", None)
+                    if st is not None:
+                        st.report(exc)
+            return True
+        return False
+
+    def grid_click(self, hit: Optional[Tuple[str, str]], xy: Optional[XY]) -> bool:
+        if self.picked is None:
+            if hit is None:
+                return False
+            self.picked = hit
+            self._status(f"Grid line {hit[1]}: type the distance + Enter, or click a point the copy passes through")
+            return False
+        if xy is None:
+            return False
+        val = line_ordinate(self.model, self.picked[0], self.picked[1], xy)
+        if val is None:
+            raise ModelError("NO_OFFSET", "Radial grid lines have no parallel copy")
+        g = find_line(self.model, *self.picked)
+        if g.direction == "R":
+            o = system_of(self.model, g).origin or (0.0, 0.0)
+            d = abs(math.dist(xy, o) - g.ordinate)
+        else:
+            d = abs(val if g.direction == "General" else val - g.ordinate)
+        if d <= _tol(self.model):
+            raise ModelError("NO_OFFSET", "Click away from the line (the copy passes through the point)")
+        self._offset(d, xy)
         return True
 
     def grid_preview(self, hit: Optional[Tuple[str, str]], xy: Optional[XY]) -> Preview:
+        self._cursor = xy
         z = self.elevation()
         pv = Preview(marker=None if xy is None else (xy[0], xy[1], z))
-        if hit is None or xy is None:
+        line = getattr(self, "picked", None)
+        if line is None:
+            if hit is not None:
+                pv.text = f"click: offset grid line {hit[1]}"
+            return pv
+        if xy is None:
             return pv
         m = self.model
         try:
-            g = find_line(m, *hit)
+            g = find_line(m, *line)
         except ModelError:
+            self.picked = None
             return pv
-        val = line_ordinate(m, hit[0], hit[1], xy)
-        if val is None:
-            pv.text = "radial lines: no parallel copy"
-            return pv
-        d = self.settings.grid_offset_distance
-        here = val if g.direction == "General" else val - g.ordinate
-        side = d if here >= 0 else -d
-        gs = system_of(m, g)
-        u, v = to_local(gs, *xy)
-        # a point 'side' away from the line, perpendicular: the preview line passes it
-        if g.direction == "X":
-            target = to_global(gs, g.ordinate + side, v)
-        elif g.direction == "Y":
-            target = to_global(gs, u, g.ordinate + side)
+        if g.direction in ("X", "Y", "General"):
+            ln = moved_line(m, line[0], line[1], xy)  # the copy through the cursor
+            val = line_ordinate(m, line[0], line[1], xy)
+            d = abs(val if g.direction == "General" else val - g.ordinate)
+            if ln is not None:
+                pv.lines = [((ln[0][0], ln[0][1], z), (ln[1][0], ln[1][1], z))]
+        elif g.direction == "R":
+            o = system_of(m, g).origin or (0.0, 0.0)
+            d = abs(math.dist(xy, o) - g.ordinate)
         else:
-            k = (side - val)
-            (x0, y0), (x1, y1) = g.start, g.end
-            L = math.hypot(x1 - x0, y1 - y0)
-            target = to_global(gs, u - (y1 - y0) / L * k, v + (x1 - x0) / L * k)
-        ln = moved_line(m, hit[0], hit[1], target)
-        if ln is not None:
-            pv.lines = [((ln[0][0], ln[0][1], z), (ln[1][0], ln[1][1], z))]
-        pv.text = f"{primed_name(m, hit[0], hit[1])}: {d:g} from {hit[1]}"
+            pv.text = "radial lines: no parallel copy - Esc"
+            return pv
+        pv.text = (f"{primed_name(m, *line)}: {d:.3f} from {line[1]}   "
+                   f"(type a distance + Enter, or click;  Enter = {self.settings.grid_offset_distance:g})")
         return pv
 
 
@@ -655,7 +716,11 @@ def grid_line_menu(win, vp, hit: Tuple[str, str], x: int, y: int) -> None:
     menu.addAction("Rename...", run(rename))
     a = menu.addAction("Move...", run(move))
     a.setEnabled(straight)
-    a = menu.addAction("Offset (click the side)", run(lambda: win.state.set_tool("grid_offset")))
+    def offset():
+        win.state.set_tool("grid_offset")
+        win.state.tool.picked = hit  # this line: type the distance + Enter, or click a point
+        win.state.update_hint()
+    a = menu.addAction("Offset (type the distance + Enter)", run(offset))
     a.setEnabled(g.direction != "T")
     menu.addSeparator()
     menu.addAction("Hide", run(lambda: set_grid_line_visible(doc, system, name, False)))
