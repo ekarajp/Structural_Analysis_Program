@@ -22,7 +22,7 @@ from .objects import (Area, AreaLoad, Diaphragm, Frame, FrameLoad, GridLine, Gri
                       LineSpring, PanelLoad, PanelLoadCase, Point, PointLoad, Story, Tendon, TendonLoad,
                       TendonPoint, FREE)
 from .properties import FrameModifiers, FrameSection, Material, RebarSize, ShellModifiers, ShellSection
-from .design import DesignPreferences, SlabColumnDriftPrefs
+from .design import DesignPreferences, SlabColumnDriftPrefs, SlabDesignModelPrefs
 from .nonlinear import (NONLINEAR_TYPES, FiberSectionDef, FrameHingeAssignment, FrameNonlinearProperty,
                         HingeProperty, LinkDOF, LinkObject, LinkProperty, NonlinearMaterial, NonlinearStaticCase,
                         TimeHistoryCase, TimeHistoryLoad)
@@ -60,7 +60,7 @@ _TYPE_REGISTRY = {
         FrameLoad, AreaLoad, Story, GridLine, GridSystem, Diaphragm, Group, LineSpring, LoadPattern, MassSource,
         ResponseSpectrumFunction, TimeHistoryFunction, LinearStaticCase, ModalCase, ResponseSpectrumCase,
         PDeltaCase, LinearBucklingCase, ComboItem, LoadCombination, SpectrumLoad,
-        DesignPreferences, SlabColumnDriftPrefs,
+        DesignPreferences, SlabColumnDriftPrefs, SlabDesignModelPrefs,
     ) + NONLINEAR_TYPES
 }
 

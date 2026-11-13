@@ -182,6 +182,7 @@ class MenuCommandsMixin:
             "display.tables": self.show_tables,
             # Design
             "design.slab.drift_check": self.slab_column_drift_check,
+            "design.slab.model": self.slab_design_model,
             # Options
             "options.units": self.options_units,
             "options.tolerances": self.options_tolerances,
@@ -327,6 +328,10 @@ class MenuCommandsMixin:
     def slab_column_drift_check(self):
         from .slab_drift_dialog import SlabColumnDriftDialog
         SlabColumnDriftDialog(self).exec()
+
+    def slab_design_model(self):
+        from .slab_model_dialog import SlabModelDialog
+        SlabModelDialog(self).exec()
 
     # --------------------------------------------------------------- File
     def close_model(self):

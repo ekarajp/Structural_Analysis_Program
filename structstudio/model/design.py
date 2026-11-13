@@ -23,5 +23,19 @@ class SlabColumnDriftPrefs:
 
 
 @dataclass
+class SlabDesignModelPrefs:
+    """Design > Concrete Slab Design > Slab Design Model: how a membrane floor is taken out
+    of the building to design its slabs.  ``beams``: flexible | rigid; ``columns``: the
+    far ends of the column / wall stubs, fixed | pinned; ``include_shell``: keep the shell
+    slabs of the same level (the slab is continuous)."""
+
+    beams: str = "flexible"
+    columns: str = "fixed"
+    include_shell: bool = True
+    stories: List[str] = field(default_factory=list)
+
+
+@dataclass
 class DesignPreferences:
     slab_column_drift: SlabColumnDriftPrefs = field(default_factory=SlabColumnDriftPrefs)
+    slab_model: SlabDesignModelPrefs = field(default_factory=SlabDesignModelPrefs)

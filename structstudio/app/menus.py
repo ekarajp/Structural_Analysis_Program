@@ -451,6 +451,7 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
                                   ("View/Revise Punching Check Overwrites...", "design.slab.punch_overwrites"),
                                   ("Select Design Combinations...", "design.slab.combos"),
                                   ("Select Stories for Slab Design...", "design.slab.stories"), "-",
+                                  ("Slab Design Model (membrane floors)...", "design.slab.model"),
                                   ("Start Design", "design.slab.start"),
                                   ("Display Flexural Design...", "design.slab.flexure"),
                                   ("Display Punching Check...", "design.slab.punching"),
