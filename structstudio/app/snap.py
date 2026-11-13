@@ -294,20 +294,45 @@ class SnapEngine:
         return out
 
     def _grid_segments(self) -> List[_Seg]:
+        """Grid lines of the view as snap lines: in a plan / 3D the lines (and the
+        arcs of cylindrical systems as short chords) of every system at the plane /
+        every level, the vertical lines at the grid points in 3D; in an elevation the
+        lines crossing it (Cartesian systems along the axes) and the levels."""
+        from ..model.grids import grid_geometry
         m = self.model
+        pl = self.plane
+        out: List[_Seg] = []
+        if pl.kind in ("plan", "3d"):
+            geo = grid_geometry(m)
+            if not geo.lines and not geo.arcs:
+                return []
+            polys = geo.polylines(seg_deg=3.0)
+            names = [n for _, _, n, _ in geo.lines] + [n for *_, n, _ in geo.arcs]
+            if pl.kind == "plan":
+                levels = [pl.value]
+            else:
+                levels = story_levels(m)
+                if not levels:
+                    return []
+            for z in levels:
+                for poly, name in zip(polys, names):
+                    for a, b in zip(poly, poly[1:]):
+                        out.append(_Seg(np.array([a[0], a[1], z]), np.array([b[0], b[1], z]), "grid", name))
+            if pl.kind == "3d":
+                z0, z1 = min(levels), max(levels)
+                seen = set()
+                for x, y in geo.points:
+                    k = (round(x, 9), round(y, 9))
+                    if k in seen:
+                        continue
+                    seen.add(k)
+                    out.append(_Seg(np.array([x, y, z0]), np.array([x, y, z1]), "grid", f"{x:g}, {y:g}"))
+            return out
         xs, ys = grid_ordinates(m)
         if not xs or not ys:
             return []
-        pl = self.plane
         ext = 0.1 * max(xs[-1] - xs[0], ys[-1] - ys[0], 1.0)
-        out = []
-        if pl.kind == "plan":
-            z = pl.value
-            for x in xs:
-                out.append(_Seg(np.array([x, ys[0] - ext, z]), np.array([x, ys[-1] + ext, z]), "grid", f"X={x:g}"))
-            for y in ys:
-                out.append(_Seg(np.array([xs[0] - ext, y, z]), np.array([xs[-1] + ext, y, z]), "grid", f"Y={y:g}"))
-        elif pl.kind in ("xz", "yz"):
+        if pl.kind in ("xz", "yz"):
             levels = story_levels(m)
             us = xs if pl.kind == "xz" else ys
             if not levels:
@@ -319,20 +344,6 @@ class SnapEngine:
             for z in levels:
                 a, b = pl.to3((us[0] - ext, z)), pl.to3((us[-1] + ext, z))
                 out.append(_Seg(np.array(a), np.array(b), "grid", f"Z={z:g}"))
-        elif pl.kind == "3d":
-            # the grid of every level and the vertical lines at the grid intersections (as drawn)
-            levels = story_levels(m)
-            if not levels:
-                return []
-            for z in levels:
-                for x in xs:
-                    out.append(_Seg(np.array([x, ys[0] - ext, z]), np.array([x, ys[-1] + ext, z]), "grid", f"X={x:g}"))
-                for y in ys:
-                    out.append(_Seg(np.array([xs[0] - ext, y, z]), np.array([xs[-1] + ext, y, z]), "grid", f"Y={y:g}"))
-            z0, z1 = min(levels), max(levels)
-            for x in xs:
-                for y in ys:
-                    out.append(_Seg(np.array([x, y, z0]), np.array([x, y, z1]), "grid", f"X={x:g} Y={y:g}"))
         return out
 
     # --------------------------------------------------------- candidates
@@ -358,17 +369,19 @@ class SnapEngine:
                         out.append(SnapHit(tuple(s.a.tolist()), "end", s.name))
                         out.append(SnapHit(tuple(s.b.tolist()), "end", s.name))
         if o.grid:
+            from .tools import grid_intersections
             xs, ys = grid_ordinates(m)
+            gpts = grid_intersections(m)
             levels = story_levels(m)
             pl = self.plane
             if pl.kind == "plan":
-                out += [SnapHit((x, y, pl.value), "grid") for x in xs for y in ys]
+                out += [SnapHit((x, y, pl.value), "grid") for x, y in gpts]
             elif pl.kind == "xz":
                 out += [SnapHit((x, pl.value, z), "grid") for x in xs for z in levels]
             elif pl.kind == "yz":
                 out += [SnapHit((pl.value, y, z), "grid") for y in ys for z in levels]
             else:
-                out += [SnapHit((x, y, z), "grid") for x in xs for y in ys for z in levels]
+                out += [SnapHit((x, y, z), "grid") for x, y in gpts for z in levels]
         if o.intersections and self.plane.kind != "3d":
             out += self._intersections(cursor, tol)
         if o.centers:

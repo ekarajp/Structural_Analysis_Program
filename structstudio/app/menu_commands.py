@@ -618,7 +618,10 @@ class MenuCommandsMixin:
             self.viewport.set_view("plan", story=v["story"])
 
     def view_set_elevation(self):
-        lines = [(g.name, g.direction) for g in self.doc.model.grid_lines if g.direction in ("X", "Y")]
+        from ..model.grids import global_ordinate
+        m = self.doc.model
+        lines = [(g.name, g.direction) for g in m.grid_lines if g.direction in ("X", "Y")
+                 and global_ordinate(m, g) is not None]
         if not lines:
             return
         labels = [f"{n}  ({'Y-Z' if d == 'X' else 'X-Z'} plane)" for n, d in lines]

@@ -1018,7 +1018,9 @@ class Model:
                      "frame_nonlinear", "hinge_properties", "link_properties", "links"):
             table = getattr(self, attr)
             setattr(out, attr, {k: convert_dataclass(v, src, new_units) for k, v in table.items()})
-        out.grid_lines = [convert_dataclass(g, src, new_units) for g in self.grid_lines]
+        # (a cylindrical system's T lines are angles in degrees: not lengths)
+        out.grid_lines = [convert_dataclass(g, src, new_units) if g.direction != "T" else dataclasses.replace(g)
+                          for g in self.grid_lines]
         out.options = dataclasses.replace(self.options)
         out.design = convert_dataclass(self.design, src, new_units)
         out.display_units = dict(self.display_units)

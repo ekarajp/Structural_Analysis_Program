@@ -228,7 +228,9 @@ class E2KImporter:
         if kind == "GRIDSYSTEM":
             d = _kv(toks, 2)
             self.model.grid_systems[toks[1][0]] = GridSystem(name=toks[1][0], type=str(d.get("TYPE", "Cartesian")).title(),
-                                                             bubble_size=float(d.get("BUBBLESIZE", 1.0)))
+                                                             bubble_size=float(d.get("BUBBLESIZE", 1.0)),
+                                                             origin=(float(d.get("UX", 0.0)), float(d.get("UY", 0.0))),
+                                                             rotation=float(d.get("ROTATION", d.get("ROTZ", 0.0))))
         elif kind == "GRID":
             d = _kv(toks, 2)
             self.model.grid_lines.append(GridLine(system=toks[1][0], name=str(d.get("LABEL", "")),

@@ -295,22 +295,53 @@ class GridStoriesDialog(QtWidgets.QDialog):
     def __init__(self, doc: Document, parent=None):
         super().__init__(parent)
         self.doc = doc
-        self.setWindowTitle("Grid Lines and Levels")
+        self.setWindowTitle("Grid Systems and Levels")
         self.resize(620, 520)
         m = doc.model
         lay = QtWidgets.QVBoxLayout(self)
         top = QtWidgets.QHBoxLayout()
-        top.addWidget(QtWidgets.QLabel("Grid system"))
+        top.addWidget(QtWidgets.QLabel("Levels"))
         self.switch = GridModeSwitch()
         self.switch.set_mode(m.grid_mode)
         self.switch.mode_changed.connect(self._mode_changed)
         top.addWidget(self.switch)
         top.addStretch(1)
         lay.addLayout(top)
+        # grid systems (ETABS: several Cartesian and cylindrical systems): the X / Y tabs
+        # show the lines of the system chosen here
+        self._systems = self._systems_from(m)
+        self._extras = {(g.system, g.direction, g.name): g for g in m.grid_lines}
+        srow = QtWidgets.QHBoxLayout()
+        srow.addWidget(QtWidgets.QLabel("Grid system"))
+        self.system_box = QtWidgets.QComboBox()
+        self.system_box.setMinimumWidth(110)
+        srow.addWidget(self.system_box)
+        self.type_label = QtWidgets.QLabel()
+        srow.addWidget(self.type_label)
+        for text, fn in (("Add Cartesian", lambda: self._add_system("Cartesian")),
+                         ("Add Cylindrical", lambda: self._add_system("Cylindrical")),
+                         ("Rename...", self._rename_system), ("Delete", self._delete_system)):
+            b = QtWidgets.QPushButton(text)
+            b.clicked.connect(lambda _=False, fn=fn: fn())
+            srow.addWidget(b)
+        srow.addStretch(1)
+        lay.addLayout(srow)
+        orow = QtWidgets.QHBoxLayout()
+        u = m.units.label("length") if hasattr(m.units, "label") else ""
+        self.ox, self.oy, self.rot = QtWidgets.QLineEdit(), QtWidgets.QLineEdit(), QtWidgets.QLineEdit()
+        for lab, w in ((f"Origin X [{u}]", self.ox), (f"Origin Y [{u}]", self.oy), ("Rotation [deg]", self.rot)):
+            orow.addWidget(QtWidgets.QLabel(lab))
+            w.setMaximumWidth(90)
+            orow.addWidget(w)
+        orow.addStretch(1)
+        lay.addLayout(orow)
         self.tabs = QtWidgets.QTabWidget()
         lay.addWidget(self.tabs, 1)
-        self.x_table = self._table(["Name", "X ordinate"], [(g.name, g.ordinate) for g in m.grid_lines if g.direction == "X"])
-        self.y_table = self._table(["Name", "Y ordinate"], [(g.name, g.ordinate) for g in m.grid_lines if g.direction == "Y"])
+        self.x_table = self._table(["Name", "X ordinate"], [])
+        self.y_table = self._table(["Name", "Y ordinate"], [])
+        self._current = None
+        for name in self._systems:
+            self.system_box.addItem(name)
         stories = m.stories_bottom_up()
         # Story tab: name, height (bottom-up; the first row is the base level with its elevation)
         rows = [(s.name, s.elevation if k == 0 else s.height) for k, s in enumerate(stories)]
@@ -322,10 +353,128 @@ class GridStoriesDialog(QtWidgets.QDialog):
         self.z_page = self._with_buttons(self.z_table, ("", 0.0))
         self._level_tab = None
         self._show_level_tab(m.grid_mode)
+        self.system_box.currentTextChanged.connect(self._switch_system)
+        self._switch_system(self.system_box.currentText())
         bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
+
+    # ------------------------------------------------------------ grid systems
+    @staticmethod
+    def _systems_from(m) -> dict:
+        """name -> {type, origin, rotation, a: rows of X / radial lines, b: rows of Y / circles}."""
+        out = {}
+        for name, gs in m.grid_systems.items():
+            out[name] = {"type": gs.type if gs.type in ("Cartesian", "Cylindrical") else "Cartesian",
+                         "origin": tuple(gs.origin or (0.0, 0.0)), "rotation": float(gs.rotation or 0.0),
+                         "a": [], "b": []}
+        for g in m.grid_lines:
+            if g.direction not in ("X", "Y", "R", "T"):
+                continue
+            sysd = out.setdefault(g.system or "G1", {"type": "Cylindrical" if g.direction in ("R", "T") else "Cartesian",
+                                                     "origin": (0.0, 0.0), "rotation": 0.0, "a": [], "b": []})
+            # Cartesian: a = X lines, b = Y lines; cylindrical: a = radial lines (T, angle),
+            # b = circles (R, radius) - the ETABS directions
+            sysd["a" if g.direction in ("X", "T") else "b"].append((g.name, g.ordinate))
+        if not out:
+            out["G1"] = {"type": "Cartesian", "origin": (0.0, 0.0), "rotation": 0.0, "a": [], "b": []}
+        return out
+
+    def _tab_titles(self, kind: str):
+        return ("Radial lines", "Circles") if kind == "Cylindrical" else ("X Grid", "Y Grid")
+
+    def _save_system(self):
+        name = self._current
+        if name is None or name not in self._systems:
+            return
+        d = self._systems[name]
+        d["a"], d["b"] = self._rows(self.x_table), self._rows(self.y_table)
+        d["origin"] = (float(self.ox.text() or 0), float(self.oy.text() or 0))
+        d["rotation"] = float(self.rot.text() or 0)
+
+    def _switch_system(self, name: str):
+        if not name or name not in self._systems:
+            return
+        if self._current is not None and self._current != name:
+            try:
+                self._save_system()
+            except ValueError as exc:
+                QtWidgets.QMessageBox.warning(self, "Invalid value", str(exc))
+                self.system_box.blockSignals(True)
+                self.system_box.setCurrentText(self._current)
+                self.system_box.blockSignals(False)
+                return
+        d = self._systems[name]
+        self._current = name
+        kind = d["type"]
+        ta, tb = self._tab_titles(kind)
+        self.tabs.setTabText(0, ta)
+        self.tabs.setTabText(1, tb)
+        self.x_table.setHorizontalHeaderLabels(["Name", "Angle [deg]" if kind == "Cylindrical" else "X ordinate"])
+        self.y_table.setHorizontalHeaderLabels(["Name", "Radius" if kind == "Cylindrical" else "Y ordinate"])
+        for t, rows in ((self.x_table, d["a"]), (self.y_table, d["b"])):
+            t.setRowCount(0)
+            for row in rows:
+                self._add_row(t, row)
+        self.type_label.setText(kind)
+        self.ox.setText(f"{d['origin'][0]:g}")
+        self.oy.setText(f"{d['origin'][1]:g}")
+        self.rot.setText(f"{d['rotation']:g}")
+
+    def _new_name(self, base: str) -> str:
+        k = 1
+        while f"{base}{k}" in self._systems:
+            k += 1
+        return f"{base}{k}"
+
+    def _add_system(self, kind: str):
+        try:
+            self._save_system()
+        except ValueError as exc:
+            QtWidgets.QMessageBox.warning(self, "Invalid value", str(exc))
+            return
+        name = self._new_name("G" if kind == "Cartesian" else "C")
+        if kind == "Cylindrical":
+            rows_a = [(f"{name}-R{k + 1}", float(a)) for k, a in enumerate(range(0, 360, 45))]
+            rows_b = [(f"{name}-T{k + 1}", float(r)) for k, r in enumerate((5.0, 10.0))]
+        else:
+            rows_a = [(f"{name}-{k + 1}", float(x)) for k, x in enumerate((0, 6, 12))]
+            rows_b = [(f"{name}-{chr(65 + k)}", float(y)) for k, y in enumerate((0, 6))]
+        self._systems[name] = {"type": kind, "origin": (0.0, 0.0), "rotation": 0.0, "a": rows_a, "b": rows_b}
+        self.system_box.addItem(name)
+        self.system_box.setCurrentText(name)
+
+    def _rename_system(self):
+        old = self._current
+        if old is None:
+            return
+        new, ok = QtWidgets.QInputDialog.getText(self, "Rename grid system", "Name", text=old)
+        new = (new or "").strip()
+        if not ok or not new or new == old:
+            return
+        if new in self._systems:
+            QtWidgets.QMessageBox.warning(self, "Grid systems", f"A grid system {new!r} exists already")
+            return
+        self._save_system()
+        self._systems = {(new if k == old else k): v for k, v in self._systems.items()}
+        self._extras = {((new if s == old else s), d, n): g for (s, d, n), g in self._extras.items()}
+        i = self.system_box.findText(old)
+        self._current = new
+        self.system_box.blockSignals(True)
+        self.system_box.setItemText(i, new)
+        self.system_box.blockSignals(False)
+
+    def _delete_system(self):
+        if len(self._systems) <= 1 or self._current is None:
+            QtWidgets.QMessageBox.information(self, "Grid systems", "The model keeps at least one grid system")
+            return
+        name = self._current
+        del self._systems[name]
+        self._current = None
+        i = self.system_box.findText(name)
+        self.system_box.removeItem(i)
+        self._switch_system(self.system_box.currentText())
 
     # ------------------------------------------------------------ widgets
     @staticmethod
@@ -412,7 +561,8 @@ class GridStoriesDialog(QtWidgets.QDialog):
     def accept(self):
         mode = self.switch.mode()
         try:
-            xs, ys = self._rows(self.x_table), self._rows(self.y_table)
+            self._save_system()
+            systems = {k: dict(v) for k, v in self._systems.items()}
             levels = self._levels_from(self.z_table if mode == "xyz" else self.story_table, mode)
         except ValueError as exc:
             QtWidgets.QMessageBox.warning(self, "Invalid value", str(exc))
@@ -425,13 +575,33 @@ class GridStoriesDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(self, "Levels", "Level names must be unique")
             return
 
+        for sname, d in systems.items():
+            if d["type"] == "Cylindrical" and any(r <= 0 for _, r in d["b"]):
+                QtWidgets.QMessageBox.warning(self, "Grid systems", f"{sname}: circle radii must be greater than zero")
+                return
+        extras = self._extras
+
         def mutate(model: Model):
-            system = next(iter(model.grid_systems), "G1")
-            if system not in model.grid_systems:
-                from ..model.objects import GridSystem
-                model.grid_systems[system] = GridSystem(name=system)
-            model.grid_lines = ([GridLine(system=system, name=n, direction="X", ordinate=o) for n, o in xs]
-                                + [GridLine(system=system, name=n, direction="Y", ordinate=o) for n, o in ys])
+            import dataclasses as _dc
+            from ..model.objects import GridSystem
+            old = model.grid_systems
+            model.grid_systems = {}
+            lines = []
+            for sname, d in systems.items():
+                gs0 = old.get(sname)
+                gs = _dc.replace(gs0, name=sname) if gs0 is not None else GridSystem(name=sname)
+                gs.type, gs.origin, gs.rotation = d["type"], tuple(d["origin"]), float(d["rotation"])
+                model.grid_systems[sname] = gs
+                da, db = ("T", "R") if d["type"] == "Cylindrical" else ("X", "Y")
+                for dirn, rows in ((da, d["a"]), (db, d["b"])):
+                    for n, o in rows:
+                        prev = extras.get((sname, dirn, n))
+                        gl = _dc.replace(prev, ordinate=o) if prev is not None else \
+                            GridLine(system=sname, name=n, direction=dirn, ordinate=o)
+                        lines.append(gl)
+                # general lines of the system are kept
+                lines += [g for (s_, dd, _), g in extras.items() if s_ == sname and dd == "General"]
+            model.grid_lines = lines
             if mode == "xyz":
                 model.options.grid_mode = "xyz"
                 model.set_z_grid(levels)

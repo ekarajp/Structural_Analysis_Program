@@ -47,13 +47,16 @@ def _grid_xy(model: Model, text: str):
     parts = [p for p in re.split(r"\s*[/\\-]\s*|\s+", text.strip()) if p]
     if len(parts) != 2:
         return None
-    gx = {g.name.lower(): g.ordinate for g in model.grid_lines if g.direction == "X"}
-    gy = {g.name.lower(): g.ordinate for g in model.grid_lines if g.direction == "Y"}
+    from ..model.grids import line_intersection
     a, b = parts[0].lower(), parts[1].lower()
-    if a in gx and b in gy:
-        return gx[a], gy[b]
-    if b in gx and a in gy:
-        return gx[b], gy[a]
+    for ga in model.grid_lines:
+        if ga.name.lower() != a:
+            continue
+        for gb in model.grid_lines:
+            if gb.name.lower() == b and gb.system == ga.system and gb is not ga:
+                p = line_intersection(model, ga, gb)
+                if p is not None:
+                    return p
     return None
 
 

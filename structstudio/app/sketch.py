@@ -38,8 +38,11 @@ def model_sketch(model) -> Dict[str, list]:
     out: Dict[str, list] = {k: [] for k in ("grid", "bubble", "floor", "wall", "beam", "column", "brace", "support")}
     zs = [s.elevation for s in model.stories.values()] or [min((p.z for p in pts.values()), default=0.0)]
     zb = min(zs)
-    xs = sorted({g.ordinate for g in model.grid_lines if g.direction == "X" and g.visible})
-    ys = sorted({g.ordinate for g in model.grid_lines if g.direction == "Y" and g.visible})
+    from ..model.grids import global_ordinate
+    xs = sorted({v for g in model.grid_lines if g.direction == "X" and g.visible
+                 for v in [global_ordinate(model, g)] if v is not None})
+    ys = sorted({v for g in model.grid_lines if g.direction == "Y" and g.visible
+                 for v in [global_ordinate(model, g)] if v is not None})
     if xs and ys:
         span = max(xs[-1] - xs[0], ys[-1] - ys[0], 1e-9)
         ext, gap = 0.08 * span, 0.05 * span

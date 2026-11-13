@@ -27,15 +27,28 @@ PIN_ENDS = (False, False, False, False, True, True)  # M2, M3 released
 
 # ----------------------------------------------------------------- geometry
 def grid_ordinates(model: Model) -> Tuple[List[float], List[float]]:
-    """(x ordinates of the X-direction lines, y ordinates of the Y-direction lines)."""
-    xs = sorted({g.ordinate for g in model.grid_lines if g.direction == "X"})
-    ys = sorted({g.ordinate for g in model.grid_lines if g.direction == "Y"})
-    return xs, ys
+    """(global x of the X-direction lines, global y of the Y-direction lines) of the
+    Cartesian grid systems along the axes (turned / cylindrical systems are not
+    ordinates: see :func:`grid_intersections`)."""
+    from ..model.grids import global_ordinate
+    xs, ys = set(), set()
+    for g in model.grid_lines:
+        v = global_ordinate(model, g)
+        if v is not None:
+            (xs if g.direction == "X" else ys).add(round(v, 12))
+    return sorted(xs), sorted(ys)
 
 
 def grid_intersections(model: Model) -> List[XY]:
-    xs, ys = grid_ordinates(model)
-    return [(x, y) for x in xs for y in ys]
+    """The grid points of every grid system in plan (global x, y)."""
+    from ..model.grids import grid_points
+    out, seen = [], set()
+    for p in grid_points(model):
+        k = (round(p[0], 9), round(p[1], 9))
+        if k not in seen:
+            seen.add(k)
+            out.append(p)
+    return out
 
 
 def story_levels(model: Model) -> List[float]:

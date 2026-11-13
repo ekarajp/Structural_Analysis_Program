@@ -434,8 +434,9 @@ def _base_without_support(model, tol) -> List[GeometryIssue]:
 
 def _far_away(model, tol) -> List[GeometryIssue]:
     """Joints far outside the grid (a slip of the mouse, or a length in the wrong units)."""
-    xs = [g.ordinate for g in model.grid_lines if g.direction == "X"]
-    ys = [g.ordinate for g in model.grid_lines if g.direction == "Y"]
+    from .grids import global_ordinate
+    xs = [v for g in model.grid_lines if g.direction == "X" for v in [global_ordinate(model, g)] if v is not None]
+    ys = [v for g in model.grid_lines if g.direction == "Y" for v in [global_ordinate(model, g)] if v is not None]
     if len(xs) < 2 or len(ys) < 2:
         return []
     x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)

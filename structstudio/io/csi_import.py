@@ -607,15 +607,14 @@ class CsiImporter:
         for r in rows:
             system = gets(r, "CoordSys", "Name", "GridSys", default="G1")
             axis = (gets(r, "AxisDir", "LineType", "GridLineType", "Dir", default="X") or "X").strip().upper()[:1]
-            if axis not in ("X", "Y", "Z"):
-                if axis in ("R", "T"):
-                    self.skipped["cylindrical grid lines"] += 1
-                    continue
+            if axis not in ("X", "Y", "Z", "R", "T"):
                 axis = "X"
             gid = gets(r, "GridID", "ID", "Label", default="") or ""
             coord = getf(r, "XRYZCoord", "Ordinate", "Coord", "Coordinate", default=0.0) or 0.0
             if system not in m.grid_systems:
                 m.grid_systems[system] = GridSystem(name=system)
+            if axis in ("R", "T"):  # cylindrical: R = circle (radius), T = radial line (angle)
+                m.grid_systems[system].type = "Cylindrical"
             m.grid_lines.append(GridLine(system=system, name=gid, direction=axis, ordinate=coord,
                                          bubble_location=gets(r, "BubbleLoc", "BubbleLocation", default="End") or "End",
                                          visible=to_bool(get(r, "Visible"), True)))

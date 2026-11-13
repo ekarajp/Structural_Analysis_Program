@@ -795,10 +795,11 @@ class WindowsDialog(QtWidgets.QDialog):
                     where.addItems(stories)
                     if cfg.story in stories:
                         where.setCurrentText(cfg.story)
-                elif k == "xz":
-                    where.addItems([g.name for g in m.grid_lines if g.direction == "Y"])
-                elif k == "yz":
-                    where.addItems([g.name for g in m.grid_lines if g.direction == "X"])
+                elif k in ("xz", "yz"):
+                    from ..model.grids import global_ordinate
+                    d = "Y" if k == "xz" else "X"
+                    where.addItems([g.name for g in m.grid_lines if g.direction == d
+                                    and global_ordinate(m, g) is not None])
                 if k in ("xz", "yz") and cfg.grid:
                     where.setCurrentText(cfg.grid)
                 where.setEnabled(k != "3d")

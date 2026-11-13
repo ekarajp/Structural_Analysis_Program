@@ -50,11 +50,13 @@ def object_story(model: Model, attr: str, name: str) -> Optional[str]:
 
 
 def _axis_label(model: Model, direction: str, value: float, tol: float) -> str:
-    lines = [g for g in model.grid_lines if g.direction == direction]
+    from ..model.grids import global_ordinate
+    lines = [(g, global_ordinate(model, g)) for g in model.grid_lines if g.direction == direction]
+    lines = [(g, v) for g, v in lines if v is not None]
     if not lines:
         return f"{value:g}"
-    g = min(lines, key=lambda g: abs(g.ordinate - value))
-    d = value - g.ordinate
+    g, v = min(lines, key=lambda t: abs(t[1] - value))
+    d = value - v
     if abs(d) <= tol:
         return g.name
     return f"{g.name}{d:+.2f}"

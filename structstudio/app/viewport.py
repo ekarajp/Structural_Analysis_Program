@@ -610,12 +610,18 @@ class ModelViewport(QtWidgets.QWidget):
     def _elevation_lines(self) -> List[Tuple[str, str, float]]:
         """(grid name, label, ordinate) of the grid lines defining this kind of elevation.
         X-Z elevations lie on Y-direction lines (constant y); Y-Z on X-direction lines."""
+        from ..model.grids import global_ordinate
         m = self.doc.model
-        if self.config.kind == "xz":
-            return [(g.name, f"Y={g.ordinate:g}", g.ordinate) for g in m.grid_lines if g.direction == "Y"]
-        if self.config.kind == "yz":
-            return [(g.name, f"X={g.ordinate:g}", g.ordinate) for g in m.grid_lines if g.direction == "X"]
-        return []
+        d = {"xz": "Y", "yz": "X"}.get(self.config.kind)
+        if d is None:
+            return []
+        out = []
+        for g in m.grid_lines:
+            if g.direction == d:
+                v = global_ordinate(m, g)  # (Cartesian systems along the axes)
+                if v is not None:
+                    out.append((g.name, f"{d}={v:g}", v))
+        return out
 
     def _update_title(self):
         c = self.config

@@ -1387,18 +1387,31 @@ def add_grid_lines_at_points(doc: Document, points: Sequence[str]) -> int:
     if not pts:
         return 0
     new: List[Tuple[str, float]] = []
+    from ..model.grids import global_ordinate, is_plain
+    plain = next((n for n, gs in m.grid_systems.items() if is_plain(gs)), None) or \
+        (None if m.grid_systems else "G1")
+    if plain is None:
+        from ..model.base import ModelError
+        raise ModelError("NO_CARTESIAN_GRID", "Add grid lines at joints needs a Cartesian grid system along the "
+                                              "global axes (Define > Grid Systems)")
+    o = m.grid_systems[plain].origin if plain in m.grid_systems else (0.0, 0.0)
     for p in pts:
         for d, v in (("X", p.x), ("Y", p.y)):
-            if not any(g.direction == d and abs(g.ordinate - v) <= tol for g in m.grid_lines) and \
+            if not any(g.direction == d and global_ordinate(m, g) is not None and abs(global_ordinate(m, g) - v) <= tol
+                       for g in m.grid_lines) and \
                     not any(dd == d and abs(vv - v) <= tol for dd, vv in new):
                 new.append((d, v))
     if not new:
         return 0
 
     def mutate(model: Model):
-        system = next(iter(model.grid_systems), "G1")
+        system = plain
+        if system not in model.grid_systems:
+            from ..model.objects import GridSystem
+            model.grid_systems[system] = GridSystem(name=system)
         for d, v in new:
-            model.grid_lines.append(GridLine(system=system, name=_next_grid_name(model, d), direction=d, ordinate=v))
+            model.grid_lines.append(GridLine(system=system, name=_next_grid_name(model, d), direction=d,
+                                             ordinate=v - (o[0] if d == "X" else o[1])))
         model.grid_lines.sort(key=lambda g: ("XYZG".find(g.direction[0]), g.ordinate))
 
     doc.edit(mutate)

@@ -120,10 +120,21 @@ class ModelTree(QtWidgets.QTreeWidget):
             s = m.stories[name]
             self._node(sto, f"{name}   (z = {s.elevation:g} {u})", data=("story", name), key=name,
                        tip="Click: show this story in the active plan window")
-        grids = [g for g in m.grid_lines if g.direction in ("X", "Y")]
+        grids = [g for g in m.grid_lines if g.direction in ("X", "Y", "R", "T", "General")]
         gn = self._node(lay, "Grid Lines", len(grids), key="grids")
+        systems = {}
         for g in grids:
-            self._node(gn, f"{g.name}   ({g.direction} = {g.ordinate:g} {u})", key=f"{g.direction}{g.name}")
+            systems.setdefault(g.system or "G1", []).append(g)
+        for sysname, lines in systems.items():
+            gs = m.grid_systems.get(sysname)
+            parent = gn
+            if len(systems) > 1:
+                kind = gs.type if gs is not None else "Cartesian"
+                parent = self._node(gn, f"{sysname}   ({kind})", len(lines), key=f"gs:{sysname}")
+            for g in lines:
+                what = {"T": f"θ = {g.ordinate:g}°", "R": f"R = {g.ordinate:g} {u}"}.get(
+                    g.direction, f"{g.direction} = {g.ordinate:g} {u}")
+                self._node(parent, f"{g.name}   ({what})", key=f"{sysname}:{g.direction}{g.name}")
         # --- Structural Objects
         obj = self._node(None, "Structural Objects", key="objects")
         pts = self._node(obj, "Joints", len(m.points), data=("set", {"points": list(m.points)}), key="joints")

@@ -371,7 +371,10 @@ def build_elevation_grid(model: Model, plane: Tuple[str, float]) -> List[vtk.vtk
     axis, value = plane
     k = 0 if axis == "x" else 1          # coordinate that is constant in the plane
     along = "Y" if axis == "x" else "X"   # grid lines crossing the plane
-    ords = sorted({g.ordinate for g in model.grid_lines if g.direction == along})
+    from ..model.grids import global_ordinate
+    crossing = [(g, global_ordinate(model, g)) for g in model.grid_lines if g.direction == along]
+    crossing = [(g, v) for g, v in crossing if v is not None]  # (systems along the axes)
+    ords = sorted({v for _, v in crossing})
     stories = model.stories_bottom_up()
     if not stories:
         return []
@@ -407,8 +410,7 @@ def build_elevation_grid(model: Model, plane: Tuple[str, float]) -> List[vtk.vtk
     texts.SetName("labels")
     r = _bubble_radius(model)
     off = r * (1.0 + 0.6 * gsize("bubble_gap"))
-    items = [(P(g.ordinate, z1 + ext + off), g.name, P(g.ordinate, z1 + ext))
-             for g in model.grid_lines if g.direction == along]
+    items = [(P(v, z1 + ext + off), g.name, P(v, z1 + ext)) for g, v in crossing]
     e1 = (0, 1, 0) if axis == "x" else (1, 0, 0)
     bubbles = bubble_actor(items, e1, (0, 0, 1), r, COLORS["grid_text"])
     for st in stories:
@@ -1305,14 +1307,19 @@ def model_extent(model: Model) -> float:
 
 
 def _grid_extent(model: Model):
-    xs = [g.ordinate for g in model.grid_lines if g.direction == "X"]
-    ys = [g.ordinate for g in model.grid_lines if g.direction == "Y"]
-    if not xs or not ys:
+    """(xs, ys, x0, x1, y0, y1, ext): the global ordinates of the Cartesian systems along
+    the axes, the box of the grid points of every system and the run-past distance of
+    the lines (None without a grid)."""
+    from ..model.grids import grid_geometry
+    from .tools import grid_ordinates
+    geo = grid_geometry(model)
+    if not geo.points and not geo.lines:
         return None
-    x0, x1 = min(xs), max(xs)
-    y0, y1 = min(ys), max(ys)
-    ext = max(x1 - x0, y1 - y0, 1.0) * 0.1
-    return xs, ys, x0, x1, y0, y1, ext
+    xs, ys = grid_ordinates(model)
+    pts = geo.points or [p for a, b, _, _ in geo.lines for p in (a, b)]
+    x0, x1 = min(p[0] for p in pts), max(p[0] for p in pts)
+    y0, y1 = min(p[1] for p in pts), max(p[1] for p in pts)
+    return xs, ys, x0, x1, y0, y1, geo.ext
 
 
 def _bubble_radius(model: Model) -> float:
@@ -1374,26 +1381,20 @@ def bubble_actor(items, e1, e2, radius: float, color) -> Optional[vtk.vtkActor]:
 
 
 def build_grid_bubbles(model: Model, story: Optional[str] = None, z: Optional[float] = None) -> vtk.vtkProp:
-    """Grid bubbles (A, B, ... / 1, 2, ... in circles) at the line ends of the shown
-    story, or at elevation ``z`` (3D windows: the base level by default).  Size and
-    distance from the grid: Options > Graphics sizes."""
-    g = _grid_extent(model)
+    """Grid bubbles (A, B, ... / 1, 2, ... in circles) at the line ends of every grid
+    system, at the shown story or at elevation ``z`` (3D windows: the base level by
+    default).  Size and distance from the grid: Options > Graphics sizes."""
+    from ..model.grids import grid_geometry
     items = []
     r = _bubble_radius(model)
-    if g is not None and model.stories:
-        xs, ys, x0, x1, y0, y1, ext = g
+    if model.grid_lines and model.stories:
         if story and story in model.stories:
             z = model.stories[story].elevation
         elif z is None:
             z = min(s.elevation for s in model.stories.values())
         off = r * (1.0 + 0.6 * gsize("bubble_gap"))
-        for gl in model.grid_lines:
-            if gl.direction == "X":
-                end = (gl.ordinate, y1 + ext, z)
-                items.append(((gl.ordinate, y1 + ext + off, z), gl.name, end))
-            elif gl.direction == "Y":
-                end = (x0 - ext, gl.ordinate, z)
-                items.append(((x0 - ext - off, gl.ordinate, z), gl.name, end))
+        for end, d, name in grid_geometry(model).bubbles:
+            items.append(((end[0] + d[0] * off, end[1] + d[1] * off, z), name, (end[0], end[1], z)))
     actor = bubble_actor(items, (1, 0, 0), (0, 1, 0), r, COLORS["grid_text"])
     if actor is None:
         actor = vtk.vtkActor2D()
@@ -1402,28 +1403,32 @@ def build_grid_bubbles(model: Model, story: Optional[str] = None, z: Optional[fl
 
 def build_grid_actor(model: Model, story: Optional[str] = None,
                      levels: Optional[Sequence[float]] = None) -> Optional[vtk.vtkActor]:
+    """The grid lines of every grid system (lines, and the circles / arcs of
+    cylindrical systems) at the story, the given levels, or every story."""
+    from ..model.grids import grid_geometry
     if not model.grid_lines or not model.stories:
         return None
-    g = _grid_extent(model)
-    if g is None:
+    geo = grid_geometry(model)
+    polys = geo.polylines()
+    if not polys:
         return None
-    xs, ys, x0, x1, y0, y1, ext = g
-    coords, lines = [], vtk.vtkCellArray()
     if story and story in model.stories:
         zs = [model.stories[story].elevation]
     elif levels is not None:
         zs = list(levels)
     else:
         zs = [s.elevation for s in model.stories.values()]
+    coords, lines = [], vtk.vtkCellArray()
     for z in zs:
-        for x in xs:
-            coords += [(x, y0 - ext, z), (x, y1 + ext, z)]
-        for y in ys:
-            coords += [(x0 - ext, y, z), (x1 + ext, y, z)]
-    for k in range(len(coords) // 2):
-        lines.InsertNextCell(2)
-        lines.InsertCellPoint(2 * k)
-        lines.InsertCellPoint(2 * k + 1)
+        for poly in polys:
+            for a, b in zip(poly, poly[1:]):
+                k = len(coords)
+                coords += [(a[0], a[1], z), (b[0], b[1], z)]
+                lines.InsertNextCell(2)
+                lines.InsertCellPoint(k)
+                lines.InsertCellPoint(k + 1)
+    if not coords:
+        return None
     poly = vtk.vtkPolyData()
     poly.SetPoints(_points(np.array(coords, float)))
     poly.SetLines(lines)
@@ -1443,10 +1448,13 @@ def build_vertical_grid_actor(model: Model) -> Optional[vtk.vtkActor]:
     zs = sorted({z for _, z in model.levels()}) or sorted({s.elevation for s in model.stories.values()})
     if len(zs) < 2:
         return None
-    xs, ys, ext = g[0], g[1], g[6]
+    from .tools import grid_intersections
+    ext = g[6]
     e = 0.5 * ext  # past the base and the roof: visible where a column stands on the line too
     z0, z1 = zs[0] - e, zs[-1] + e
-    coords = [(x, y, z) for x in xs for y in ys for z in (z0, z1)]
+    coords = [(x, y, z) for x, y in grid_intersections(model) for z in (z0, z1)]
+    if not coords:
+        return None
     lines = vtk.vtkCellArray()
     for k in range(len(coords) // 2):
         lines.InsertNextCell(2)
