@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import copy
-from typing import Dict, Optional, Sequence, Tuple
+import math
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from ..model import FIXED, FrameSection, Model, ShellSection
 from ..model.objects import PINNED
@@ -483,3 +484,249 @@ def structure_counts(kind: str, nx_lines: int, ny_lines: int, n_stories: int) ->
     out["walls"] = 4 * n_stories if core else 0
     out["supports"] = nx_lines * ny_lines
     return out
+
+
+# ------------------------------------------------------- Edit > Add to Model From Template
+FRAME_2D = (
+    ("moment", "Moment frame", "Columns and beams, rigid joints."),
+    ("x_brace", "X-braced frame", "Two diagonals crossing in each braced bay."),
+    ("diagonal", "Diagonal-braced frame", "One diagonal per story in each braced bay, alternating."),
+    ("chevron", "Chevron (inverted V)", "Braces from the lower corners to the middle of the beam above."),
+    ("v_brace", "V-braced frame", "Braces from the upper corners to the middle of the beam below."),
+    ("eccentric", "Eccentrically braced (EBF)", "Chevron braces meeting the beam a link length apart."),
+)
+FRAME_2D_KEYS = tuple(k for k, _, _ in FRAME_2D)
+STRUCTURE_3D_KEYS = tuple(k for k in STRUCTURE_KEYS if k not in ("blank", "grid"))
+
+
+def parse_spacings(text: str) -> List[float]:
+    """Bay widths from text: "6, 6, 5", "3@6" (three bays of 6), "2@6 4.5" ..."""
+    out: List[float] = []
+    for tok in str(text).replace(";", ",").replace(",", " ").split():
+        if "@" in tok:
+            n, v = tok.split("@", 1)
+            k = int(float(n))
+            if k < 1 or float(n) != k:
+                raise ValueError(f"{tok!r}: the count before @ must be a whole number >= 1")
+            out += [float(v)] * k
+        else:
+            out.append(float(tok))
+    if not out:
+        raise ValueError("Give at least one bay width")
+    if any(not (v > 0) for v in out):
+        raise ValueError("Bay widths must be greater than zero")
+    return out
+
+
+def _levels(model: Model, bottom: str, top: str) -> List[Tuple[str, float]]:
+    st = model.stories_bottom_up()
+    names = [s.name for s in st]
+    if bottom not in names or top not in names:
+        raise ValueError("Unknown story")
+    i, j = names.index(bottom), names.index(top)
+    if j <= i:
+        raise ValueError("The top story must be above the bottom story")
+    return [(s.name, s.elevation) for s in st[i:j + 1]]
+
+
+def _placer(origin: Tuple[float, float], angle: float, z_shift: float = 0.0):
+    c, s = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+    ox, oy = float(origin[0]), float(origin[1])
+
+    def T(x, y, z):
+        return (ox + c * x - s * y, oy + s * x + c * y, z + z_shift)
+
+    return T
+
+
+class Added(list):
+    """The frames and areas a template added; ``skipped``: members the model had already."""
+    skipped = 0
+
+
+def _copy_into(model: Model, tmp: Model, T, angle: float, support: str, base_z: float) -> "Added":
+    """The members of ``tmp`` (local coordinates) into ``model`` through T; shared joints
+    merge with the model's.  Returns the new frames and areas."""
+    made = Added()
+    tol = model.options.merge_tolerance
+
+    def dia_for(story):
+        for a in model.areas.values():
+            if a.type == "Floor" and a.diaphragm and a.story == story:
+                return a.diaphragm
+        return "D1" if "D1" in model.diaphragms else None
+
+    have_f = {frozenset((f.point_i, f.point_j)) for f in model.frames.values()}
+    have_a = {frozenset(a.points) for a in model.areas.values()}
+    skipped = 0
+
+    def existing(xyz):
+        q = model.find_point(*xyz)
+        return q.name if q is not None else None
+
+    with model.point_index():
+        for f in tmp.frames.values():
+            a, b = tmp.points[f.point_i], tmp.points[f.point_j]
+            pa, pb = T(a.x, a.y, a.z), T(b.x, b.y, b.z)
+            na, nb_ = existing(pa), existing(pb)
+            if na and nb_ and frozenset((na, nb_)) in have_f:
+                skipped += 1  # the model has this member already
+                continue
+            nf = model.add_frame(pa, pb, f.section, type=f.type, story=f.story)
+            nf.releases_i, nf.releases_j = f.releases_i, f.releases_j
+            if f.type == "Column":
+                nf.angle = (f.angle + angle) % 360.0
+            have_f.add(frozenset((nf.point_i, nf.point_j)))
+            made.append(nf)
+        for ar in tmp.areas.values():
+            pts = [T(tmp.points[p].x, tmp.points[p].y, tmp.points[p].z) for p in ar.points]
+            names = [existing(p) for p in pts]
+            if all(names) and frozenset(names) in have_a:
+                skipped += 1
+                continue
+            dia = dia_for(ar.story) if (ar.type == "Floor" and ar.diaphragm) else None
+            na = model.add_area(pts, ar.section, type=ar.type, story=ar.story, diaphragm=dia)
+            have_a.add(frozenset(na.points))
+            made.append(na)
+    made.skipped = skipped
+    restr = {"Fixed": FIXED, "Pinned": PINNED}.get(support)
+    if restr is not None:
+        for p in tmp.points.values():
+            if abs(p.z - base_z) <= tol:
+                q = model.find_point(*T(p.x, p.y, p.z))
+                if q is not None:
+                    q.restraints = restr
+    return made
+
+
+def _scratch(model: Model, levels) -> Model:
+    t = Model("template", model.units)
+    t.options = model.options
+    t.materials, t.frame_sections, t.shell_sections = model.materials, model.frame_sections, model.shell_sections
+    t.diaphragms = model.diaphragms
+    t.stories.clear()
+    prev = None
+    for name, z in levels:
+        t.add_story(name, z, 0.0 if prev is None else z - prev)
+        prev = z
+    return t
+
+
+def add_structure(model: Model, kind: str, x_spacings: Sequence[float], y_spacings: Sequence[float],
+                  bottom: str, top: str, origin: Tuple[float, float] = (0.0, 0.0), angle: float = 0.0,
+                  column: Optional[str] = None, beam: Optional[str] = None, slab: Optional[str] = None,
+                  wall: Optional[str] = None, infill: Optional[str] = None, support: str = "None") -> "Added":
+    """Edit > Add to Model From Template > 3D Structures: one of the New Model
+    structures, on its own bays, between two stories of the model, at ``origin``
+    turned ``angle`` degrees about Z.  Joints on existing ones are shared, members the
+    model has already are not added again (``Added.skipped``)."""
+    t, levels = build_structure(model, kind, x_spacings, y_spacings, bottom, top, column, beam, slab, wall, infill)
+    return _copy_into(model, t, _placer(origin, angle), angle, support, levels[0][1])
+
+
+def build_structure(model: Model, kind: str, x_spacings, y_spacings, bottom: str, top: str, column=None, beam=None,
+                    slab=None, wall=None, infill=None):
+    """The 3D template in local coordinates (a scratch model) and its levels."""
+    if kind not in STRUCTURE_3D_KEYS:
+        raise ValueError(f"unknown structure {kind!r}")
+    levels = _levels(model, bottom, top)
+    xs = [0.0]
+    for v in x_spacings:
+        xs.append(xs[-1] + float(v))
+    ys = [0.0]
+    for v in y_spacings:
+        ys.append(ys[-1] + float(v))
+    if len(xs) < 2 or len(ys) < 2 or any(float(v) <= 0 for v in list(x_spacings) + list(y_spacings)):
+        raise ValueError("Give bay widths greater than zero in X and in Y")
+    t = _scratch(model, levels)
+    _place_structure(t, kind, xs, ys, column, beam, slab, wall, infill, "None")
+    return t, levels
+
+
+def add_plane_frame(model: Model, kind: str, spacings: Sequence[float], bottom: str, top: str,
+                    origin: Tuple[float, float] = (0.0, 0.0), angle: float = 0.0,
+                    column: Optional[str] = None, beam: Optional[str] = None, brace: Optional[str] = None,
+                    braced_bays: Optional[Sequence[int]] = None, link: float = 0.0, support: str = "None") -> "Added":
+    """Edit > Add to Model From Template > 2D Frames: a plane frame along the
+    direction ``angle`` (degrees from X) from ``origin``, between two stories.
+    ``braced_bays``: 1-based bays with braces (None = all); braces are pinned at
+    both ends (M2, M3 released).  ``link``: the EBF link length (eccentric)."""
+    t, levels = build_plane_frame(model, kind, spacings, bottom, top, column, beam, brace, braced_bays, link)
+    return _copy_into(model, t, _placer(origin, angle), angle, support, levels[0][1])
+
+
+def build_plane_frame(model: Model, kind: str, spacings, bottom: str, top: str, column=None, beam=None, brace=None,
+                      braced_bays=None, link: float = 0.0):
+    """The 2D template in local coordinates (x along the frame, y = 0) and its levels."""
+    if kind not in FRAME_2D_KEYS:
+        raise ValueError(f"unknown frame {kind!r}")
+    levels = _levels(model, bottom, top)
+    xs = [0.0]
+    for v in spacings:
+        if float(v) <= 0:
+            raise ValueError("Bay widths must be greater than zero")
+        xs.append(xs[-1] + float(v))
+    nb = len(xs) - 1
+    if nb < 1:
+        raise ValueError("Give at least one bay")
+    column = column if column in model.frame_sections else first_section(model, "C", steel=None)
+    beam = beam if beam in model.frame_sections else first_section(model, "B", steel=None)
+    braced = sorted(set(range(1, nb + 1) if not braced_bays else [int(b) for b in braced_bays]))
+    if kind != "moment":
+        if any(b < 1 or b > nb for b in braced):
+            raise ValueError(f"Braced bays must be between 1 and {nb}")
+        brace = brace if brace in model.frame_sections else column
+    if column is None or beam is None:
+        raise ValueError("Define frame sections first")
+    if kind == "eccentric":
+        widths = [xs[b] - xs[b - 1] for b in braced]
+        if not (link > 0) or any(link >= 0.9 * w for w in widths):
+            raise ValueError("The link length must be greater than zero and shorter than the braced bays")
+    t = _scratch(model, levels)
+    pin = (False, False, False, False, True, True)
+    with t.point_index():
+        for k, ((st, z1), (_, z0)) in enumerate(zip(levels[1:], levels[:-1])):
+            for x in xs:
+                t.add_frame((x, 0, z0), (x, 0, z1), column, type="Column", story=st)
+            for b in range(1, nb + 1):
+                x0, x1 = xs[b - 1], xs[b]
+                xm = 0.5 * (x0 + x1)
+                br = kind != "moment" and b in braced
+                split = []
+                if br and kind == "chevron":
+                    split = [xm]
+                elif br and kind == "eccentric":
+                    split = [xm - 0.5 * link, xm + 0.5 * link]
+                # the beam above (split where braces meet it)
+                xx = [x0] + split + [x1]
+                for a, c in zip(xx, xx[1:]):
+                    t.add_frame((a, 0, z1), (c, 0, z1), beam, type="Beam", story=st)
+                if not br:
+                    continue
+                braces = []
+                if kind == "x_brace":
+                    braces = [((x0, z0), (x1, z1)), ((x1, z0), (x0, z1))]
+                elif kind == "diagonal":
+                    braces = [((x0, z0), (x1, z1))] if k % 2 == 0 else [((x1, z0), (x0, z1))]
+                elif kind == "chevron":
+                    braces = [((x0, z0), (xm, z1)), ((x1, z0), (xm, z1))]
+                elif kind == "eccentric":
+                    braces = [((x0, z0), (xm - 0.5 * link, z1)), ((x1, z0), (xm + 0.5 * link, z1))]
+                elif kind == "v_brace":
+                    braces = [((x0, z1), (xm, z0)), ((x1, z1), (xm, z0))]
+                for (ax, az), (bx, bz) in braces:
+                    f = t.add_frame((ax, 0, az), (bx, 0, bz), brace, type="Brace", story=st)
+                    f.releases_i = f.releases_j = pin
+        if kind == "v_brace":  # the beams below the V tips (above the bottom level) split at mid-bay
+            for (st, z) in levels[1:-1]:
+                for b in braced:
+                    x0, x1 = xs[b - 1], xs[b]
+                    xm = 0.5 * (x0 + x1)
+                    old = [f for f in t.frames.values() if f.type == "Beam"
+                           and {round(t.points[f.point_i].x, 9), round(t.points[f.point_j].x, 9)} == {round(x0, 9), round(x1, 9)}
+                           and abs(t.points[f.point_i].z - z) < 1e-9]
+                    for f in old:
+                        del t.frames[f.name]
+                        t.add_frame((x0, 0, z), (xm, 0, z), beam, type="Beam", story=st)
+                        t.add_frame((xm, 0, z), (x1, 0, z), beam, type="Beam", story=st)
+    return t, levels

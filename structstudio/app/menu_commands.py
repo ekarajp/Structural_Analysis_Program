@@ -183,6 +183,8 @@ class MenuCommandsMixin:
             # Design
             "design.slab.drift_check": self.slab_column_drift_check,
             "design.slab.model": self.slab_design_model,
+            "edit.template_2d": lambda: self.add_from_template(True),
+            "edit.template_3d": lambda: self.add_from_template(False),
             # Options
             "options.units": self.options_units,
             "options.tolerances": self.options_tolerances,
@@ -323,6 +325,11 @@ class MenuCommandsMixin:
         except (ModelError, ValueError, KeyError) as exc:
             QtWidgets.QMessageBox.warning(self, title, str(exc))
             return None
+
+    def add_from_template(self, plane: bool):
+        """Edit > Add to Model From Template > 2D Frames / 3D Structures."""
+        from .template_dialog import TemplateDialog
+        TemplateDialog(self, plane).exec()
 
     # --------------------------------------------------------------- Design
     def slab_column_drift_check(self):
