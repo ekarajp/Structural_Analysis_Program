@@ -1787,12 +1787,6 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         return getattr(table.get(name), "color", None)
 
     def set_grid_mode(self, mode: str):
-        if mode == "xyz" and self.doc.model.multi_tower:
-            QtWidgets.QMessageBox.information(self, "Grid system", "A model with several towers uses stories "
-                                              "(X-Y-Story).  Combine the towers first (Edit > Edit Stories and "
-                                              "Grid Systems > Allow multiple towers off).")
-            self._sync_grid_mode()
-            return
         if dialogs.apply_grid_mode(self.doc, mode):
             label = dialogs.GRID_MODE_LABELS[mode].replace("  ", " ")
             self.logger.log(f"Grid system: {label}")

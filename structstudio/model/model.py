@@ -293,56 +293,101 @@ class Model:
     def grid_mode(self) -> str:
         return self.options.grid_mode if self.options.grid_mode in self.GRID_MODES else "story"
 
-    def z_grid_lines(self) -> List[GridLine]:
-        return sorted((g for g in self.grid_lines if g.direction == "Z"), key=lambda g: g.ordinate)
+    def z_grid_lines(self, tower: Optional[str] = None) -> List[GridLine]:
+        """The Z grid lines (SAP2000 mode) bottom-up; several towers: those of ``tower``'s
+        grid systems when it is given."""
+        lines = (g for g in self.grid_lines if g.direction == "Z")
+        if tower is not None and self.multi_tower:
+            mine = set(self.grid_systems_of(tower))
+            lines = (g for g in lines if g.system in mine)
+        return sorted(lines, key=lambda g: g.ordinate)
 
     def levels(self) -> List[Tuple[str, float]]:
         """(name, elevation) of the levels bottom-up: stories (ETABS mode) or Z grid
-        lines (SAP2000 mode)."""
-        if self.grid_mode == "xyz":
+        lines (SAP2000 mode).  Several towers: every tower's (see :meth:`stories_of`)."""
+        if self.grid_mode == "xyz" and not self.multi_tower:
             z = self.z_grid_lines()
             if z:
                 return [(g.name, g.ordinate) for g in z]
         return [(s.name, s.elevation) for s in self.stories_bottom_up()]
 
+    def _z_system(self, tower: Optional[str] = None) -> str:
+        """The grid system that carries the Z lines (of a tower): its first one."""
+        names = self.grid_systems_of(tower) if (tower is not None and self.multi_tower) else list(self.grid_systems)
+        if names:
+            return names[0]
+        name = "G1" if tower is None or not self.multi_tower else f"{tower}-G1"
+        k = 2
+        while name in self.grid_systems:
+            name, k = f"{tower or 'G'}-G{k}", k + 1
+        self.grid_systems[name] = GridSystem(name=name, tower=tower if self.multi_tower else None)
+        return name
+
     def set_grid_mode(self, mode: str) -> None:
         """Switch between the X-Y-Story and X-Y-Z grid systems.
         story -> xyz: one Z grid line per story (same names); xyz -> story: the
-        stories are rebuilt from the Z grid lines and the Z lines are removed."""
+        stories are rebuilt from the Z grid lines and the Z lines are removed.
+        Several towers: each tower's Z lines are its stories (they sit in its first
+        grid system), so every tower keeps its own levels."""
         if mode not in self.GRID_MODES:
             raise ModelError("INVALID_GRID_MODE", f"Grid mode must be one of {self.GRID_MODES}")
-        if mode == "xyz" and self.multi_tower:
-            raise ModelError("TOWERS_USE_STORIES", "A model with several towers uses stories (X-Y-Story): the "
-                                                   "Z grid would put every tower on one set of levels.  Combine the "
-                                                   "towers first (Edit > Edit Stories and Grid Systems)")
         if mode == self.grid_mode and (mode == "story" or self.z_grid_lines()):
             return
+        towers = self.tower_names() if self.multi_tower else [None]
         if mode == "xyz":
-            system = next(iter(self.grid_systems), "G1")
-            if system not in self.grid_systems:
-                self.grid_systems[system] = GridSystem(name=system)
             self.grid_lines = [g for g in self.grid_lines if g.direction != "Z"]
-            for s in self.stories_bottom_up():
-                self.grid_lines.append(GridLine(system=system, name=s.name, direction="Z", ordinate=s.elevation))
+            for t in towers:
+                system = self._z_system(t)
+                for s in (self.stories_of(t) if t is not None else self.stories_bottom_up()):
+                    self.grid_lines.append(GridLine(system=system, name=s.name, direction="Z", ordinate=s.elevation))
         else:
-            z = self.z_grid_lines()
-            if z:
-                self._stories_from_levels([(g.name, g.ordinate) for g in z])
+            for t in towers:
+                z = self.z_grid_lines(t)
+                if z:
+                    self._levels_to_stories(t, [(g.name, g.ordinate) for g in z])
             self.grid_lines = [g for g in self.grid_lines if g.direction != "Z"]
         self.options.grid_mode = mode
 
-    def set_z_grid(self, levels: Sequence[Tuple[str, float]]) -> None:
-        """SAP2000 mode: replace the Z grid lines (name, z) and rebuild the stories."""
+    def sync_z_grid(self) -> None:
+        """SAP2000 mode: a tower without Z grid lines (a new or copied tower) gets one per
+        story; with one tower the Z lines are the stories again (after towers combined)."""
+        if self.grid_mode != "xyz":
+            return
+        if not self.multi_tower:
+            have = {(g.name, round(g.ordinate, 9)) for g in self.z_grid_lines()}
+            want = {(st.name, round(st.elevation, 9)) for st in self.stories_bottom_up()}
+            if have != want:
+                system = self._z_system(None)
+                self.grid_lines = [g for g in self.grid_lines if g.direction != "Z"] + [
+                    GridLine(system=system, name=st.name, direction="Z", ordinate=st.elevation)
+                    for st in self.stories_bottom_up()]
+            return
+        for t in self.tower_names():
+            if not self.z_grid_lines(t):
+                system = self._z_system(t)
+                self.grid_lines += [GridLine(system=system, name=st.name, direction="Z", ordinate=st.elevation)
+                                    for st in self.stories_of(t)]
+
+    def _levels_to_stories(self, tower: Optional[str], levels) -> None:
+        if tower is None or not self.multi_tower:
+            self._stories_from_levels(levels)
+        else:
+            self.set_tower_stories(tower, levels)
+
+    def set_z_grid(self, levels: Sequence[Tuple[str, float]], tower: Optional[str] = None) -> None:
+        """SAP2000 mode: replace the Z grid lines (name, z) and rebuild the stories;
+        several towers: those of ``tower`` (the first by default)."""
         levels = sorted(((str(n), float(z)) for n, z in levels), key=lambda t: t[1])
         names = [n for n, _ in levels]
         if len(set(names)) != len(names):
             raise ModelError("DUPLICATE_NAME", "Z grid line names must be unique")
-        system = next(iter(self.grid_systems), "G1")
-        if system not in self.grid_systems:
-            self.grid_systems[system] = GridSystem(name=system)
-        self.grid_lines = [g for g in self.grid_lines if g.direction != "Z"] + [
+        t = (self._tower(tower) if self.multi_tower else None)
+        system = self._z_system(t)
+        mine = set(self.grid_systems_of(t)) if t is not None else None
+        self.grid_lines = [g for g in self.grid_lines
+                           if g.direction != "Z" or (mine is not None and g.system not in mine)] + [
             GridLine(system=system, name=n, direction="Z", ordinate=z) for n, z in levels]
-        self._stories_from_levels(levels)
+        self._levels_to_stories(t, levels)
 
     def _stories_from_levels(self, levels: Sequence[Tuple[str, float]]) -> None:
         levels = sorted(levels, key=lambda t: t[1])
@@ -467,6 +512,7 @@ class Model:
             self.grid_systems[n] = dataclasses.replace(gs, name=n, origin=(o[0] + dx, o[1] + dy), tower=name)
             self.grid_lines += [dataclasses.replace(g, system=n) for g in self.grid_lines
                                 if g.system == sname and g.direction != "Z"]
+        self.sync_z_grid()
         return self.towers[name]
 
     def combine_towers(self, keep: str) -> None:
@@ -499,6 +545,7 @@ class Model:
         for st in self.stories_bottom_up():
             st.height = 0.0 if prev is None else st.elevation - prev
             prev = st.elevation
+        self.sync_z_grid()
 
     def story_for(self, obj, kind: Optional[str] = None) -> Optional[str]:
         """The story an object belongs to from its present elevation, in its own tower
@@ -684,7 +731,7 @@ class Model:
             del self.stories[s]
         for g in systems:
             del self.grid_systems[g]
-        self.grid_lines = [g for g in self.grid_lines if g.system not in systems or g.direction == "Z"]
+        self.grid_lines = [g for g in self.grid_lines if g.system not in systems]
         del self.towers[name]
         if first:  # the stories / systems that meant "the first tower" by None now name it
             for s in self.stories.values():

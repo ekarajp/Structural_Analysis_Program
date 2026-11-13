@@ -515,6 +515,22 @@ def test_gui_towers(tmp_path, monkeypatch):
     monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Yes)
     d.delete_tower()
     assert "T4" not in w.doc.model.towers
+    # the X-Y-Z switch of the main window: every tower gets its Z grid lines
+    w.set_grid_mode("xyz")
+    app.processEvents()
+    m = w.doc.model
+    assert m.grid_mode == "xyz" and [g.name for g in m.z_grid_lines("T3")][-1] == "T3-Story3"
+    monkeypatch.setattr(dialogs.GridStoriesDialog, "exec", lambda self: (
+        self._add_row(self.z_table, ("T3-Top", 14.0)), self.accept(), QtWidgets.QDialog.Accepted)[-1])
+    d.towers.selectRow(2)
+    d.modify_stories()
+    m = w.doc.model
+    assert m.grid_mode == "xyz" and m.stories["T3-Top"].tower == "T3"
+    assert [g.name for g in m.z_grid_lines("T3")][-1] == "T3-Top" and len(m.z_grid_lines("T1")) == 3
+    for vp in w.views.viewports:
+        vp.render()
+    w.set_grid_mode("story")
+    assert w.doc.model.grid_mode == "story" and "T3-Top" in w.doc.model.stories
     d.close()
     app.processEvents()
     w.views.finalize()
@@ -603,8 +619,56 @@ def test_slab_design_model_takes_its_own_tower():
                                            for n in alone.frames)
 
 
-def test_several_towers_keep_stories_mode():
+def test_xyz_mode_with_several_towers():
+    """SAP2000 (X-Y-Z) mode: every tower's Z grid lines are its own levels."""
     doc = _three_towers()
-    with pytest.raises(ModelError):
-        doc.model.set_grid_mode("xyz")
-    assert doc.model.grid_mode == "story"
+    m = doc.model
+    sec = next(n for n in m.frame_sections if n.startswith("C"))
+    from structstudio.app.tools import ColumnTool, DrawSettings
+    for story, xy in (("Story2", (0.0, 0.0)), ("T2-Story2", (6.0, 6.0)), ("T3-Story2", (40.0, 0.0))):
+        t = ColumnTool(doc, DrawSettings(frame_section=sec, all_stories=True))
+        t.set_story(story)
+        t.click(xy)
+    stories = {n: (st.elevation, st.tower) for n, st in m.stories.items()}
+    obj = {n: f.story for n, f in m.frames.items()}
+    m.set_grid_mode("xyz")
+    assert m.grid_mode == "xyz"
+    for t in ("T1", "T2", "T3"):
+        assert [(g.name, g.ordinate) for g in m.z_grid_lines(t)] == \
+            [(st.name, st.elevation) for st in m.stories_of(t)]
+        assert all(m.tower_of_system(g.system) == t for g in m.z_grid_lines(t))
+    assert {n: (st.elevation, st.tower) for n, st in m.stories.items()} == stories
+    assert {n: f.story for n, f in m.frames.items()} == obj
+    assert m.view("T2").levels() == [("T2-Base", 7.0), ("T2-Story1", 10.0), ("T2-Story2", 13.0)]
+    # a tower's Z lines changed: only its levels change, its objects stay in it
+    m.set_z_grid([("T2-Base", 7.0), ("T2-Story1", 10.0), ("T2-Story2", 13.0), ("T2-Roof", 16.0)], "T2")
+    assert [st.name for st in m.stories_of("T2")][-1] == "T2-Roof" and len(m.z_grid_lines("T1")) == 3
+    assert {n: f.story for n, f in m.frames.items()} == obj
+    # a new tower gets Z lines; a deleted one takes its Z lines along
+    from structstudio.app.grid_manager import add_tower_from
+    add_tower_from(m, {"name": "T4", "n": 2, "typical": 3.0, "bottom": 3.0, "base": 0.0, "prefix": None,
+                       "copy": False, "xs": [5.0], "ys": [5.0], "ox": 80.0, "oy": 0.0})
+    assert [g.name for g in m.z_grid_lines("T4")] == ["T4-Base", "T4-Story1", "T4-Story2"]
+    m.delete_tower("T4")
+    assert not any(g.name.startswith("T4-") for g in m.grid_lines)
+    # back to stories: the same stories
+    m.set_grid_mode("story")
+    assert not m.z_grid_lines() and m.stories["T2-Roof"].tower == "T2"
+    assert {n: f.story for n, f in m.frames.items()} == obj
+    # combined in X-Y-Z mode: one set of Z lines = the stories
+    m.set_grid_mode("xyz")
+    m.combine_towers("T1")
+    assert [(g.name, g.ordinate) for g in m.z_grid_lines()] == [(st.name, st.elevation) for st in m.stories_bottom_up()]
+
+
+def test_xyz_mode_gives_the_same_results():
+    A = _tower((3.5, 3.0), wall=False)
+    B = _tower((3.5, 3.5, 3.0), xs=(7.0,), ys=(6.0,), wall=False)
+    C = merge(A, B, 40.0)
+    rs = _run(C)
+    C.set_grid_mode("xyz")
+    rx = _run(C)
+    for case in ("Dead", "EQX"):
+        _close(rx.displacement_envelope(case).max, rs.displacement_envelope(case).max)
+        assert [(d["Story"], d["Tower"], d["Drift"]) for d in rx.story_drifts(case)] == \
+            [(d["Story"], d["Tower"], d["Drift"]) for d in rs.story_drifts(case)]

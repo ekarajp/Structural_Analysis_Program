@@ -344,6 +344,7 @@ def add_tower_from(model, d: dict) -> None:
             model.grid_lines.append(GridLine(system=n, name=f"{name}-{i + 1}", direction="Y", ordinate=y))
             if i < len(d["ys"]):
                 y += d["ys"][i]
+    model.sync_z_grid()  # SAP2000 mode: the new tower's Z grid lines
 
 
 class GridSystemsManager(QtWidgets.QDialog):

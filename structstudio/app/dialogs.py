@@ -312,9 +312,8 @@ class GridStoriesDialog(QtWidgets.QDialog):
         self.switch = GridModeSwitch()
         self.switch.set_mode(m.grid_mode)
         self.switch.mode_changed.connect(self._mode_changed)
-        if self.tower is not None:  # towers have stories (the ETABS mode)
-            self.switch.setEnabled(False)
-            self.switch.setToolTip("A model with several towers uses stories (ETABS mode)")
+        if self.tower is not None:
+            self.switch.setToolTip("Stories or Z grid lines - for every tower (each keeps its own levels)")
         top.addWidget(self.switch)
         top.addStretch(1)
         lay.addLayout(top)
@@ -358,7 +357,8 @@ class GridStoriesDialog(QtWidgets.QDialog):
         rows = [(s.name, s.elevation if k == 0 else s.elevation - stories[k - 1].elevation)
                 for k, s in enumerate(stories)]
         self.story_table = self._table(["Story (bottom up)", "Height (base: elevation)"], rows)
-        self.z_table = self._table(["Name", "Z ordinate"], m.levels())
+        zl = [(g.name, g.ordinate) for g in m.z_grid_lines(self.tower)] if m.grid_mode == "xyz" else []
+        self.z_table = self._table(["Name", "Z ordinate"], zl or [(s.name, s.elevation) for s in stories])
         self.tabs.addTab(self._with_buttons(self.x_table, ("", 0.0)), "X Grid")
         self.tabs.addTab(self._with_buttons(self.y_table, ("", 0.0)), "Y Grid")
         self.story_page = self._with_buttons(self.story_table, ("", 3.0))
@@ -652,8 +652,9 @@ class GridStoriesDialog(QtWidgets.QDialog):
             # several towers: the other towers' systems and lines stay as they are
             edited = set(model.grid_systems_of(tower)) if tower is not None else set(old)
             model.grid_systems = {n: gs for n, gs in old.items() if n not in edited}
-            lines = [g for g in model.grid_lines if g.system not in edited and g.direction != "Z"] \
-                if tower is not None else []
+            # (the other towers' lines - their Z lines too - stay; this tower's Z lines are
+            # made again from its levels below)
+            lines = [g for g in model.grid_lines if g.system not in edited] if tower is not None else []
             for sname, d in systems.items():
                 gs0 = old.get(sname)
                 gs = _dc.replace(gs0, name=sname) if gs0 is not None else GridSystem(name=sname)
@@ -671,8 +672,14 @@ class GridStoriesDialog(QtWidgets.QDialog):
                 lines += [g for (s_, dd, _), g in extras.items() if s_ == sname and dd == "General"]
             model.grid_lines = lines
             if tower is not None:
-                model.options.grid_mode = "story"
-                model.set_tower_stories(tower, levels)
+                if mode == "xyz" and model.grid_mode == "xyz":
+                    model.set_z_grid(levels, tower)
+                elif mode == "xyz":  # every tower to Z grids: this tower's levels first
+                    model.set_tower_stories(tower, levels)
+                    model.set_grid_mode("xyz")
+                else:
+                    model.set_grid_mode("story")  # (the other towers' Z lines -> their stories)
+                    model.set_tower_stories(tower, levels)
             elif mode == "xyz":
                 model.options.grid_mode = "xyz"
                 model.set_z_grid(levels)
