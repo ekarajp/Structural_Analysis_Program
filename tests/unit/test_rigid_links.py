@@ -55,12 +55,12 @@ def _area(m, name):
 
 
 def _self_weight(m):
+    from tests.unit._clear_length import weighed_length
     w = sum(24.0 * m.shell_sections[a.section].thickness * _area(m, n) for n, a in m.areas.items())
     for f in m.frames.values():
         if f.type in ("Null", "Rigid"):
             continue
-        L = np.linalg.norm(np.subtract(m.points[f.point_j].xyz, m.points[f.point_i].xyz))
-        w += 24.0 * m.frame_sections[f.section].A * L
+        w += 24.0 * m.frame_sections[f.section].A * weighed_length(m, f)  # (beams: clear length)
     return w
 
 
@@ -277,8 +277,8 @@ def test_membrane_floor_with_an_opening_carries_no_load_on_the_opening():
         r = analyze(m)
         net = _area(m, "F1") - 3.0
         assert abs(r.base_reactions("Live")[2] - 3.0 * net) < 1e-3 * 3.0 * net, mt
-        frames = sum(24.0 * m.frame_sections[f.section].A *
-                     np.linalg.norm(np.subtract(m.points[f.point_j].xyz, m.points[f.point_i].xyz))
+        from tests.unit._clear_length import weighed_length
+        frames = sum(24.0 * m.frame_sections[f.section].A * weighed_length(m, f)  # (beams: clear length)
                      for f in m.frames.values())
         assert abs(r.base_reactions("Dead")[2] - (frames + 24.0 * 0.15 * net)) < 1e-3 * 24.0 * 0.15 * net, mt
 

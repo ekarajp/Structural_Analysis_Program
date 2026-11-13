@@ -18,7 +18,7 @@ to the Analysis Reference.
 | Section force at a point load | value just after the load, except at end J (the element end force, value just before) - SAP2000 lists both values at a load station | `_load_resultant_left` | SAP2000 Ex. 1-001, 1-003 |
 | Unstable structures | equations whose pivot drops below 1e-12 of the largest are reported (joint + DOF) as "unstable or ill-conditioned", results are still produced (SAPFire behaviour) | `engine/kernel.py`, `Solver._report_instability` | OpenSees cross-check |
 | Frame mass | lumped half-half at I and J, translational only; ρA·mod + mpl | `FrameFormulation.lumped_mass` | p.134 |
-| Self weight | w·A·mod + wpl, global −Z, pattern self-weight multiplier | `mesher`, `assembly.load_vector_full` | p.134 |
+| Self weight | w·A·mod + wpl, global −Z, pattern self-weight multiplier; beams/braces (not columns) weigh — and carry mass — only on the clear length between end offsets (as ETABS) | `mesher`, `assembly.load_vector_full` | p.134 |
 | Diaphragm constraint | u1j = u1i − r3i Δx2, u2j = u2i + r3i Δx1, r3i = r3j (master-slave transformation); virtual master; mixing restraints and constraints rejected | `assembly.Assembler._number_dofs` | p.53-54 |
 | Automatic story mass | area mass lumped to mesh nodes; analytical polar inertia of each area object enforced at the diaphragm master | `mesher._build_constraints` | p.334 (mass source), verification Ex.4 |
 | Mass source | element self mass, added mass, mass from load patterns (gravity loads / g), lateral-only option (ETABS default) | `MassSource`, `assembly.mass_full` | p.334-336 |

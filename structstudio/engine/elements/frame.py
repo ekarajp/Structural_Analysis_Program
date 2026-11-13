@@ -296,8 +296,22 @@ class FrameFormulation:
     # -------------------------------------------------------------------- mass
     def lumped_mass(self) -> np.ndarray:
         """Lumped translational mass (kg) at ends I and J (half each)."""
-        m = self.el.mass_per_length * self.kin.L
-        return np.array([0.5 * m, 0.5 * m])
+        L = self.kin.L
+        span = self.el.weight_span
+        if span is None:
+            m = self.el.mass_per_length * L
+            return np.array([0.5 * m, 0.5 * m])
+        # a beam's mass on its clear length (not in the columns), shared by statics
+        a, b = self._span(span, L)
+        m = self.el.mass_per_length * (b - a)
+        c = 0.5 * (a + b) / L if L > 0 else 0.5
+        return np.array([m * (1.0 - c), m * c])
+
+    @staticmethod
+    def _span(span, L):
+        """The weight-carrying part, within the element's length."""
+        a = min(max(float(span[0]), 0.0), L)
+        return a, min(max(float(span[1]), a), L)
 
     # ------------------------------------------------------------------- loads
     def element_loads(self, pattern: str, self_weight: float = 0.0, gravity: float = 9.80665) -> List[ElementLoad]:
@@ -307,7 +321,9 @@ class FrameFormulation:
         if self_weight and self.el.weight_per_length:
             w = -self.el.weight_per_length * self_weight  # global -Z
             vec = self.kin.axes @ np.array([0.0, 0.0, w])
-            loads.append(ElementLoad(pattern, "distributed", "Force", 0.0, self.kin.L, vec, vec.copy()))
+            a, b = (0.0, self.kin.L) if self.el.weight_span is None else self._span(self.el.weight_span, self.kin.L)
+            if b > a:  # (a beam: on its clear length)
+                loads.append(ElementLoad(pattern, "distributed", "Force", a, b, vec, vec.copy()))
         return loads
 
     def fixed_end_load_vector(self, loads: List[ElementLoad]) -> np.ndarray:

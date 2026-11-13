@@ -85,6 +85,25 @@ def test_modes_of_a_floor_between_the_levels_lumped_to_them(etabs_run):
     pe = [float(r["Period"]) for r in _rows("Modal_Periods_And_Frequencies")]
     po = [d["Period"] for d in res.modal_periods("Modal")]
     assert po[0] == pytest.approx(pe[0], rel=0.03) and po[1] == pytest.approx(pe[1], rel=0.03)
+    # beam mass on the clear length (as ETABS): the translational modes to 0.5 %
+    for k in (0, 1, 3, 4):
+        assert po[k] == pytest.approx(pe[k], rel=5e-3), k
+
+
+def test_beam_self_weight_on_clear_length_as_etabs(etabs_run):
+    """ETABS weighs a beam only between the faces of its supports (end offsets out), a column
+    on its whole length: Dead base reaction and joint Uz equal ETABS'."""
+    m, res = etabs_run
+    br = next(r for r in _rows("Base_Reactions") if r["OutputCase"] == "Dead")
+    assert res.base_reactions("Dead")[2] == pytest.approx(float(br["FZ"]), rel=1e-6)
+    env = res.displacement_envelope("Dead").min
+    n = 0
+    for r in _rows("Joint_Displacements"):
+        pt = f"{r['Label']}@{r['Story']}"
+        if r["OutputCase"] == "Dead" and pt in m.points and abs(float(r["Uz"])) > 2e-5:
+            assert env[res._node_of_point(pt)][2] == pytest.approx(float(r["Uz"]), rel=6e-3), pt
+            n += 1
+    assert n > 20
 
 
 def test_csi_tables_with_towers():

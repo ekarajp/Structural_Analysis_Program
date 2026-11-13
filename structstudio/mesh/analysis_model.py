@@ -76,6 +76,10 @@ class FrameElement:
     rigid_j: float = 0.0
     end_offset_i: float = 0.0  # full end offset (for output stations)
     end_offset_j: float = 0.0
+    # the part (from, to along this element, m) that carries self weight and mass: a beam's
+    # length inside the end offsets (in the columns) is the columns' (ETABS: beams weigh on
+    # their clear length, columns on their full length); None = the whole element
+    weight_span: Optional[Tuple[float, float]] = None
     rel_start: float = 0.0  # position of this element within the parent object (0..1)
     rel_end: float = 1.0
     loads: List[ElementLoad] = field(default_factory=list)

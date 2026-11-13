@@ -97,13 +97,13 @@ def test_steel_deck_infill_beams_are_pinned_and_frame_into_girders():
 @pytest.mark.parametrize("kind", ["rc_frame", "core_frame", "steel_deck", "flat_slab"])
 def test_self_weight_reaches_the_supports(kind):
     from structstudio.api import analyze
+    from tests.unit._clear_length import weighed_length
     m = build_model(structure=kind, stories=STORIES[:2], **GRID)
     res = analyze(m, cases=["Dead"])
     w = 0.0
     for f in m.frames.values():
         s = m.frame_sections[f.section]
-        a, b = m.points[f.point_i], m.points[f.point_j]
-        w += s.A * np.linalg.norm([a.x - b.x, a.y - b.y, a.z - b.z]) * m.materials[s.material].weight_density
+        w += s.A * weighed_length(m, f) * m.materials[s.material].weight_density  # (beams: clear length)
     for ar in m.areas.values():
         s = m.shell_sections[ar.section]
         P = np.array([[m.points[p].x, m.points[p].y, m.points[p].z] for p in ar.points])

@@ -985,6 +985,12 @@ class Mesher:
             if ri + rj > 0.99 * seg:
                 sc = 0.99 * seg / (ri + rj)
                 ri, rj = ri * sc, rj * sc
+            span = None
+            if f.type != "Column" and (end_off_i > 0 or end_off_j > 0):
+                wa = min(max(end_off_i - s0, 0.0), seg)
+                wb = min(max(L - end_off_j - s0, wa), seg)
+                if wa > 1e-12 or wb < seg - 1e-12:
+                    span = (wa, wb)
             el = FrameElement(
                 id=len(am.frames), object=f.name, node_i=node_ids[k], node_j=node_ids[k + 1],
                 E=props["E"], G=props["G"], A=props["A"], As2=props["As2"], As3=props["As3"], J=props["J"],
@@ -996,6 +1002,7 @@ class Mesher:
                 offset_i=off_i.copy(), offset_j=off_j.copy(),
                 rigid_i=ri, rigid_j=rj,
                 end_offset_i=end_off_i if first else 0.0, end_offset_j=end_off_j if last else 0.0,
+                weight_span=span,
                 rel_start=t0, rel_end=t1,
                 stations=max(2, f.min_stations),
                 tension_limit=None if f.tension_limit is None else f.tension_limit * U.factor("force"),
