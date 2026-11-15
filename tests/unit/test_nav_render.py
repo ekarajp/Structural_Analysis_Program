@@ -417,3 +417,89 @@ def test_snap_cache_follows_the_model(bwindow, app):
     hits = e2.find(x, y)
     assert hits and hits[0].kind == "joint" and np.allclose(hits[0].xyz, (2.345, 1.234, z))
     window.state.cancel_tool()
+
+
+@gui
+def test_model_tree_is_rebuilt_only_when_what_it_shows_changes(bwindow, app):
+    window = bwindow
+    from structstudio.app.panels import ModelTree
+    tree = window.findChild(ModelTree)
+    assert tree is not None
+    first = tree.topLevelItem(0)
+    m = window.doc.model
+    p = next(iter(m.points.values()))
+    window.doc.edit(lambda mm: setattr(mm.points[p.name], "x", mm.points[p.name].x + 0.01))  # a joint moved
+    app.processEvents()
+    assert tree.topLevelItem(0) is first  # the same items: not rebuilt
+    n = len(m.points)
+    window.doc.edit(lambda mm: mm.add_point(1.23, 4.56, 0.0))
+    app.processEvents()
+    assert tree.topLevelItem(0) is not first  # a joint more: rebuilt
+    texts = []
+    it = QtWidgets.QTreeWidgetItemIterator(tree)
+    while it.value():
+        texts.append(it.value().text(0))
+        it += 1
+    assert f"Joints ({n + 1})" in texts
+    window.doc.undo()
+    app.processEvents()
+    texts = []
+    it = QtWidgets.QTreeWidgetItemIterator(tree)
+    while it.value():
+        texts.append(it.value().text(0))
+        # the path key kept on an item is the one worked out from its parents
+        item, parts = it.value(), []
+        while item is not None:
+            parts.append(item.data(0, QtCore.Qt.UserRole + 1) or item.text(0))
+            item = item.parent()
+        assert tree._key(it.value()) == "/".join(reversed(parts))
+        it += 1
+    assert f"Joints ({n})" in texts
+
+
+@gui
+def test_extruded_members_follow_a_moved_joint(bwindow, app):
+    """The prisms of unchanged members are reused between rebuilds: a moved joint must
+    still move the members joined to it (and only them)."""
+    from structstudio.app import extrude
+    window = bwindow
+    m = window.doc.model
+    col = next(f for f in m.frames.values() if f.type == "Column")
+    others = [f.name for f in m.frames.values() if col.point_j not in (f.point_i, f.point_j)][:20]
+    poly0, _ = extrude.frame_solids(m, [col.name])
+    rest0, _ = extrude.frame_solids(m, others)
+    b0, r0 = poly0.GetBounds(), rest0.GetBounds()
+    window.doc.edit(lambda mm: setattr(mm.points[col.point_j], "x", mm.points[col.point_j].x + 2.0))
+    app.processEvents()
+    m = window.doc.model
+    poly1, _ = extrude.frame_solids(m, [col.name])
+    rest1, _ = extrude.frame_solids(m, others)
+    assert b0[1] + 1.5 < poly1.GetBounds()[1] < b0[1] + 2.5  # its top went with the joint (it leans now)
+    assert rest1.GetBounds() == pytest.approx(r0)
+    assert poly1.GetNumberOfPoints() == poly0.GetNumberOfPoints()
+    window.doc.undo()
+    app.processEvents()
+    poly2, _ = extrude.frame_solids(window.doc.model, [col.name])
+    assert poly2.GetBounds() == pytest.approx(b0)
+
+
+@gui
+def test_select_all_builds_the_highlight_with_one_pass_over_the_model(bwindow, app, monkeypatch):
+    """Select All took minutes on a tall building: the model-wide sizes were worked out again
+    for every highlighted object."""
+    from structstudio.app import scene
+    window = bwindow
+    calls = {"n": 0}
+    import numpy as _np
+    real_median = _np.median
+
+    def counting(a, *args, **kw):
+        calls["n"] += 1
+        return real_median(a, *args, **kw)
+    monkeypatch.setattr(scene.np, "median", counting)
+    window.state.select_all()
+    app.processEvents()
+    visible = sum(1 for v in window.views.viewports if v.isVisible())
+    assert len(window.state.frames) == len(window.doc.model.frames)
+    assert 0 < calls["n"] <= 4 * visible, calls  # once per build, not once per object
+    window.state.set_selection()
