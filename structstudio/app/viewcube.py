@@ -236,13 +236,32 @@ class CameraAnimator:
     direction / view-up (a few frames on a Qt timer; immediate without Qt)."""
 
     def __init__(self, renderer: vtk.vtkRenderer, render: Callable[[], None], steps: int = 14,
-                 interval_ms: int = 15):
+                 interval_ms: int = 15, on_start: Optional[Callable[[], None]] = None,
+                 on_finish: Optional[Callable[[], None]] = None):
         self.ren = renderer
-        self.render = render
+        self.render = render  # may only ask for a frame: on_finish draws the last one
         self.steps = steps
         self.interval = interval_ms
+        self.on_start = on_start
+        self.on_finish = on_finish
         self._timer = None
         self._frames = []
+
+    def _started(self):
+        if self.on_start is not None:
+            self.on_start()
+
+    def _finished(self):
+        if self.on_finish is not None:
+            self.on_finish()
+
+    def stop(self):
+        """Stop a running turn where it is (Esc, closing the window)."""
+        if self._timer is not None:
+            self._timer.stop()
+        if self._frames:
+            self._frames = []
+            self._finished()
 
     def go(self, direction, up, animate: bool = True):
         cam = self.ren.GetActiveCamera()
@@ -269,8 +288,11 @@ class CameraAnimator:
             from PySide6 import QtCore
         except ImportError:  # pragma: no cover
             QtCore = None
+        self._started()
         if not animate or QtCore is None or QtCore.QCoreApplication.instance() is None:
+            self._frames = []
             self._apply(frames[-1], foc)
+            self._finished()
             return
         if self._timer is None:
             self._timer = QtCore.QTimer()
@@ -295,6 +317,7 @@ class CameraAnimator:
         self._apply(self._frames.pop(0), self._foc)
         if not self._frames:
             self._timer.stop()
+            self._finished()
 
     @property
     def running(self) -> bool:

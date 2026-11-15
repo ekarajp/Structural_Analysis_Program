@@ -6,6 +6,7 @@ selection, display options) like the model windows of ETABS / SAP2000.
 from __future__ import annotations
 
 import os
+import time
 
 import math
 from dataclasses import asdict, dataclass, field
@@ -445,7 +446,9 @@ class ModelViewport(QtWidgets.QWidget):
         # CAD ViewCube (3D windows): click a face / edge / corner, drag to orbit
         from .viewcube import CameraAnimator, ViewCube
         self.viewcube = ViewCube(self.vtk_widget.GetRenderWindow(), self.renderer, self._viewcube_pick)
-        self.camera_animator = CameraAnimator(self.renderer, self.render)
+        self.camera_animator = CameraAnimator(self.renderer, self.request_render,
+                                              on_start=lambda: self.begin_interaction("animate"),
+                                              on_finish=lambda: self.end_interaction("animate"))
         _bg = scene.COLORS["background_top"]
         self.viewcube.apply_colors(dark=(0.2126 * _bg[0] + 0.7152 * _bg[1] + 0.0722 * _bg[2]) < 0.5)
         self._cube_press: Optional[Tuple[int, int]] = None
@@ -1926,8 +1929,14 @@ class ModelViewport(QtWidgets.QWidget):
                 scene.set_dash_scale(t, wpp)
 
     def render(self):
+        """Draw now (synchronous).  Navigation asks for frames with request_render()."""
+        self._frame_pending = False
+        t = getattr(self, "_frame_timer", None)
+        if t is not None and t.isActive():
+            t.stop()
         if getattr(self, "_finalized", False):
             return  # the program is closing: the native window / GL context is gone
+        self._last_frame_t = time.perf_counter()
         if self.isVisible() or not self._camera_set:
             cube = getattr(self, "viewcube", None)
             if cube is not None:
@@ -1936,6 +1945,95 @@ class ModelViewport(QtWidgets.QWidget):
                     cube.set_visible(show)
                 cube.sync()
             self.vtk_widget.GetRenderWindow().Render()
+
+    # ------------------------------------------------- frame scheduling
+    # Navigation (drag, wheel, keys, ViewCube, camera animation) changes the camera on
+    # every event, in order, but asks for a frame with request_render(): at most one
+    # frame is pending per window, drawn on this window's GUI-thread timer no sooner
+    # than FRAME_BUDGET_MS after the previous one.  A burst of events is drawn once
+    # with the final camera instead of once per intermediate state.  The timer is
+    # never restarted by later requests (no starvation), and a request left waiting
+    # for more than STARVE_MS (an event loop flooded with input) is drawn at once.
+    FRAME_BUDGET_MS = 16
+    STARVE_MS = 50
+
+    def request_render(self):
+        if getattr(self, "_finalized", False):
+            return
+        now = time.perf_counter()
+        if getattr(self, "_frame_pending", False):
+            if (now - self._pending_since) * 1000.0 >= self.STARVE_MS:
+                self.render()
+            return
+        self._frame_pending, self._pending_since = True, now
+        t = getattr(self, "_frame_timer", None)
+        if t is None:
+            t = self._frame_timer = QtCore.QTimer(self)
+            t.setSingleShot(True)
+            t.setTimerType(QtCore.Qt.PreciseTimer)
+            t.timeout.connect(self._frame_due)
+        since = (now - getattr(self, "_last_frame_t", 0.0)) * 1000.0
+        t.start(int(max(0.0, min(self.FRAME_BUDGET_MS, self.FRAME_BUDGET_MS - since))))
+
+    def _frame_due(self):
+        if getattr(self, "_frame_pending", False):
+            self.render()
+
+    def flush_render(self):
+        """Draw the pending frame now (end of a navigation, before a picture is taken)."""
+        if getattr(self, "_frame_pending", False):
+            self.render()
+
+    @property
+    def frame_pending(self) -> bool:
+        return bool(getattr(self, "_frame_pending", False))
+
+    # --------------------------------------------- interaction lifecycle
+    # Every way of moving the view goes through begin_interaction / end_interaction
+    # (reasons: "drag", "cube", "wheel", "keys", "animate"): while any is active,
+    # windows with many labels hide them; when the last ends the labels come back and
+    # the final frame is drawn at full quality.  Wheel and key steps have no release,
+    # so they end after a short pause (pulse_interaction).
+    WHEEL_LABEL_IDLE_MS = 180  # labels hidden while the wheel turns come back after this pause
+
+    def begin_interaction(self, reason: str):
+        act = self.__dict__.setdefault("_interactions", set())
+        act.add(reason)
+        self._drag_labels(True)
+
+    def end_interaction(self, reason: str):
+        act = self.__dict__.setdefault("_interactions", set())
+        act.discard(reason)
+        t = getattr(self, "_idle_timers", {}).get(reason)
+        if t is not None:
+            t.stop()
+        if not act:
+            self._drag_labels(False)  # (draws when it shows labels again)
+            self.flush_render()
+
+    def end_all_interactions(self):
+        """Back to the full picture now (Esc, a picture or export, closing)."""
+        for reason in list(getattr(self, "_interactions", ())):
+            self.end_interaction(reason)
+        self.camera_animator.stop()
+        self.flush_render()
+
+    @property
+    def interacting(self) -> bool:
+        return bool(getattr(self, "_interactions", None))
+
+    def pulse_interaction(self, reason: str):
+        """An interaction without a release (a wheel notch, an arrow key): it ends
+        WHEEL_LABEL_IDLE_MS after the last step."""
+        self.begin_interaction(reason)
+        timers = self.__dict__.setdefault("_idle_timers", {})
+        t = timers.get(reason)
+        if t is None:
+            t = timers[reason] = QtCore.QTimer(self)
+            t.setSingleShot(True)
+            t.timeout.connect(lambda r=reason: self.end_interaction(r))
+        t.setInterval(int(self.WHEEL_LABEL_IDLE_MS))
+        t.start()  # (restarting only delays the label restore, never a frame)
 
     # ----------------------------------------------------------- viewcube
     def _viewcube_pick(self, key):
@@ -1964,15 +2062,17 @@ class ModelViewport(QtWidgets.QWidget):
             if self._cube_press is not None:
                 lx, ly = self._cube_press
                 if self._cube_moved or abs(x - lx) > 3 or abs(y - ly) > 3:
+                    if not self._cube_moved:
+                        self.begin_interaction("cube")
                     self._cube_moved = True
                     navigation.orbit(self.renderer, (x - lx) * navigation.ROTATE_DEG_PER_PIXEL * 1.5,
                                      -(y - ly) * navigation.ROTATE_DEG_PER_PIXEL * 1.5)
                     self._cube_press = (x, y)
-                    self.render()
+                    self.request_render()
                 return True
             changed = cube.hover(x, y)
             if changed:
-                self.render()
+                self.request_render()
             if cube.contains(x, y):
                 self.vtk_widget.setToolTip("ViewCube: click a face, edge or corner for that view; drag to rotate")
                 return True
@@ -1982,7 +2082,10 @@ class ModelViewport(QtWidgets.QWidget):
             if self._cube_press is None:
                 return False
             moved, self._cube_press = self._cube_moved, None
-            if not moved:
+            self._cube_moved = False
+            if moved:
+                self.end_interaction("cube")
+            else:
                 cube.click(x, y)
             return True
         return False
@@ -2810,9 +2913,9 @@ class ModelViewport(QtWidgets.QWidget):
     def _drag_nav(self, x: int, y: int):
         lx, ly = self._nav_last
         if abs(x - self._nav_start[0]) > 2 or abs(y - self._nav_start[1]) > 2:
+            if self._nav in ("orbit", "pan") and not self._nav_moved:
+                self.begin_interaction("drag")
             self._nav_moved = True
-            if self._nav in ("orbit", "pan"):
-                self._drag_labels(True)
         if self._nav == "orbit":
             navigation.orbit(self.renderer, (x - lx) * navigation.ROTATE_DEG_PER_PIXEL,
                              -(y - ly) * navigation.ROTATE_DEG_PER_PIXEL)
@@ -2821,10 +2924,10 @@ class ModelViewport(QtWidgets.QWidget):
         elif self._nav == "zoom_window":
             self._rubber.show(self._nav_start, (x, y), crossing=False)
             self._nav_last = (x, y)
-            self.render()
+            self.request_render()
             return
         self._nav_last = (x, y)
-        self.render()
+        self.request_render()
 
     def _end_nav(self):
         if self._nav == "zoom_window" and self._nav_start and self._nav_last:
@@ -2835,8 +2938,9 @@ class ModelViewport(QtWidgets.QWidget):
             if getattr(self.state, "nav_mode", None) == "zoom_window":
                 self.state.set_nav_mode(None)  # one-shot, like ETABS Zoom Window
         self._nav = None
-        self._drag_labels(False)
         self._nav_last = self._nav_start = None
+        self._nav_moved = False
+        self.end_interaction("drag")  # labels back + the final frame now
 
     def _on_nav_changed(self, mode: str):
         cursors = {"rotate": QtCore.Qt.SizeAllCursor, "pan": QtCore.Qt.OpenHandCursor,
@@ -2857,44 +2961,33 @@ class ModelViewport(QtWidgets.QWidget):
     def _on_middle_release(self, obj, event):
         self._end_nav()
 
-    WHEEL_LABEL_IDLE_MS = 180  # labels hidden while the wheel turns come back after this pause
-
     def _on_wheel(self, direction: int):
         x, y = self.interactor.GetEventPosition()
         f = navigation.WHEEL_FACTOR if direction > 0 else 1.0 / navigation.WHEEL_FACTOR
         # many labels (force diagrams of a large model): hidden while zooming, like a drag
-        self._drag_labels(True)
-        if getattr(self, "_drag_hidden", None):
-            t = getattr(self, "_wheel_timer", None)
-            if t is None:
-                t = self._wheel_timer = QtCore.QTimer(self)
-                t.setSingleShot(True)
-                t.setInterval(self.WHEEL_LABEL_IDLE_MS)
-                t.timeout.connect(self._wheel_idle)
-            t.start()
+        self.pulse_interaction("wheel")
         navigation.zoom_at(self.renderer, x, y, f)
-        self.render()
-
-    def _wheel_idle(self):
-        if getattr(self, "_nav", None) is None:  # not in the middle of a drag (it shows them on release)
-            self._drag_labels(False)
+        self.request_render()
 
     def rotate_view(self, d_azimuth: float, d_elevation: float):
         if self.config.kind == "3d":
+            self.pulse_interaction("keys")
             navigation.orbit(self.renderer, d_azimuth, d_elevation)
-            self.render()
+            self.request_render()
 
     def zoom(self, factor: float):
         sz = self.vtk_widget.GetRenderWindow().GetSize()
+        self.pulse_interaction("keys")
         navigation.zoom_at(self.renderer, sz[0] / 2, sz[1] / 2, factor)
-        self.render()
+        self.request_render()
 
     def pan_view(self, fx: float, fy: float):
         """Pan by a fraction of the window size."""
         sz = self.vtk_widget.GetRenderWindow().GetSize()
         cx, cy = sz[0] / 2, sz[1] / 2
+        self.pulse_interaction("keys")
         navigation.pan(self.renderer, cx, cy, cx + fx * sz[0], cy + fy * sz[1])
-        self.render()
+        self.request_render()
 
     def default_3d(self):
         self.config.kind = "3d"
@@ -3049,6 +3142,8 @@ class ModelViewport(QtWidgets.QWidget):
                 self._update_preview(x, y, keep_index=True)
             return
         if key == "Escape":
+            if self.interacting:
+                self.end_all_interactions()
             self.escape()
         elif key in ("Return", "KP_Enter"):
             self.enter()
@@ -3887,6 +3982,7 @@ class ModelViewport(QtWidgets.QWidget):
 
     # ------------------------------------------------------------ capture
     def screenshot(self, path: str):
+        self.end_all_interactions()  # full picture: labels back, no frame pending
         self.vtk_widget.GetRenderWindow().Render()
         w2i = vtk.vtkWindowToImageFilter()
         w2i.SetInput(self.vtk_widget.GetRenderWindow())
@@ -3919,7 +4015,14 @@ class ModelViewport(QtWidgets.QWidget):
         if getattr(self, "_finalized", False):
             return
         self._finalized = True
-        for t in (getattr(self, "_redraw_timer", None),):
+        self._frame_pending = False
+        self._interactions = set()
+        try:
+            self.camera_animator.stop()
+        except Exception:
+            pass
+        for t in (getattr(self, "_redraw_timer", None), getattr(self, "_frame_timer", None),
+                  *getattr(self, "_idle_timers", {}).values()):
             if t is not None:
                 t.stop()
         try:

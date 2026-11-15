@@ -17,6 +17,9 @@ def vtk_image(vp) -> Optional[QtGui.QImage]:
         from . import vtk_lite as vtk
         from vtkmodules.util.numpy_support import vtk_to_numpy
         rw = vp.vtk_widget.GetRenderWindow()
+        end = getattr(vp, "end_all_interactions", None)
+        if end is not None:
+            end()  # full picture: labels hidden for navigation back, no frame pending
         rw.Render()
         w2i = vtk.vtkWindowToImageFilter()
         w2i.SetInput(rw)
