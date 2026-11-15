@@ -49,7 +49,7 @@ DIMENSIONLESS = {
     "LoadPattern": {"self_weight_multiplier", "auto_load"},
     "MassSource": {"load_patterns"},
     "Material": {"nu", "damping"},
-    "ModalCase": {"shift", "cutoff", "tolerance"},  # cycles / s
+    "ModalCase": {"shift", "cutoff", "tolerance", "mass_target"},  # cycles / s; mass_target a ratio
     "NonlinearStaticCase": {"loads", "acceleration_loads", "mode_loads", "tolerance"},
     "PDeltaCase": {"loads", "tolerance"},
     "PanelLoad": {"points", "span_dir"},  # points: Model.convert_units; span_dir: a direction
@@ -60,7 +60,7 @@ DIMENSIONLESS = {
     "ShellModifiers": {"f11", "f22", "f12", "m11", "m22", "m12", "v13", "v23", "mass", "weight"},
     "TendonLoad": {"curvature"},  # per radian
     "TimeHistoryCase": {"dt", "damping_ratio", "damping_periods", "mass_coefficient", "stiffness_coefficient",
-                        "gamma", "beta", "alpha", "tolerance"},
+                        "gamma", "beta", "alpha", "tolerance", "dt_check_tolerance"},
     "TimeHistoryFunction": {"times", "values"},  # values x the load's scale (an acceleration)
     "ResponseSpectrumFunction": {"periods", "accelerations", "damping"},  # x the load's scale (an acceleration)
     "GroundDisplacement": {"rotations"},

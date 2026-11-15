@@ -1406,6 +1406,19 @@ class Model:
                 elif c.min_modes > c.max_modes:
                     err("INVALID_MODES", f"Modal case {name!r}: minimum modes {c.min_modes} > maximum {c.max_modes}",
                         f"load_cases.{name}.min_modes")
+                if str(c.method).lower() not in ("eigen", "ritz"):
+                    err("INVALID_MODAL_METHOD", f"Modal case {name!r}: unknown method {c.method!r} (Eigen or Ritz; "
+                        "Ritz is run as Eigen)", f"load_cases.{name}.method")
+                if not (fin(c.shift) and c.shift >= 0):
+                    err("INVALID_MODAL_SHIFT", f"Modal case {name!r}: frequency shift {c.shift!r} must be a finite "
+                        "number >= 0 (cyc/s, the centre the modes are searched around)", f"load_cases.{name}.shift")
+                if not (fin(c.tolerance) and c.tolerance > 0):
+                    err("INVALID_MODAL_TOLERANCE", f"Modal case {name!r}: tolerance {c.tolerance!r} must be > 0",
+                        f"load_cases.{name}.tolerance")
+                mt = getattr(c, "mass_target", 0.9)
+                if not (fin(mt) and 0.0 <= mt <= 1.0):
+                    err("INVALID_MODAL_TARGET", f"Modal case {name!r}: mass target {mt!r} must be in [0, 1]",
+                        f"load_cases.{name}.mass_target")
                 if c.mass_source and c.mass_source not in self.mass_sources:
                     err("UNKNOWN_MASS_SOURCE", f"Modal case {name!r} uses unknown mass source {c.mass_source!r}",
                         f"load_cases.{name}.mass_source")
@@ -1413,6 +1426,10 @@ class Model:
                 if not (fin(c.dt) and c.dt > 0) or int(c.n_steps) < 1:
                     err("INVALID_TIME_STEP", f"Time history {name!r}: needs dt > 0 and at least one step",
                         f"load_cases.{name}")
+                if c.method.lower().replace(" ", "").startswith("direct"):
+                    from .nonlinear import integrator_contract
+                    for code, msg in integrator_contract(c.integrator, c.gamma, c.beta, c.alpha)[1]:
+                        err(code, f"Time history {name!r}: {msg}", f"load_cases.{name}.integrator")
                 if not fin(c.damping_ratio) or c.damping_ratio < 0.0:  # > 1 (overdamped) is allowed
                     err("INVALID_DAMPING", f"Time history {name!r}: damping ratio {c.damping_ratio!r} must be >= 0",
                         f"load_cases.{name}.damping_ratio")

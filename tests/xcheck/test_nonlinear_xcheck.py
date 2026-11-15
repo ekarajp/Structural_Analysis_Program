@@ -34,10 +34,14 @@ MATERIALS = [
       0.02, 0.3], M.Hysteretic(100, 0.01, 120, 0.03, 80, 0.08, -100, -0.01, -120, -0.03, -80, -0.08, 0.5, 0.4, 0.01,
                                0.02, 0.3), 0.05),
     (["BoucWen", 1, 0.05, 1000., 2., 0.5, 0.5, 1.0, 0.0, 0.0, 0.0], M.BoucWen(0.05, 1000, 2, 0.5, 0.5, 1.0), 0.05),
+    # energy degradation on (deltaA, deltaNu, deltaEta): the tangent needs the energy terms
+    # (calculation review NL01); the control above has them all zero
+    (["BoucWen", 1, 0.05, 1000., 2., 0.5, 0.5, 1.0, 0.02, 0.01, 0.01],
+     M.BoucWen(0.05, 1000, 2, 0.5, 0.5, 1.0, 0.02, 0.01, 0.01), 0.05),
 ]
 
 
-@pytest.mark.parametrize("cmd,mat,amp", MATERIALS, ids=[m[0][0] for m in MATERIALS])
+@pytest.mark.parametrize("cmd,mat,amp", MATERIALS, ids=[m[0][0] + ("-degraded" if m[0][0] == "BoucWen" and any(m[0][8:11]) else "") for m in MATERIALS])
 def test_material_strain_history_matches_opensees(cmd, mat, amp):
     for seed in range(3):
         eps = _history(abs(amp), seed=seed) + (amp if amp < 0 else 0.0) * 0.8

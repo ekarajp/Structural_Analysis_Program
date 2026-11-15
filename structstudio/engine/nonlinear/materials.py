@@ -37,6 +37,26 @@ from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
 
+
+class ElementNonConvergence(RuntimeError):
+    """Raised when an element state determination fails (the global solver subdivides the step)."""
+
+
+class MaterialNonConvergence(ElementNonConvergence):
+    """The local (constitutive) iteration of a material point did not converge, so its
+    trial state is not a valid solution of the material law.  Raised instead of
+    returning that state: the analysis reverts to the committed state and retries with
+    another algorithm or a smaller step.  The law, its tolerance and its iteration
+    budget are not changed."""
+
+    def __init__(self, material: str, strain: float, committed_strain: float, residual: float,
+                 iterations: int, tol: float):
+        self.material, self.strain, self.committed_strain = material, strain, committed_strain
+        self.residual, self.iterations, self.tol = residual, iterations, tol
+        super().__init__(f"{material}: local iteration did not converge (strain {strain:.6g} from committed "
+                         f"{committed_strain:.6g}, residual {residual:.3g} > tol {tol:.3g} after {iterations} "
+                         "iterations)")
+
 EPS = np.finfo(float).eps
 
 
@@ -889,6 +909,23 @@ class _BoucWenPoint:
         self.Cstrain, self.Cz, self.Ce = self.Tstrain, self.Tz, self.Te
         self.Cstress, self.Ctangent = self.Tstress, self.Ttangent
 
+    def _terms(self, d, z):
+        """Implicit equation f(z) = z - Cz - Phi(z, Te) / eta(Te) * d of the backward Euler
+        update, Te = Ce + (1 - alpha) ko d z, and the pieces of its derivatives."""
+        m = self.m
+        c = (1.0 - m.alpha) * m.ko
+        Te = self.Ce + c * d * z
+        TA = m.Ao - m.deltaA * Te
+        Tnu = 1.0 + m.deltaNu * Te
+        Teta = 1.0 + m.deltaEta * Te
+        sign = math.copysign(1.0, d * z) if d * z != 0 else 0.0
+        Psi = m.gamma + m.beta * sign
+        az = abs(z)
+        azn = az ** m.nexp
+        Phi = TA - azn * Psi * Tnu
+        f = z - self.Cz - Phi / Teta * d
+        return c, Te, TA, Tnu, Teta, Psi, az, azn, Phi, f
+
     def set_trial(self, strain, rate=0.0):
         m = self.m
         self.Tstrain = strain
@@ -899,24 +936,15 @@ class _BoucWenPoint:
         z = 0.01
         z_old, z_new = 0.01, 1.0
         it = 0
-        c = (1.0 - m.alpha) * m.ko
         while abs(z_old - z_new) > m.tol and it < m.maxIter:
-            Te = self.Ce + c * d * z
-            TA = m.Ao - m.deltaA * Te
-            Tnu = 1.0 + m.deltaNu * Te
-            Teta = 1.0 + m.deltaEta * Te
-            sign = math.copysign(1.0, d * z) if d * z != 0 else 0.0
-            Psi = m.gamma + m.beta * sign
-            az = abs(z)
-            Phi = TA - (az ** m.nexp) * Psi * Tnu
-            f = z - self.Cz - Phi / Teta * d
+            c, Te, TA, Tnu, Teta, Psi, az, azn, Phi, f = self._terms(d, z)
             Te_ = c * d
             TA_ = -m.deltaA * Te_
             Tnu_ = m.deltaNu * Te_
             Teta_ = m.deltaEta * Te_
             sz = math.copysign(1.0, z) if z != 0 else 0.0
             pw = az ** (m.nexp - 1.0) if az > 0 else 0.0
-            Phi_ = TA_ - m.nexp * pw * sz * Psi * Tnu - (az ** m.nexp) * Psi * Tnu_
+            Phi_ = TA_ - m.nexp * pw * sz * Psi * Tnu - azn * Psi * Tnu_
             f_ = 1.0 - (Phi_ * Teta - Phi * Teta_) / (Teta * Teta) * d
             if f_ == 0.0:
                 break
@@ -924,22 +952,28 @@ class _BoucWenPoint:
             z_old = z
             z = z_new
             it += 1
+        c, Te, TA, Tnu, Teta, Psi, az, azn, Phi, f = self._terms(d, z)
+        # converged: the Newton correction is below tol (the OpenSees test), or the
+        # implicit equation itself is satisfied to tol; anything else is not a valid state
+        step_ok = abs(z_old - z_new) <= m.tol
+        if not (math.isfinite(z) and math.isfinite(f) and (step_ok or abs(f) <= m.tol)):
+            raise MaterialNonConvergence("BoucWen", strain, self.Cstrain, abs(f) if math.isfinite(f) else float("inf"),
+                                         it, m.tol)
         self.Tz = z
         self.Tstress = m.alpha * m.ko * strain + c * z
-        Te = self.Ce + c * d * z
-        TA = m.Ao - m.deltaA * Te
-        Tnu = 1.0 + m.deltaNu * Te
-        Teta = 1.0 + m.deltaEta * Te
         self.Te = Te
-        sign = math.copysign(1.0, d * z) if d * z != 0 else 0.0
-        Psi = m.gamma + m.beta * sign
-        az = abs(z)
-        Phi = TA - (az ** m.nexp) * Psi * Tnu
-        # dz/deps from the implicit equation (energy dependence through d is neglected, as OpenSees)
+        # consistent tangent: dz/deps of the implicit equation, the energy Te depending on
+        # eps (through d) and on z (OpenSees BoucWenMaterial::setTrialStrain, b4 / b5)
         sz = math.copysign(1.0, z) if z != 0 else 0.0
         pw = az ** (m.nexp - 1.0) if az > 0 else 0.0
-        f_z = 1.0 + m.nexp * pw * sz * Psi * Tnu / Teta * d
-        dzde = (Phi / Teta) / f_z if f_z != 0 else 0.0
+        b1 = c * z  # dTe/dd
+        b2 = c * d  # dTe/dz
+        b3 = d / Teta
+        b4 = (-b3 * m.deltaA * b1 - b3 * azn * Psi * m.deltaNu * b1
+              - Phi / (Teta * Teta) * d * m.deltaEta * b1 + Phi / Teta)
+        b5 = (1.0 + b3 * m.deltaA * b2 + b3 * m.nexp * pw * sz * Psi * Tnu + b3 * azn * Psi * m.deltaNu * b2
+              + Phi / (Teta * Teta) * d * m.deltaEta * b2)
+        dzde = b4 / b5 if b5 != 0 else 0.0
         self.Ttangent = m.alpha * m.ko + c * dzde
 
 

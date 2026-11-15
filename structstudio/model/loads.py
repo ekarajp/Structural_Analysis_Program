@@ -122,6 +122,7 @@ class ModalCase:
     ritz_vectors: List[str] = field(default_factory=lambda: ["UX", "UY", "UZ"])
     type: str = "Modal"
     stiffness: str = "auto"  # stiffness set: auto (= lateral) | gravity | lateral
+    mass_target: float = 0.90  # cumulative effective mass ratio expected per excited direction (warning below)
 
 
 @dataclass

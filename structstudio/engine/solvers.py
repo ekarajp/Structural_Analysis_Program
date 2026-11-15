@@ -630,8 +630,10 @@ class Engine:
         Kf = self._free_matrix(K_red)
         Mf = self._free_matrix(M_red)
         self._check_mass(Mf, case.name)
+        requested = case.method
         if case.method.lower() == "ritz":
-            self.am.warnings.append("Ritz vectors not implemented; eigenvectors used instead")
+            self.am.warnings.append(f"Modal case {case.name}: Ritz vectors are not implemented - eigenvectors are "
+                                    "computed instead (effective method Eigen)")
         # the static factor is of this same matrix: the modal condensation reuses it
         fac = None if case.stiffness_from else self._modal_factor(Kf)
         try:
@@ -671,7 +673,28 @@ class Engine:
             total[k] = float(r_act @ Mr)
         with np.errstate(divide="ignore", invalid="ignore"):
             ratios = np.where(total > 0, part ** 2 / total, 0.0)
-        modal = ModalData(periods, omega, w2, phi_full, part, ratios, total, com, case.method)
+        chk = getattr(self.kernel, "last_eigen_check", None) or {}
+        cum = np.cumsum(ratios, axis=0)[-1] if n_modes else np.zeros(6)
+        coverage = {d: (float(cum[k]) if total[k] > 0 else None) for k, d in enumerate(("UX", "UY", "UZ"))}
+        solver = {"requested_method": requested, "effective_method": "Eigen",
+                  "shift_cyc_s": float(case.shift or 0.0),
+                  "shift_eigenvalue_rad2_s2": (2 * np.pi * float(case.shift)) ** 2 if case.shift else None,
+                  "requested_tolerance": float(case.tolerance),
+                  "max_relative_residual": chk.get("max_residual"),
+                  "mass_orthonormality_error": chk.get("mass_orthonormality_error"),
+                  "modes_set_to_zero": chk.get("set_to_zero", []),
+                  "mass_coverage": coverage, "mass_target": float(getattr(case, "mass_target", 0.9))}
+        res_max = chk.get("max_residual")
+        if res_max is not None and case.tolerance and res_max > max(float(case.tolerance), 1e-12):
+            self.am.warnings.append(f"Modal case {case.name}: largest relative eigen residual {res_max:.2e} is above "
+                                    f"the case tolerance {case.tolerance:g}")
+        target = float(getattr(case, "mass_target", 0.9))
+        low = [f"{d} {100 * c:.1f}%" for d, c in coverage.items() if d != "UZ" and c is not None and c < target - 1e-9]
+        if low:
+            self.am.warnings.append(f"Modal case {case.name}: {n_modes} mode(s) carry {', '.join(low)} of the mass, "
+                                    f"below the {100 * target:.0f}% target - add modes before using them for a "
+                                    "spectrum or modal time history")
+        modal = ModalData(periods, omega, w2, phi_full, part, ratios, total, com, "Eigen", requested, solver)
         res = CaseResult(case.name, "Modal", np.zeros((self.am.n_nodes, 6)), {},
                          np.zeros((len(self.am.frames), 12)), modal=modal)
         res.modal_displacements = np.transpose(phi_full.reshape(self.am.n_nodes, 6, n_modes), (2, 0, 1))
@@ -790,6 +813,7 @@ class Engine:
 
         # per-direction, per-mode signed responses
         dir_results = []
+        coverage: Dict[str, Optional[float]] = {}
         for ld in case.loads:
             fn = self.model.functions.get(ld.function)
             if not isinstance(fn, ResponseSpectrumFunction):
@@ -801,6 +825,17 @@ class Engine:
             r = v[0] * unit_r["UX"] + v[1] * unit_r["UY"] + v[2] * unit_r["UZ"]
             r[dofs.restrained_full] = 0.0
             gamma = phi.T @ (M_full * r)  # (n_modes,)
+            tot = float(r @ (M_full * r))
+            target = float(getattr(self.model.load_cases.get(case.modal_case), "mass_target", 0.9))
+            if tot > 0:
+                cov = float(np.sum(gamma ** 2)) / tot
+                coverage[ld.direction] = cov
+                if cov < target - 1e-9:
+                    warnings.append(f"Spectrum {case.name}: the {n_modes} mode(s) of {case.modal_case} carry "
+                                    f"{100 * cov:.1f}% of the mass along {ld.direction}, below the "
+                                    f"{100 * target:.0f}% target - the response of the missing modes is not included")
+            else:
+                coverage[ld.direction] = None  # no mass along this direction: N/A
             scale = ld.scale * self.model.units.factor("acceleration")  # -> m/s^2 multiplier of the function
             u_modes = np.zeros((n_modes, dofs.n_full))
             for n in range(n_modes):
@@ -873,6 +908,7 @@ class Engine:
         res.static_addition = None if ecc is None else ecc[0].reshape(-1, 6)  # accidental torsion response
         res.modal_displacements = np.stack([d.reshape(n_modes, self.am.n_nodes, 6) for d in dir_results]) if dir_results else None
         res.warnings = warnings
+        res.mass_coverage = coverage  # direction -> cumulative effective mass ratio (None: no mass, N/A)
         return res
 
 

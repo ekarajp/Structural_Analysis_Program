@@ -18,7 +18,9 @@ class ModalData:
     mass_ratios: np.ndarray  # (n_modes, 6)
     total_mass: np.ndarray  # (6,) unrestrained mass / rotational inertia per direction
     center_of_mass: np.ndarray  # (3,)
-    method: str = "Eigen"
+    method: str = "Eigen"  # the method actually used (effective)
+    requested_method: str = "Eigen"  # the case's method (Ritz is not implemented: Eigen used)
+    solver: Optional[dict] = None  # requested / effective shift, tolerance, residuals, mass coverage
 
     @property
     def n_modes(self) -> int:

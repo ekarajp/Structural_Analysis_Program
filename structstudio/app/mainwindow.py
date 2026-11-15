@@ -92,6 +92,14 @@ DRAW_PALETTE = [
 LOAD_PALETTE = ["area_load", "frame_load", "joint_load", "panel_load"]
 
 
+
+def _build_tag() -> str:
+    """' [candidate ...]' when started by a candidate launcher (STRUCTSTUDIO_BUILD_TAG), so
+    the window shows which program build is running."""
+    import os
+    tag = os.environ.get("STRUCTSTUDIO_BUILD_TAG", "").strip()
+    return f" [{tag}]" if tag else ""
+
 class AnalysisWorker(QtCore.QThread):
     finished_ok = QtCore.Signal(object)
     failed = QtCore.Signal(str, object)  # message, issues (diagnostics.Issue list)
@@ -165,7 +173,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         use_english_numbers()
         self.doc = document or Document()
         self.qsettings = settings
-        self.setWindowTitle(f"Structural Studio {__version__}")
+        self.setWindowTitle(f"Structural Studio {__version__}{_build_tag()}")
         self.resize(1600, 950)
         self.state = ViewState(self.doc, self)
         # display theme + graphics colours (before any window is drawn)
@@ -1001,7 +1009,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         if what in ("lock", "results", "model", "units", "replaced"):
             self._sync_lock()
             self._sync_fine_mesh()
-        self.setWindowTitle(f"Structural Studio {__version__} - {self.doc.title}")
+        self.setWindowTitle(f"Structural Studio {__version__}{_build_tag()} - {self.doc.title}")
         self.act_undo.setEnabled(self.doc.can_undo)
         self.act_redo.setEnabled(self.doc.can_redo)
         if what == "model":

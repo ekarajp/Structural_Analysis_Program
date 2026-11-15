@@ -40,14 +40,12 @@ import numpy as np
 
 from ...mesh.analysis_model import ElementLoad
 from ..elements.frame import FrameFormulation, _load_resultant_left
-from .materials import UniaxialMaterial
+from .materials import ElementNonConvergence, MaterialNonConvergence, UniaxialMaterial
 from .sections import BeamIntegration, ElasticSection3D, Section3D
 
 EPS = np.finfo(float).eps
 
 
-class ElementNonConvergence(RuntimeError):
-    """Raised when an element state determination fails (the global solver subdivides the step)."""
 
 
 def basic_matrix(L: float) -> np.ndarray:

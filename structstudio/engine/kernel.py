@@ -194,15 +194,27 @@ class SciPyKernel:
             except linalg.LinAlgError:
                 # M only positive semi-definite: fall back to the reversed problem
                 w2, v = _eigh_semidefinite(Kc, Mc)
-            order = np.argsort(w2)[:n_modes]
+            if shift:
+                # frequency shift (centre), cyc/s: the modes nearest to it, as the sparse path
+                sig = (2.0 * np.pi * float(shift)) ** 2
+                order = np.argsort(np.abs(w2 - sig), kind="stable")[:n_modes]
+                order = order[np.argsort(w2[order], kind="stable")]
+            else:
+                order = np.argsort(w2)[:n_modes]
             w2 = w2[order]
             vm = v[:, order]
+            # the semi-definite fallback can give fewer finite modes than asked for (directions
+            # without mass have none): as many shapes as eigenvalues, never a padded copy
+            n_modes = len(w2)
             phi = np.zeros((n, n_modes))
             phi[massive] = vm
             if massless.size:
                 phi[massless] = (Y[massless] @ (Kc @ vm)) if Y is not None else -X @ vm
         else:
-            sigma = -float(shift) if shift else -1e-3 * float(np.max(np.abs(K.diagonal())) / max(np.max(m), 1e-300)) * 1e-6
+            # frequency shift (centre) in cyc/s -> eigenvalue (rad/s)^2; ARPACK in shift-invert
+            # mode returns the eigenvalues nearest to sigma (the dense path selects the same)
+            sigma = (2.0 * np.pi * float(shift)) ** 2 if shift else \
+                -1e-3 * float(np.max(np.abs(K.diagonal())) / max(np.max(m), 1e-300)) * 1e-6
             Ms = M
             k = min(n_modes, n_dyn - 1) if n_dyn > 1 else 1
             if k < 1:
@@ -212,7 +224,7 @@ class SciPyKernel:
                 # Cholesky when there is one) instead of ARPACK's built-in SuperLU, whose fill on
                 # a large shell model needs many times the memory: the same operator
                 op = None
-                if factor is not None and not getattr(factor, "unstable", None) \
+                if factor is not None and not shift and not getattr(factor, "unstable", None) \
                         and not getattr(factor, "negative", None) and n >= self.SHIFT_INVERSE_MIN:
                     # the static factor of this same (positive definite) K: shift-invert about 0,
                     # no second factorisation held beside it (the shift only steers the iteration
@@ -237,17 +249,52 @@ class SciPyKernel:
             mj = float(phi[:, j] @ (M @ phi[:, j]))
             if mj > 0:
                 phi[:, j] /= np.sqrt(mj)
-        # round-off of zero-frequency (rigid body) modes; a clearly negative or non-finite
-        # eigenvalue is left for the caller to report (negative mass / unstable stiffness)
-        scale = float(np.max(np.abs(w2[np.isfinite(w2)]))) if np.any(np.isfinite(w2)) else 1.0
-        w2 = np.where((w2 < 0) & (w2 > -1e-9 * max(scale, 1.0)), 0.0, w2)
+        w2 = np.asarray(w2, float).copy()
+        if phi.shape[1] != len(w2):
+            raise ModelError("EIGEN_FAILED", f"eigen solution has {len(w2)} eigenvalues but {phi.shape[1]} shapes")
+        w2, self.last_eigen_check = _check_eigenpairs(K, M, w2, phi)
         return w2, phi
+
+
+    last_eigen_check = None  # diagnostics of the last eigen() call (see _check_eigenpairs)
+
+
+def _check_eigenpairs(K, M, w2, phi):
+    """Validate mass-normalised eigenpairs and settle the sign of near-zero eigenvalues.
+
+    A negative eigenvalue is set to zero (a rigid-body mode) only when the mode's own
+    Rayleigh quotient phi^T K phi is zero to the rounding of that product, i.e. within
+    1e3 eps |phi|^T |K| |phi|; otherwise it is kept, so that a negative stiffness is
+    reported and never hidden as a rigid mode (the bound is per mode, not relative to
+    the highest computed eigenvalue).  Returns (w2, diagnostics): per-mode relative
+    residual ||K phi - w2 M phi|| / (||K phi|| + |w2| ||M phi||), the largest deviation
+    of phi^T M phi from the identity, the original eigenvalues and the modes set to 0."""
+    eps = np.finfo(float).eps
+    w_in = w2.copy()
+    Kp = K @ phi
+    Mp = M @ phi
+    rq = np.einsum("ij,ij->j", phi, Kp)
+    s = np.einsum("ij,ij->j", np.abs(phi), abs(K) @ np.abs(phi))
+    rigid = (w2 < 0) & np.isfinite(w2) & (np.abs(rq) <= 1e3 * eps * np.maximum(s, 1e-300))
+    w2 = np.where(rigid, 0.0, w2)
+    res = np.linalg.norm(Kp - Mp * w2, axis=0)
+    den = np.linalg.norm(Kp, axis=0) + np.abs(w2) * np.linalg.norm(Mp, axis=0)
+    rel = np.where(den > 0, res / np.maximum(den, 1e-300), 0.0)
+    G = phi.T @ Mp
+    gram = float(np.max(np.abs(G - np.eye(G.shape[0])))) if G.size else 0.0
+    return w2, {"relative_residual": rel, "max_residual": float(np.max(rel)) if rel.size else 0.0,
+                "mass_orthonormality_error": gram, "eigenvalues_computed": w_in,
+                "rayleigh_quotients": rq, "set_to_zero": np.where(rigid)[0].tolist()}
 
 
 def _eigh_semidefinite(K: np.ndarray, M: np.ndarray):
     """Generalised eigenproblem with a semi-definite M: solve M v = mu K v
     (K positive definite) and invert the eigenvalues."""
-    mu, v = linalg.eigh(M, K)
+    try:
+        mu, v = linalg.eigh(M, K)
+    except linalg.LinAlgError as exc:
+        raise ModelError("EIGEN_FAILED", "The mass matrix is only semi-definite and the stiffness is not positive "
+                         "definite: the eigenproblem cannot be solved (unstable or massless mechanism)") from exc
     tol = 1e-12 * max(float(np.max(np.abs(mu))), 1e-300)
     # mu ~ 0: a direction without mass (no dynamic mode, dropped); mu < 0: negative mass,
     # kept as a negative eigenvalue so that it is reported, never turned into infinity

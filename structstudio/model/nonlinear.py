@@ -419,7 +419,74 @@ class TimeHistoryCase:
     max_subdivisions: int = 8
     monitor_points: List[str] = field(default_factory=list)
     save_every: int = 1
+    # time step accuracy (direct integration): also run with dt/2 and report the difference of
+    # the monitored displacements - converged equilibrium says nothing about the time step error
+    dt_check: bool = False
+    dt_check_tolerance: float = 0.01
     type: str = "TimeHistory"
+
+
+INTEGRATORS = ("Newmark", "HHT")
+
+
+def integrator_contract(integrator, gamma, beta, alpha):
+    """Check the direct integration settings of a time history.
+
+    Returns ``(effective, errors, warnings)``: ``effective`` the integrator and the
+    (gamma, beta, alpha) the solver will use, ``errors`` (code, message) pairs that stop
+    the case before any solve, ``warnings`` messages about settings that are valid but
+    only conditionally stable or that add or remove numerical energy.  The solver is
+    displacement based (it divides by beta dt^2), so beta must be > 0 here; that is a
+    limit of this implementation, not of the Newmark family (beta = 0, central
+    difference, is a valid explicit method in acceleration form)."""
+    errors, warnings = [], []
+    name = str(integrator).strip()
+    key = name.lower().replace("-", "").replace(" ", "")
+    if key == "newmark":
+        name = "Newmark"
+    elif key in ("hht", "hhtalpha", "hilberhughestaylor"):
+        name = "HHT"
+    else:
+        errors.append(("INVALID_INTEGRATOR", f"unknown integrator {integrator!r}: use one of {', '.join(INTEGRATORS)}"))
+        return None, errors, warnings
+    vals = {"gamma": gamma, "beta": beta, "alpha": alpha}
+    bad = [k for k, v in vals.items() if not (isinstance(v, (int, float)) and math.isfinite(v))]
+    if bad:
+        errors.append(("INVALID_INTEGRATOR_PARAMETER", f"{name}: {', '.join(bad)} must be finite numbers"))
+        return None, errors, warnings
+    if name == "HHT":
+        if not (2.0 / 3.0 - 1e-12 <= alpha <= 1.0 + 1e-12):
+            errors.append(("INVALID_INTEGRATOR_PARAMETER", f"HHT: alpha = {alpha:g} is outside the supported range "
+                           "[2/3, 1] (OpenSees convention; alpha = 1 is Newmark average acceleration)"))
+            return None, errors, warnings
+        g, b = 1.5 - alpha, (2.0 - alpha) ** 2 / 4.0
+        if (gamma, beta) not in ((0.5, 0.25), (g, b)):
+            warnings.append(f"HHT: gamma and beta are derived from alpha ({g:.6g}, {b:.6g}); the given "
+                            f"{gamma:g}, {beta:g} are not used")
+        if alpha < 1.0:
+            warnings.append(f"HHT alpha = {alpha:g}: numerical (algorithmic) damping of the high modes; energy lost "
+                            "this way is not physical damping")
+        return ("HHT", g, b, float(alpha)), errors, warnings
+    if beta <= 0.0:
+        errors.append(("INVALID_INTEGRATOR_PARAMETER", f"Newmark: beta = {beta:g} is not supported (must be > 0; this "
+                       "solver is in displacement form and divides by beta dt^2)"))
+    if gamma <= 0.0:
+        errors.append(("INVALID_INTEGRATOR_PARAMETER", f"Newmark: gamma = {gamma:g} must be > 0"))
+    if errors:
+        return None, errors, warnings
+    if alpha != 1.0:
+        warnings.append(f"Newmark: alpha = {alpha:g} is used only by HHT and is ignored")
+    if gamma < 0.5:
+        warnings.append(f"Newmark gamma = {gamma:g} < 0.5: negative numerical damping, the response can grow "
+                        "without a physical cause (unstable)")
+    elif gamma > 0.5:
+        warnings.append(f"Newmark gamma = {gamma:g} > 0.5: numerical damping (first-order accurate); energy lost "
+                        "this way is not physical damping")
+    if gamma >= 0.5 and beta < gamma / 2.0:
+        wcrit = 1.0 / math.sqrt(gamma / 2.0 - beta)
+        warnings.append(f"Newmark beta = {beta:g} < gamma/2: only conditionally stable, needs omega dt <= "
+                        f"{wcrit:.4g} for every mode of the model (dt <= {wcrit:.4g} / (2 pi) T_min)")
+    return ("Newmark", float(gamma), float(beta), 1.0), errors, warnings
 
 
 NONLINEAR_TYPES = (NonlinearMaterial, FiberSectionDef, FrameNonlinearProperty, HingeProperty, FrameHingeAssignment,

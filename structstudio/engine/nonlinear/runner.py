@@ -239,6 +239,12 @@ class NonlinearRunner:
         res = self._final_result(case, "NonlinearStatic", dom, history)
         if failed:
             res.warnings.append(f"Case {case.name}: stopped before the end ({failed})")
+        if sa.branch_events:
+            history["branch_events"] = list(sa.branch_events)
+            res.warnings.append(f"Case {case.name}: in {len(sa.branch_events)} arc-length substep(s) after a strength "
+                                "drop the softening hinges were held on their loading branch (no unloading) so that "
+                                "the continuation could converge - a branch choice of the solver, not of the hinge "
+                                "law; check the capacity curve around these steps")
         res.diagnostics["iterations"] = int(sum(sa.iterations))
         # state for dependent cases: all loads now constant at their final value
         final = dict(const)
@@ -273,6 +279,13 @@ class NonlinearRunner:
                 raise ModelError("UNKNOWN_FUNCTION", f"Case {case.name!r}: time function {ld.function!r} not found")
             t = np.asarray(fn.times, float)
             v = np.asarray(fn.values, float)
+            if t.size > 1 and getattr(case, "dt", None):
+                dts = np.diff(t)
+                dts = dts[dts > 0]
+                if dts.size and float(case.dt) > 1.000001 * float(dts.min()):
+                    self.am.warnings.append(f"Case {case.name}: time step {float(case.dt):g} s is larger than the "
+                                            f"sampling interval {float(dts.min()):g} s of function {ld.function}; "
+                                            "the record between steps is not followed (peaks can be missed)")
             if ld.type.lower().startswith("acc"):
                 a = math.radians(ld.angle)
                 s = ld.scale * U.factor("acceleration")
@@ -298,7 +311,12 @@ class NonlinearRunner:
         """Eigenpairs of the domain (initial stiffness), free coordinates, mass normalised."""
         K = dom.initial_stiffness()
         w2, phi = self.engine.kernel.eigen(K, dom.M, n_modes)
-        return np.sqrt(np.maximum(w2, 0.0)), phi
+        bad = ~np.isfinite(w2) | (w2 < 0)
+        if np.any(bad):  # never turned into zero-frequency (rigid) modes for damping / FNA
+            raise ModelError("NEGATIVE_EIGENVALUE",
+                             f"{int(bad.sum())} eigenvalue(s) of the initial stiffness are negative or not finite "
+                             f"(lowest {float(np.min(w2)):.4g} rad^2/s^2): the stiffness or the mass is not positive")
+        return np.sqrt(w2), phi
 
     def _damping(self, case, dom: NonlinearDomain) -> Damping:
         kind = (case.damping or "None").lower()
@@ -337,6 +355,8 @@ class NonlinearRunner:
 
     def time_history(self, case) -> CaseResult:
         meth = case.method.lower().replace(" ", "").replace("-", "")
+        if getattr(case, "dt_check", False) and meth.startswith("direct"):
+            return self._time_history_dt_check(case)
         if meth in ("fna", "fastnonlinear", "fastnonlinearanalysis"):
             return self.fna_time_history(case)
         if meth.startswith("modal"):
@@ -417,9 +437,16 @@ class NonlinearRunner:
                 "hinges": dom.hinge_results(), "failed": failed, "log": ta.log[-20:],
                 "iterations": ta.iterations,
                 "damping": {"alpha_m": damp.alpha_m, "beta_k": damp.beta_k, "stiffness": damp.stiffness,
-                            "modal_ratio": damp.modal_ratio}}
+                            "modal_ratio": damp.modal_ratio},
+                "integrator": {"requested": case.integrator, "effective": ta.integrator, "gamma": ta.gamma,
+                               "beta": ta.beta, "alpha": ta.alpha},
+                "algorithm_stats": {k: (len(v) if isinstance(v, list) else v) for k, v in ta.stats.items()},
+                "equilibrium": "converged at every step" if not failed else "stopped (not converged)",
+                "temporal_check": {"status": "not checked (set dt_check to compare with dt/2)"}}
         kind = "NonlinearTimeHistory" if case.nonlinear else "LinearTimeHistory"
         res = self._final_result(case, kind, dom, hist)
+        for w in ta.integrator_warnings:
+            res.warnings.append(f"Case {case.name}: {w}")
         if failed:
             res.warnings.append(f"Case {case.name}: stopped at t = {ta.t:.4f} s ({failed})")
         final = dict(const)
@@ -427,6 +454,47 @@ class NonlinearRunner:
             final[tl.pattern] = final.get(tl.pattern, 0.0) + tl(ta.t)
         self.states[case.name] = NLState(dom, final, ref0)
         return res
+
+    def _time_history_dt_check(self, case) -> CaseResult:
+        """Run the case, then again with dt/2 (same duration, results at the same times),
+        and report the difference of the monitored translations: an estimate of the
+        time-step error that equilibrium convergence does not measure.  The case's own
+        results are those of the given dt; nothing about the model is changed."""
+        import dataclasses
+        main = self.time_history(dataclasses.replace(case, dt_check=False))
+        state = self.states.get(case.name)
+        half_case = dataclasses.replace(case, dt_check=False, dt=case.dt / 2.0, n_steps=2 * int(case.n_steps),
+                                        save_every=2 * max(int(case.save_every), 1))
+        try:
+            half = self.time_history(half_case)
+        finally:
+            if state is not None:
+                self.states[case.name] = state
+        h0, h1 = main.history, half.history
+        n = min(len(h0["time"]), len(h1["time"]))
+        check = {"dt_s": float(case.dt), "dt_half_s": float(case.dt) / 2.0, "compared_samples": int(n),
+                 "tolerance": float(case.dt_check_tolerance)}
+        if h0.get("failed") or h1.get("failed") or n == 0:
+            check.update(status="not available (a run stopped)", relative_difference=None)
+        else:
+            d0 = np.asarray(h0["displacements"])[:n, :, :3]
+            d1 = np.asarray(h1["displacements"])[:n, :, :3]
+            if not np.allclose(np.asarray(h0["time"])[:n], np.asarray(h1["time"])[:n], rtol=0, atol=1e-9 * case.dt * n):
+                check.update(status="not available (output times differ)", relative_difference=None)
+            else:
+                scale = float(np.max(np.abs(d1))) if d1.size else 0.0
+                diff = float(np.max(np.abs(d0 - d1))) if d1.size else 0.0
+                rel = diff / scale if scale > 0 else None
+                check.update(max_abs_difference=diff, peak_abs_displacement=scale, relative_difference=rel,
+                             status=("N/A (no displacement)" if rel is None else
+                                     "within tolerance" if rel <= case.dt_check_tolerance else "above tolerance"))
+                if rel is not None and rel > case.dt_check_tolerance:
+                    main.warnings.append(f"Case {case.name}: dt = {case.dt:g} s and dt/2 differ by {100 * rel:.2f}% "
+                                         f"of the peak monitored displacement (tolerance "
+                                         f"{100 * case.dt_check_tolerance:g}%) - the time step is too coarse for "
+                                         "this accuracy")
+        h0["temporal_check"] = check
+        return main
 
     # ------------------------------------------------- FNA (Wilson 2002)
     def _fna_basis(self, dom: NonlinearDomain, K0, n_modes: int, ground):

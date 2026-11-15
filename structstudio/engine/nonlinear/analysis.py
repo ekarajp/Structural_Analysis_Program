@@ -124,6 +124,32 @@ class _Anderson:
         return g - (dX + dG) @ gam
 
 
+def _interpolated_line_search(residual, u, du, r0, ratio: float = 0.8, max_iter: int = 10):
+    """OpenSees InterpolatedLineSearch (NewtonLineSearch): the scale eta of the Newton
+    correction du from secant (regula falsi) steps on s(eta) = du . r(u + eta du), until
+    |s(eta)| <= ratio |s(0)|; eta kept in [0.1, 10].  Returns (eta, residual evaluations)."""
+    s0 = float(du @ r0)
+    if s0 == 0:
+        return 1.0, 0
+    s = float(du @ residual(u + du))
+    n = 1
+    if abs(s) <= ratio * abs(s0):
+        return 1.0, n
+    eta, eta_prev, s_prev = 1.0, 0.0, s0
+    for _ in range(max_iter):
+        if s == s_prev:
+            break
+        eta_new = eta - s * (eta - eta_prev) / (s - s_prev)
+        eta_new = min(max(eta_new, 0.1), 10.0)
+        eta_prev, s_prev = eta, s
+        eta = eta_new
+        s = float(du @ residual(u + eta * du))
+        n += 1
+        if abs(s) <= ratio * abs(s0):
+            break
+    return eta, n
+
+
 # ============================================================================
 class StaticAnalysis:
     """Incremental-iterative static analysis of a :class:`NonlinearDomain`.
@@ -137,6 +163,7 @@ class StaticAnalysis:
                  max_subdivisions: int = 8, ref_vector: Optional[np.ndarray] = None,
                  const_vector: Optional[np.ndarray] = None):
         self.dom = dom
+        self.branch_events: List[dict] = []  # arc-length steps that held softening hinges on loading
         self.const_vector = const_vector  # constant extra load (free), e.g. from a previous pushover
         self.const = dict(const)
         self.ref = dict(ref)
@@ -220,26 +247,9 @@ class StaticAnalysis:
         raise StepFailed(f"load step did not converge with {algorithm}")
 
     def _line_search(self, u, du, r0, ratio: float = 0.8, max_iter: int = 10):
-        s0 = float(du @ r0)
-        if s0 == 0:
-            return du
-        R, _, _ = self.dom.resisting(u + du, tangent=False)
-        s = float(du @ (self._F - R))
-        if abs(s) <= ratio * abs(s0):
-            return du
-        eta, eta_prev, s_prev = 1.0, 0.0, s0
-        for _ in range(max_iter):
-            if s == s_prev:
-                break
-            eta_new = eta - s * (eta - eta_prev) / (s - s_prev)
-            eta_new = min(max(eta_new, 0.1), 10.0)
-            eta_prev, s_prev = eta, s
-            eta = eta_new
-            R, _, _ = self.dom.resisting(u + eta * du, tangent=False)
-            s = float(du @ (self._F - R))
-            if abs(s) <= ratio * abs(s0):
-                break
-        return eta * du
+        eta, _ = _interpolated_line_search(lambda x: self._F - self.dom.resisting(x, tangent=False)[0],
+                                           u, du, r0, ratio, max_iter)
+        return eta * du if eta != 1.0 else du
 
     # ------------------------------------------------- displacement control
     def disp_step(self, c: np.ndarray, du_target: float) -> int:
@@ -285,7 +295,10 @@ class StaticAnalysis:
                 lam0 = self.lam
                 u0 = dom.u.copy()
                 if shrink == 3:
-                    self._freeze(True)
+                    if self._freeze(True):
+                        # a constitutive branch choice made by the solver, not by the material law:
+                        # recorded so the result can disclose it (see NonlinearRunner)
+                        self.branch_events.append({"load_factor": float(self.lam), "substep_length": float(dl)})
                     self.log.append("arc-length: softening hinges held on their loading branch")
                 for alg in ("Newton", "AcceleratedNewton"):
                     try:
@@ -535,14 +548,18 @@ class TransientAnalysis:
         self.ground = list(ground)
         self.time_loads = list(time_loads)
         self.damp = damping or Damping()
-        integ = integrator.lower()
-        if integ == "hht":
-            self.alpha = alpha
-            self.gamma = 1.5 - alpha
-            self.beta = (2.0 - alpha) ** 2 / 4.0
-        else:
-            self.alpha, self.gamma, self.beta = 1.0, gamma, beta
+        from ...model.nonlinear import integrator_contract
+        eff, errors, warnings = integrator_contract(integrator, gamma, beta, alpha)
+        if errors:  # never fall back to another integrator than the one asked for
+            code, msg = errors[0]
+            raise ModelError(code, msg)
+        self.integrator, self.gamma, self.beta, self.alpha = eff
+        self.integrator_warnings = list(warnings)
         self.test = test or ConvergenceTest()
+        unknown = [a for a in [algorithm, *fallback] if a not in ALGORITHMS]
+        if unknown:
+            raise ModelError("INVALID_ALGORITHM", f"unknown solution algorithm {unknown[0]!r}: use one of "
+                             f"{', '.join(ALGORITHMS)}")
         self.algorithms = [algorithm] + [a for a in fallback if a != algorithm]
         self.max_sub = max_subdivisions
         n = dom.n
@@ -564,6 +581,10 @@ class TransientAnalysis:
             self._modal = (MPhi, 2.0 * z * om)
         self.log: List[str] = []
         self.iterations: List[int] = []
+        # what the iteration algorithms actually did (line search scale factors, Anderson
+        # corrections), so a result can show that the named method was applied
+        self.stats = {"line_search_evaluations": 0, "line_search_scaled": 0, "line_search_eta": [],
+                      "anderson_corrections": 0, "anderson_max_change": 0.0}
         self._F_prev = self._external(0.0)
         self.a = self._initial_acceleration(self._F_prev)
 
@@ -720,16 +741,27 @@ class TransientAnalysis:
         u = un + dt * vn + dt * dt * (0.5 - b) * an  # predictor consistent with a = 0 correction
         u = un.copy()
         fac0 = None
+        acc = _Anderson() if algorithm == "AcceleratedNewton" else None
         ref_f = max(float(np.linalg.norm(F)), dom.load_norm) + float(np.linalg.norm(self.M @ an)) + 1e-300
-        for it in range(1, self.test.max_iter + 1):
+
+        def residual(u, tangent):
+            """Effective dynamic residual F - M a - C v - R(u) (inertia, Rayleigh, element and
+            modal damping) at the trial u of this step, with the Newmark a, v of that u."""
             a1 = c1 * (u - un) - vn / (b * dt) - (0.5 / b - 1.0) * an
             v1 = vn + dt * ((1 - g) * an + g * a1)
             ua = un + al * (u - un)
             va = vn + al * (v1 - vn)
-            need_k = algorithm in ("Newton", "NewtonLineSearch") or fac0 is None
-            R, K, Cel = dom.resisting(ua, va, tangent=need_k)
-            fd, C = self._damping_force_and_matrix(va, K if K is not None else self._K0)
+            R, K, Cel = dom.resisting(ua, va, tangent=tangent)
+            fd, _ = self._damping_force_and_matrix(va, K if K is not None else self._K0)
             r = F - self.M @ a1 - fd - R
+            if self._modal is not None:
+                MPhi, cd = self._modal
+                r = r - MPhi @ (cd * (MPhi.T @ va))
+            return r, R, K, Cel, a1, v1
+
+        for it in range(1, self.test.max_iter + 1):
+            need_k = algorithm in ("Newton", "NewtonLineSearch") or fac0 is None
+            r, R, K, Cel, a1, v1 = residual(u, need_k)
             if need_k:
                 if algorithm == "InitialNewton":
                     K = self._K0
@@ -742,15 +774,26 @@ class TransientAnalysis:
                     fac0 = fac
             else:
                 fac = fac0
-            if self._modal is not None:
-                MPhi, cd = self._modal
-                r = r - MPhi @ (cd * (MPhi.T @ va))
             if it > 1:
                 ok, _ = self.test.check(du, r, ref_f + float(np.linalg.norm(R)), float(np.linalg.norm(u - un)) + 1e-300)
                 if ok:
                     self._accept(u, v1, a1, t1, F1, K)
                     return it
             du = fac.solve(r)
+            if algorithm == "NewtonLineSearch":
+                eta, n_eval = _interpolated_line_search(lambda x: residual(x, False)[0], u, du, r)
+                self.stats["line_search_evaluations"] += n_eval
+                if eta != 1.0:
+                    self.stats["line_search_scaled"] += 1
+                    self.stats["line_search_eta"].append(eta)
+                du = eta * du
+            elif acc is not None:
+                du_acc = acc.step(u, du)
+                if len(acc.X) >= 2:
+                    self.stats["anderson_corrections"] += 1
+                    self.stats["anderson_max_change"] = max(self.stats["anderson_max_change"],
+                                                            float(np.linalg.norm(du_acc - du)))
+                du = du_acc
             u = u + du
         raise StepFailed(f"time step did not converge with {algorithm}")
 

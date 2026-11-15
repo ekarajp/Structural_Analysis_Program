@@ -38,7 +38,7 @@ step.  The material, element and solver checks are part of the test suite
 
 | Check | Quantity compared | Max. difference (relative to peak) |
 |---|---|---|
-| Steel01, Steel02, Concrete01, Concrete02, ElasticPP, Hysteretic, BoucWen | stress and tangent over random cyclic strain histories | 0 – 8e-16 |
+| Steel01, Steel02, Concrete01, Concrete02, ElasticPP, Hysteretic, BoucWen (without and with energy degradation) | stress and tangent over random cyclic strain histories | 0 – 8e-16 |
 | RC fiber column, force-based Lobatto(5), P-Delta, through softening | base shear at every pushover step | 6.4e-9 |
 | RC fiber column, displacement-based Legendre(3) | base shear | 4.2e-9 |
 | RC fiber portal frame, Newmark, Rayleigh (initial K), 1500 steps | roof displacement history | 2.3e-11 |
@@ -187,3 +187,47 @@ A complete example: `examples/nonlinear_rc_frame.py`.
 * Vamvatsikos & Cornell (2002), EESD 31 — incremental dynamic analysis.
 * Baker (2015), Earthquake Spectra 31(1) — fragility fitting.
 * CSI Analysis Reference Manual — hinge definitions, nonlinear cases.
+
+## Calculation review 2026-11-15 (OpenSees study): contracts
+
+* **BoucWen tangent** – the tangent is dz/deps of the implicit backward-Euler equation
+  including the energy terms dTe/deps and dTe/dz (OpenSees `BoucWenMaterial`, b4/b5).
+  Before, with deltaA / deltaNu / deltaEta not zero the tangent missed them (7.66 %
+  at the study's fixture); the stress was and is unchanged.
+* **Local non-convergence** – when the BoucWen local Newton ends without meeting its
+  tolerance (correction or residual), `MaterialNonConvergence` (an
+  `ElementNonConvergence`) is raised with strain, committed strain, residual and
+  iterations; the analysis reverts to the committed state and tries the next
+  algorithm / a smaller step.  The trial state is never used.  (OpenSees only prints
+  a warning and returns the state.)
+* **Transient algorithms** – `NewtonLineSearch` runs the interpolated line search on
+  the effective dynamic residual F - M a - C v - R; `AcceleratedNewton` applies
+  Anderson acceleration to the modified-Newton correction.  What they did is counted
+  in `history["algorithm_stats"]`.  An unknown algorithm name is refused.
+* **Integrator** – `Newmark` and `HHT` only; any other name, a non-finite parameter,
+  Newmark beta <= 0 or gamma <= 0 (this solver is in displacement form), HHT alpha
+  outside [2/3, 1] are refused before the analysis (`INVALID_INTEGRATOR`,
+  `INVALID_INTEGRATOR_PARAMETER`).  gamma < 0.5, gamma > 0.5, beta < gamma/2 and HHT
+  alpha < 1 run with a warning.  `history["integrator"]` gives requested and effective.
+* **Eigen** – a negative eigenvalue is set to 0 only when the mode's Rayleigh quotient
+  is zero to its rounding (1e3 eps |phi|^T|K||phi|); otherwise it is kept and reported
+  (`NEGATIVE_EIGENVALUE`, also for the damping / FNA modes of nonlinear cases).  With a
+  semi-definite mass the number of shapes equals the number of finite eigenvalues.
+  Residuals and mass orthonormality are checked (`ModalData.solver`).
+* **Modal options** – `shift` is a centre frequency in cyc/s in both the dense and the
+  sparse solver (the modes nearest to it); `Ritz` runs as Eigen and is labelled so
+  (`method` = effective, `requested_method`); `tolerance` is the accepted relative
+  eigen residual (the solvers converge to machine precision).  `mass_target`
+  (default 0.90): a modal case and every spectrum direction below it is warned.
+* **Time-step accuracy** – equilibrium convergence is reported apart from the
+  time-step error.  `dt_check` runs a direct-integration case again with dt/2 and
+  reports the difference of the monitored translations (`history["temporal_check"]`,
+  warning above `dt_check_tolerance`).  A step larger than a record's sampling
+  interval is warned.
+* **Softening branch (arc-length)** – unchanged behaviour, now disclosed: when the
+  arc-length fallback holds softening hinges on their loading branch the substeps are
+  listed in `history["branch_events"]` with a warning.  A user setting for this choice
+  needs an agreed contract first.
+* Not changed: lumped mass (consistent mass is a separate formulation option), DKMQ
+  shells, the clear-span mass of members with end offsets.
+
