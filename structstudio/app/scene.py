@@ -613,11 +613,13 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
                 else:
                     if openings is None:
                         openings = opn.OpeningIndex(model)
-                    try:
-                        fr = pg.plane_frame(P)
-                        holes = openings.holes(P, fr, tol, exclude=(a.name,))
-                    except ValueError:
-                        holes = []
+                    holes = []
+                    if openings:  # (no openings in the model: no plane to work out for them)
+                        try:
+                            fr = pg.plane_frame(P)
+                            holes = openings.holes(P, fr, tol, exclude=(a.name,))
+                        except ValueError:
+                            holes = []
                     pieces = opn.fill_polygons(P, holes, tol)
                 for Pc in pieces:
                     s0 = len(fcoords)

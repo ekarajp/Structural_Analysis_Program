@@ -10,6 +10,8 @@ from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from .geometry import cross3
+
 Frame = Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]  # origin, e1, e2, normal
 
 
@@ -48,7 +50,7 @@ def plane_frame(P: np.ndarray, normal: Optional[np.ndarray] = None,
             e1 = E[k[0]] / L[k[0]]
     if e1 is None:
         raise ValueError("degenerate polygon")
-    return P[0].copy(), e1, np.cross(n, e1), n
+    return P[0].copy(), e1, cross3(n, e1), n
 
 
 def to_2d(P: np.ndarray, fr: Frame) -> np.ndarray:

@@ -33,20 +33,20 @@ def frame_axes(pi: np.ndarray, pj: np.ndarray, angle_deg: float = 0.0,
     v1 = unit(np.asarray(pj, float) - np.asarray(pi, float))
     if reference is not None:
         ref = unit(np.asarray(reference, float))
-        v3 = np.cross(v1, ref)
+        v3 = cross3(v1, ref)
         if np.linalg.norm(v3) < 1e-9:
             raise ValueError("reference vector parallel to the element")
         v3 = unit(v3)
-        v2 = np.cross(v3, v1)
+        v2 = cross3(v3, v1)
     else:
-        sin_to_z = np.linalg.norm(np.cross(v1, EZ))
+        sin_to_z = np.linalg.norm(cross3(v1, EZ))
         if sin_to_z < VERTICAL_SINE:
             v2 = EX.copy()
-            v3 = unit(np.cross(v1, v2))
-            v2 = np.cross(v3, v1)
+            v3 = unit(cross3(v1, v2))
+            v2 = cross3(v3, v1)
         else:
-            v3 = unit(np.cross(v1, EZ))
-            v2 = np.cross(v3, v1)
+            v3 = unit(cross3(v1, EZ))
+            v2 = cross3(v3, v1)
     if angle_deg:
         a = math.radians(angle_deg)
         c, s = math.cos(a), math.sin(a)
@@ -60,14 +60,14 @@ def transformed_axes(nominal: np.ndarray, new_v1: np.ndarray) -> np.ndarray:
     v1 = unit(new_v1)
     if np.allclose(v1, nominal[0], atol=1e-12):
         return nominal
-    v3 = np.cross(v1, nominal[1])
+    v3 = cross3(v1, nominal[1])
     if np.linalg.norm(v3) < 1e-9:
-        v3 = np.cross(v1, nominal[2])
+        v3 = cross3(v1, nominal[2])
         v3 = unit(v3)
-        v2 = np.cross(v3, v1)
+        v2 = cross3(v3, v1)
         return np.vstack([v1, v2, v3])
     v3 = unit(v3)
-    v2 = np.cross(v3, v1)
+    v2 = cross3(v3, v1)
     return np.vstack([v1, v2, v3])
 
 

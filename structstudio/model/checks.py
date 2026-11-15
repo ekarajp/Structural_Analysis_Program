@@ -16,6 +16,14 @@ import numpy as np
 from .point_ops import coincident_groups
 
 
+def _cross3(a, b) -> np.ndarray:
+    """Cross product of two 3-vectors (the arithmetic of ``np.cross`` without its per-call
+    overhead - the checks run after every command)."""
+    a0, a1, a2 = float(a[0]), float(a[1]), float(a[2])
+    b0, b1, b2 = float(b[0]), float(b[1]), float(b[2])
+    return np.array([a1 * b2 - a2 * b1, a2 * b0 - a0 * b2, a0 * b1 - a1 * b0])
+
+
 @dataclass
 class GeometryIssue:
     severity: str  # error | warning | info
@@ -36,7 +44,7 @@ def area_size(model, a) -> float:
         return 0.0
     v = np.zeros(3)
     for k in range(len(pts)):
-        v += np.cross(pts[k], pts[(k + 1) % len(pts)])
+        v += _cross3(pts[k], pts[(k + 1) % len(pts)])
     return float(np.linalg.norm(v) / 2)
 
 
@@ -59,19 +67,42 @@ def _line_key(a: np.ndarray, b: np.ndarray, tol: float):
 
 
 def _frame_index(model, tol: float):
+    """(frames by their two joints, frames by the line they lie on: (name, t0, t1) along
+    the line).  All frames at once (this runs after every command that makes or moves a
+    member): the keys are those of :func:`_line_key`."""
     pairs: Dict[frozenset, List[str]] = {}
     lines: Dict[tuple, List[Tuple[str, float, float]]] = {}
-    for f in model.frames.values():
-        if f.point_i not in model.points or f.point_j not in model.points:
-            continue
+    pts = model.points
+    frames = [f for f in model.frames.values() if f.point_i in pts and f.point_j in pts]
+    for f in frames:
         pairs.setdefault(frozenset((f.point_i, f.point_j)), []).append(f.name)
-        a, b = _xyz(model, f.point_i), _xyz(model, f.point_j)
-        key = _line_key(a, b, tol)
-        if key is None:
+    if not frames:
+        return pairs, lines
+    A = np.array([pts[f.point_i].xyz for f in frames], float)
+    B = np.array([pts[f.point_j].xyz for f in frames], float)
+    D = B - A
+    L = np.sqrt(np.einsum("ij,ij->i", D, D))
+    ok = L > tol
+    with np.errstate(divide="ignore", invalid="ignore"):
+        D = D / L[:, None]
+    # canonical direction: first non-zero component positive
+    big = np.abs(D) > 1e-9
+    first = np.argmax(big, axis=1)
+    lead = D[np.arange(len(D)), first]
+    D = np.where(((lead < 0) & big.any(axis=1))[:, None], -D, D)
+    foot = A - np.einsum("ij,ij->i", A, D)[:, None] * D
+    q = max(tol, 1e-9) * 10
+    with np.errstate(invalid="ignore"):
+        Dk = np.round(D, 6)
+        Fk = np.round(foot / q)
+    T0, T1 = np.einsum("ij,ij->i", A, Dk), np.einsum("ij,ij->i", B, Dk)
+    lo, hi = np.minimum(T0, T1), np.maximum(T0, T1)
+    Dl, Fl = Dk.tolist(), Fk.tolist()
+    for k, f in enumerate(frames):
+        if not ok[k]:
             continue
-        d = np.array(key[0], float)
-        t0, t1 = sorted((float(np.dot(a, d)), float(np.dot(b, d))))
-        lines.setdefault(key, []).append((f.name, t0, t1))
+        key = (tuple(Dl[k]), tuple(int(v) for v in Fl[k]))
+        lines.setdefault(key, []).append((f.name, float(lo[k]), float(hi[k])))
     return pairs, lines
 
 
@@ -302,7 +333,7 @@ def _plane_key(model, a, tol):
     n = np.zeros(3)
     for i in range(len(P)):  # Newell's normal
         p0, p1 = P[i], P[(i + 1) % len(P)]
-        n += np.cross(p0 - c, p1 - c)
+        n += _cross3(p0 - c, p1 - c)
     L = np.linalg.norm(n)
     if L <= 1e-12:
         return None, None
@@ -346,9 +377,21 @@ def _area_overlaps(model, tol, only: Optional[Set[str]] = None) -> List[Geometry
     part has twice the slab - its weight, its loads and its stiffness counted twice.
     (Exactly the same corners is the duplicate check's.)"""
     groups: Dict[tuple, list] = {}
-    for a in model.areas.values():
-        if a.type not in ("Floor", "Wall") or len(a.points) < 3 or any(q not in model.points for q in a.points):
-            continue
+    cand = [a for a in model.areas.values()
+            if a.type in ("Floor", "Wall") and len(a.points) >= 3 and all(q in model.points for q in a.points)]
+    if only is not None and cand:
+        # only the areas whose box meets the box of one of the areas asked about can overlap
+        # it (the others are not looked at: this runs after every command)
+        pts = model.points
+        boxes = {}
+        for a in cand:
+            X = [pts[q].xyz for q in a.points]
+            boxes[a.name] = (tuple(min(c) for c in zip(*X)), tuple(max(c) for c in zip(*X)))
+        mine = [boxes[n] for n in only if n in boxes]
+        e = max(tol, 1e-9)
+        cand = [a for a in cand if any(all(boxes[a.name][0][k] <= hi[k] + e and boxes[a.name][1][k] >= lo[k] - e
+                                           for k in range(3)) for lo, hi in mine)]
+    for a in cand:
         n, P = _plane_key(model, a, tol)
         if n is None:
             continue

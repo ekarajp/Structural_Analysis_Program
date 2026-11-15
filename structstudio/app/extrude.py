@@ -203,32 +203,58 @@ def frame_ends(model: Model, f) -> Tuple[np.ndarray, np.ndarray]:
     return pi + oi, pj + oj
 
 
+_PRISMS: dict = {}  # (ends, angle, cardinal point, profile) -> [(bottom ring, top ring)] of a member
+_PRISMS_MAX = 400_000
+
+
 def frame_solids(model: Model, names: Iterable[str]) -> Tuple[Optional[vtk.vtkPolyData], List[str]]:
     """Solid polydata of the frames with a usable section, and the names of the
     frames that have none (drawn as tubes by the caller)."""
     mb = _MeshBuilder()
     missing: List[str] = []
+    profiles: dict = {}  # a section's profile and cardinal offsets are the same for all its frames
+    offsets: dict = {}
+    profile_keys: dict = {}
     for n in names:
         f = model.frames[n]
-        pieces = section_profile(model.frame_sections.get(f.section))
+        if f.section not in profiles:
+            profiles[f.section] = section_profile(model.frame_sections.get(f.section))
+        pieces = profiles[f.section]
         a, b = frame_ends(model, f)
         if pieces is None or np.linalg.norm(b - a) <= 1e-12:
-            missing.append(n)
-            continue
-        try:
-            ax = frame_axes(a, b, f.angle)
-        except ValueError:
             missing.append(n)
             continue
         cp = f.display_cardinal
         if cp is None:
             cp = 8 if (f.type == "Beam" and model.grid_mode == "story") else f.cardinal_point
-        off = cardinal_offset(pieces, cp)
-        e2, e3 = ax[1], ax[2]
-        for pc in pieces:
-            q = pc - off
-            ring = q[:, 0:1] * e2 + q[:, 1:2] * e3
-            mb.prism(a + ring, b + ring)
+        # the prisms of a member depend only on its ends, angle, cardinal point and profile:
+        # kept between the rebuilds of the picture (after a command all but a few members are
+        # as they were)
+        pk = profile_keys.get(f.section)
+        if pk is None:
+            pk = profile_keys[f.section] = tuple(pc.tobytes() for pc in pieces)
+        key = (a.tobytes(), b.tobytes(), float(f.angle or 0.0), cp, pk)
+        prisms = _PRISMS.get(key)
+        if prisms is None:
+            try:
+                ax = frame_axes(a, b, f.angle)
+            except ValueError:
+                missing.append(n)
+                continue
+            off = offsets.get((f.section, cp))
+            if off is None:
+                off = offsets[(f.section, cp)] = cardinal_offset(pieces, cp)
+            e2, e3 = ax[1], ax[2]
+            prisms = []
+            for pc in pieces:
+                q = pc - off
+                ring = q[:, 0:1] * e2 + q[:, 1:2] * e3
+                prisms.append((a + ring, b + ring))
+            if len(_PRISMS) >= _PRISMS_MAX:
+                _PRISMS.clear()
+            _PRISMS[key] = prisms
+        for bottom, top in prisms:
+            mb.prism(bottom, top)
     return mb.polydata(), missing
 
 

@@ -57,6 +57,9 @@ class ModelTree(QtWidgets.QTreeWidget):
     # ------------------------------------------------------------ building
     @staticmethod
     def _key(item) -> str:
+        path = item.data(0, QtCore.Qt.UserRole + 2)  # kept by _node (a tall building has tens of
+        if path:                                     # thousands of items: no walk up for each)
+            return path
         parts = []
         while item is not None:
             parts.append(item.data(0, QtCore.Qt.UserRole + 1) or item.text(0))
@@ -77,6 +80,8 @@ class ModelTree(QtWidgets.QTreeWidget):
         item = QtWidgets.QTreeWidgetItem([title if count is None else f"{title} ({count})"])
         item.setData(0, QtCore.Qt.UserRole, data)
         item.setData(0, QtCore.Qt.UserRole + 1, key or title)
+        own = key or title or item.text(0)
+        item.setData(0, QtCore.Qt.UserRole + 2, own if parent is None else f"{self._key(parent)}/{own}")
         if tip:
             item.setToolTip(0, tip)
         if parent is None:
@@ -84,6 +89,29 @@ class ModelTree(QtWidgets.QTreeWidget):
         else:
             parent.addChild(item)
         return item
+
+    def _signature(self) -> int:
+        """Everything the tree shows (names, types, sections, stories, groups ...): a command
+        that changes none of it - moving a joint, a load, a release - leaves the tree as it is."""
+        m = self.doc.model
+        towers = ()
+        if m.multi_tower:
+            towers = (tuple(m.tower_names()), tuple(tuple(s.name for s in m.stories_of(t)) for t in m.tower_names()),
+                      tuple(m.tower_of_system(k) for k in m.grid_systems))
+        return hash((
+            m.info.name, m.units.force, m.units.length, m.units.shown("length"), m.grid_mode, towers,
+            tuple((s.name, s.elevation) for s in m.stories_bottom_up()),
+            tuple((g.system, g.name, g.direction, g.ordinate) for g in m.grid_lines),
+            tuple((k, getattr(gs, "type", None)) for k, gs in m.grid_systems.items()),
+            tuple((n, getattr(p, "story", None)) for n, p in m.points.items()),
+            tuple((n, f.type, f.section, getattr(f, "story", None)) for n, f in m.frames.items()),
+            tuple((n, a.type, a.section, getattr(a, "story", None)) for n, a in m.areas.items()),
+            tuple((n, getattr(q, "story", None)) for n, q in m.panel_loads.items()),
+            tuple((g.name, tuple(g.points), tuple(g.frames), tuple(g.areas)) for g in m.groups.values()),
+            tuple(tuple(getattr(m, attr)) for attr in ("materials", "frame_sections", "shell_sections", "diaphragms",
+                                                        "functions", "load_patterns", "load_cases",
+                                                        "load_combinations")),
+            self._filter))
 
     def _story_order(self) -> List[str]:
         m = self.doc.model
@@ -106,6 +134,13 @@ class ModelTree(QtWidgets.QTreeWidget):
                 self._node(sn, f"... {len(members) - _OBJECT_LIMIT} more (use Select / tables)")
 
     def refresh(self):
+        try:
+            sig = (id(self.doc), self._signature())
+        except Exception:
+            sig = None
+        if sig is not None and sig == getattr(self, "_shown_signature", None) and self.topLevelItemCount():
+            return  # nothing the tree shows has changed
+        self._shown_signature = sig
         expanded = self._expanded_keys() if self.topLevelItemCount() else None
         self.setUpdatesEnabled(False)
         self.clear()
