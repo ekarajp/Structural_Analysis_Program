@@ -113,13 +113,16 @@ class NonlinearBuilder:
                 if prop is None:
                     raise ModelError("UNKNOWN_FRAME_NONLINEAR", f"Frame {name}: nonlinear property {fr.nonlinear!r} "
                                                                 "is not defined")
+                # A fiber member with end releases is not modelled: refuse it rather than
+                # silently substituting an elastic member (audit G03).
+                if any(np.any(self.asm.frames[eid].el.releases_i) or np.any(self.asm.frames[eid].el.releases_j)
+                       for eid in eids):
+                    raise ModelError("UNSUPPORTED_FIBER_RELEASE",
+                                     f"Frame {name}: end releases are not supported on fiber members "
+                                     f"(nonlinear property {fr.nonlinear!r}). Remove the releases or the "
+                                     "fiber assignment before running the nonlinear case.")
                 for k, eid in enumerate(eids):
                     fe = self.asm.frames[eid]
-                    if np.any(fe.el.releases_i[3:]) or np.any(fe.el.releases_j[3:]) or fe.el.releases_i[0] \
-                            or fe.el.releases_j[0]:
-                        self.warnings.append(f"Frame {name}: end releases are not supported on fiber members; "
-                                             "the member stays elastic")
-                        continue
                     out[eid] = self._fiber_element(fe, prop, first=(k == 0), last=(k == len(eids) - 1))
             if fr.hinges:
                 placed = self._hinge_targets(name, fr, eids)

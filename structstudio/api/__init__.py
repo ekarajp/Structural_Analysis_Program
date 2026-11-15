@@ -35,6 +35,13 @@ def analyze(model: Model, cases: Optional[Iterable[str]] = None, kernel: Optiona
     if not model.load_cases:
         raise dg.AnalysisError([dg.Issue("error", "The model has no load cases: define one in "
                                          "Define > Load Cases")], "NO_LOAD_CASES")
+    # NaN / infinity in any input (coordinates, loads, springs, masses, properties)
+    # is refused here, before meshing, rather than surfacing later as an
+    # "unstable" or garbage solution (audit G01).
+    bad = [e for e in model.validate() if str(e.code).startswith("NONFINITE")]
+    if bad:
+        raise dg.AnalysisError([dg.Issue("error", e.message, hint="Enter a finite number for this value")
+                                for e in bad[:20]], "NONFINITE_INPUT")
     fine_note = None
     o = model.options
     if mesh_options is None and getattr(o, "use_fine_mesh", False) and getattr(o, "fine_mesh_factor", None):
