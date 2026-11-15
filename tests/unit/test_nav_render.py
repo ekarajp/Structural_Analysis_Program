@@ -288,3 +288,45 @@ def test_animator_without_qt_runs_hooks():
     a.go((1, 0, 0), (0, 0, 1), animate=True)
     assert calls == ["start", "frame", "finish"] and not a.running
     assert navigation is not None
+
+
+@gui
+def test_hidden_window_builds_its_scene_when_first_shown(app, tmp_path):
+    """Performance audit P03: a window kept in the layout but not on screen builds no
+    scene at start-up; when opened it shows the model as it is then."""
+    from structstudio.app.mainwindow import MainWindow
+    from structstudio.app import scene
+    settings = QtCore.QSettings(str(tmp_path / "s.ini"), QtCore.QSettings.IniFormat)
+    doc = Document(new_building(x_spacings=(6, 6), y_spacings=(5,), story_heights=(3.5, 3.5)))
+    calls = []
+    real = scene.build_model_actors
+
+    def spy(*a, **kw):
+        calls.append(1)
+        return real(*a, **kw)
+    scene.build_model_actors = spy
+    try:
+        w = MainWindow(doc, settings)
+        w.resize(1400, 900)
+        w.show()
+        app.processEvents()
+        hidden = [(i, v) for i, v in enumerate(w.views.viewports) if not v.isVisible()]
+        assert hidden, "the default layout keeps hidden windows"
+        assert all(v._dirty >= {"scene"} and not v._scene_actors for _, v in hidden)
+        doc.edit(lambda m: m.add_point(20.0, 20.0, 0.0))  # while hidden: marked only
+        app.processEvents()
+        assert all(not v._scene_actors for _, v in hidden)
+        n_before_show = len(calls)
+        i, v = hidden[0]
+        w.views.docks[i].show()
+        QtTest.QTest.qWait(200)
+        assert v.isVisible() and v._scene_actors and not v._dirty
+        assert len(calls) > n_before_show  # built from the model as it is now (after the edit)
+        assert all(not u._scene_actors for _, u in hidden[1:] if not u.isVisible())
+    finally:
+        scene.build_model_actors = real
+        w.doc.dirty = False
+        w.views.finalize()
+        w.close()
+        w.deleteLater()
+        app.processEvents()

@@ -540,7 +540,10 @@ class ModelViewport(QtWidgets.QWidget):
             self.state.nav_changed.connect(self._on_nav_changed)
         self._fill_header()
         self.set_active(False)
-        self.rebuild()
+        # the scene is built when the window is first shown (showEvent -> flush): a
+        # window kept in the saved layout but hidden (closed dock, a tab behind another)
+        # costs nothing until it is opened (performance audit P03)
+        self.invalidate("scene", "overlays")
         self.apply_camera()
 
     # --------------------------------------------------------- properties
