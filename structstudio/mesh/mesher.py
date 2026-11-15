@@ -101,6 +101,11 @@ class MeshOptions:
     membrane_coarse: bool = True
 
 
+# Which shells share their mesh lines: "plane" = the shells of one plane; "parallel" = every
+# shell of the parallel planes too (the earlier rule: all floors, all walls facing one way)
+PLANE_GROUPS = "plane"
+
+
 class Mesher:
     def __init__(self, model: Model, options: Optional[MeshOptions] = None):
         self.model = model
@@ -650,6 +655,31 @@ class Mesher:
         data = (names, lo, hi)
         self._ffi = (key, data)
         return data
+
+    def _cut_frames_at_nodes(self, X) -> None:
+        """:meth:`_cut_frames_at_node` for the nodes of one shell (same cuts, in the same
+        order): the members are first narrowed to those whose box meets the box of the
+        nodes, instead of every member of the model for every node."""
+        names, lo, hi = self._floor_frame_index()
+        X = np.asarray(X, float).reshape(-1, 3)
+        if not names or not len(X):
+            return
+        sub = np.nonzero(np.all((lo <= X.max(axis=0)) & (hi >= X.min(axis=0)), axis=1))[0]
+        if not len(sub):
+            return
+        slo, shi = lo[sub], hi[sub]
+        fc_all = self.__dict__.setdefault("_floor_cut_count", {})
+        for i0 in range(0, len(X), 2048):  # (bounded memory: nodes x members x 3)
+            Xc = X[i0:i0 + 2048]
+            hit = np.all((slo[None, :, :] <= Xc[:, None, :]) & (Xc[:, None, :] <= shi[None, :, :]), axis=2)
+            for i, j in zip(*np.nonzero(hit)):  # (row-major: node by node, members in model order)
+                nm = names[int(sub[j])]
+                a, b = self._frame_geom[nm]
+                t = point_on_segment(Xc[i], a, b, self.tol)
+                if t is not None:
+                    self._frame_cuts[nm].append(t)
+                    fc = fc_all.setdefault(nm, {})
+                    fc[round(t, 12)] = fc.get(round(t, 12), 0) + 1
 
     def _cut_frames_at_node(self, xyz: np.ndarray):
         """Register a mesh node that may lie on frame objects (floor meshing)."""
@@ -1552,7 +1582,7 @@ class Mesher:
         nid_of: Dict[int, int] = {}
         for i in used:
             nid_of[i] = self._node_at(P3[i])
-            self._cut_frames_at_node(P3[i])
+        self._cut_frames_at_nodes([P3[i] for i in used])
         for c in cells:
             n_ids = tuple(int(nid_of[i]) for i in c)
             if len(set(n_ids)) < 4:
@@ -1954,9 +1984,16 @@ class Mesher:
             k = int(np.argmax(np.abs(nrm)))
             if nrm[k] < 0:
                 nrm = -nrm
-            # parallel planes (every floor, every wall facing one way) share their mesh lines -
-            # within one tower when the model has several (towers do not share their meshes)
+            # the shells of one plane (a floor level, a wall line over its height) share their
+            # mesh lines - within one tower when the model has several (towers do not share
+            # their meshes).  Parallel planes do not: every floor of a building whose columns
+            # lean or step from story to story would otherwise be cut by the lines of every
+            # other story (millions of elements); a wall is tied to a floor whose lines differ
+            # by the auto edge constraints
             key = tuple(int(round(c * 1e5)) for c in nrm)
+            if PLANE_GROUPS == "plane":
+                nu = nrm / np.linalg.norm(nrm)
+                key = key + (int(round(float(nu @ P[0]) / max(4.0 * self.tol, 1e-9))),)
             if m.multi_tower:
                 key = key + (m.tower_of_object("area", ar.name),)
             self._plane_groups.setdefault(key, []).append(ar.name)
@@ -2004,6 +2041,12 @@ class Mesher:
         if not shells:
             return
         self._crossings = []
+        # all shells at once per member (boxes, then the side of each plane the two ends are
+        # on); the few that are left are checked one by one, in the order of the shells
+        S_lo = np.array([s[4] for s in shells], float)
+        S_hi = np.array([s[5] for s in shells], float)
+        S_n = np.array([s[1][3] for s in shells], float)
+        S_d = np.einsum("ij,ij->i", np.array([s[1][0] for s in shells], float), S_n)
         for f in m.frames.values():
             if f.type in ("Null", "Rigid") or not f.auto_mesh:
                 continue
@@ -2013,9 +2056,13 @@ class Mesher:
             if L <= self.tol:
                 continue
             lo, hi = np.minimum(a, b) - self.tol, np.maximum(a, b) + self.tol
-            for name, fr, Q, holes, plo, phi in shells:
-                if np.any(hi < plo) or np.any(lo > phi):
-                    continue
+            cand = np.nonzero(~(np.any(hi < S_lo, axis=1) | np.any(lo > S_hi, axis=1)))[0]
+            if not len(cand):
+                continue
+            DA, DB = S_n[cand] @ a - S_d[cand], S_n[cand] @ b - S_d[cand]
+            cand = cand[(DA * DB < 0) & (np.minimum(np.abs(DA), np.abs(DB)) > self.tol * 0.5)]
+            for k in cand:
+                name, fr, Q, holes, plo, phi = shells[int(k)]
                 n = fr[3]
                 da, db = float((a - fr[0]) @ n), float((b - fr[0]) @ n)
                 if abs(da - db) <= 1e-12 or da * db >= 0 or min(abs(da), abs(db)) <= self.tol:
@@ -2035,10 +2082,54 @@ class Mesher:
     def _node_coords(self) -> np.ndarray:
         n = len(self.am.nodes)
         c = self._node_xyz_cache
-        if len(c) < n:
-            c = np.vstack([c, np.array([nd.xyz for nd in self.am.nodes[len(c):]], float).reshape(-1, 3)])
-            self._node_xyz_cache = c
+        have = self.__dict__.get("_node_xyz_n", len(c))
+        if have < n:
+            if len(c) < n:  # grow by doubling (a copy of every node for each shell meshed is quadratic)
+                grown = np.empty((max(n, 2 * len(c), 1024), 3))
+                grown[:have] = c[:have]
+                c = self._node_xyz_cache = grown
+            c[have:n] = np.array([nd.xyz for nd in self.am.nodes[have:n]], float).reshape(-1, 3)
+            self._node_xyz_n = n
         return c[:n]
+
+    NODE_CELL = 2.0  # m: size of the cells nodes are looked up by (see _nodes_in_box)
+
+    def _nodes_in_box(self, lo: np.ndarray, hi: np.ndarray) -> np.ndarray:
+        """Ids (ascending) of the nodes with lo <= xyz <= hi.  The nodes are kept in a hash
+        of cells, so a shell looks only at the nodes near it and not at every node made so
+        far (the same nodes as the test on all of them)."""
+        X = self._node_coords()
+        n = len(X)
+        idx = self.__dict__.get("_node_cells")
+        if idx is None:
+            idx = self._node_cells = {}
+            self._node_cells_n = 0
+        h = self.NODE_CELL
+        if self._node_cells_n < n:
+            cells = np.floor(X[self._node_cells_n:n] / h).astype(np.int64)
+            for i, key in enumerate(map(tuple, cells.tolist()), self._node_cells_n):
+                idx.setdefault(key, []).append(i)
+            self._node_cells_n = n
+        c0 = np.floor(np.asarray(lo, float) / h).astype(np.int64)
+        c1 = np.floor(np.asarray(hi, float) / h).astype(np.int64)
+        span = c1 - c0 + 1
+        if np.any(span <= 0):
+            return np.zeros(0, dtype=np.int64)
+        if int(np.prod(span)) > max(4096, len(idx)):  # a huge box: the plain test on every node
+            cand = np.arange(n)
+        else:
+            found = []
+            for i in range(int(c0[0]), int(c1[0]) + 1):
+                for j in range(int(c0[1]), int(c1[1]) + 1):
+                    for k in range(int(c0[2]), int(c1[2]) + 1):
+                        ids = idx.get((i, j, k))
+                        if ids:
+                            found.append(ids)
+            if not found:
+                return np.zeros(0, dtype=np.int64)
+            cand = np.sort(np.concatenate([np.asarray(f, dtype=np.int64) for f in found]))
+        Xc = X[cand]
+        return cand[np.all((Xc >= lo) & (Xc <= hi), axis=1)]
 
     def _group_frame(self, a: Area, pts: np.ndarray):
         """The frame shared by all shells in the plane of ``a`` (global X along
@@ -2193,6 +2284,10 @@ class Mesher:
             C = self._footprint_centres = np.array([fp[1] for fp in fps], float)
         # the columns in this shell's plane (the same test as below, all at once)
         on = np.nonzero(np.abs((C - o) @ nrm) <= self.tol)[0]
+        if len(on):  # ... and inside the box of the shell (a floor has a few of a level's columns)
+            UC = pg.to_2d(C[on], fr)
+            qlo, qhi = Q.min(axis=0) - 2 * self.tol, Q.max(axis=0) + 2 * self.tol
+            on = on[np.all((UC >= qlo) & (UC <= qhi), axis=1)]
         for k in on:
             _, c, corners, dmin = fps[k]
             if abs((c - o) @ nrm) > self.tol:
@@ -2348,18 +2443,27 @@ class Mesher:
             return
         ids = np.array(sorted(floor_nodes))
         X = np.array([am.nodes[i].xyz for i in ids])
+        # the slab nodes sorted by level: each column end looks only at its own level
+        # (every node of every floor for every column end took minutes on a tall building)
+        zorder = np.argsort(X[:, 2], kind="stable")
+        zsorted = X[zorder, 2]
         count = 0
         for pt, c, corners, _ in self._column_footprints():
             master = am.point_to_node.get(pt)
             if master is None or master not in floor_nodes or master in tied:
                 continue
-            near = np.abs(X[:, 2] - c[2]) <= self.tol
+            i0 = np.searchsorted(zsorted, c[2] - self.tol - 1e-9, side="left")
+            i1 = np.searchsorted(zsorted, c[2] + self.tol + 1e-9, side="right")
+            lvl = np.sort(zorder[i0:i1])  # (ascending node ids, as before)
+            if not len(lvl):
+                continue
+            Xl = X[lvl]
             lo, hi = corners.min(axis=0) - self.tol, corners.max(axis=0) + self.tol
-            box = near & np.all((X[:, :2] >= lo[:2]) & (X[:, :2] <= hi[:2]), axis=1)
+            box = (np.abs(Xl[:, 2] - c[2]) <= self.tol) & np.all((Xl[:, :2] >= lo[:2]) & (Xl[:, :2] <= hi[:2]), axis=1)
             if not box.any():
                 continue
             poly = corners[:, :2]
-            slaves = [int(ids[k]) for k in np.nonzero(box)[0]
+            slaves = [int(ids[k]) for k in lvl[box]
                       if int(ids[k]) != master and int(ids[k]) not in tied
                       and pg.inside(X[k, :2], poly, edge_tol=self.tol)]
             if slaves:
@@ -2428,15 +2532,8 @@ class Mesher:
                     Q = pg.to_2d(P, fr)
                     h = am_.auto_size(Q, self._support_features(P, fr, Q), self.tol,
                                       factor=self.opts.size_factor * self._fine_factor(ar))
-                    # fine enough for the columns' rigid zones to have their real size
-                    if (ar.type == "Floor" and abs(fr[3][2]) > 1 - 1e-6
-                            and self.model.options.slab_column_rigid_zone):
-                        dm = [d for _, c, _, d in self._column_footprints()
-                              if abs((c - fr[0]) @ fr[3]) <= self.tol
-                              and pg.inside(pg.to_2d(c[None], fr)[0], Q, edge_tol=self.tol)]
-                        # the columns' own cross-sections are meshed finely (and graded
-                        # out to h) by the zones: no need to refine the whole slab for them
-                        del dm
+                    # (the columns' own cross-sections are meshed finely, and graded out to h,
+                    # by the zones: no need to refine the whole slab for them)
                 except ValueError:
                     pass
                 cache[nm] = h
@@ -2458,10 +2555,11 @@ class Mesher:
         own = {self._key(p) for p in pts}
         X = self._node_coords()
         if len(X):
-            sel = np.all((X >= lo) & (X <= hi), axis=1) & (np.abs((X - o) @ n) <= tol)
+            box = self._nodes_in_box(lo, hi)
+            sel = box[np.abs((X[box] - o) @ n) <= tol] if len(box) else box
             sep = {self.am.point_to_node.get(p) for p in getattr(self, "_separate_points", ())}
             nodes = self.am.nodes
-            for i in np.nonzero(sel)[0]:
+            for i in sel:
                 if int(i) in sep or self._key(X[i]) in own:
                     continue
                 pt = nodes[int(i)].point
