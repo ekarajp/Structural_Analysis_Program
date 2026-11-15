@@ -2355,6 +2355,10 @@ class ModelViewport(QtWidgets.QWidget):
         eng.override = getattr(st, "snap_override", None)
         # large models: the view's snap targets are listed once (until the model or what the
         # window shows changes) and only those near the cursor are tested (see SnapEngine)
+        many_fn = getattr(self, "_display_many_fn", None)
+        many = many_fn(near) if many_fn is not None else None
+        if many is None:  # (not a model window, or its projection is not the plain camera matrix)
+            return eng
         objs = eng.objects
         sig = (id(m), getattr(self, "_doc_serial", 0), len(m.points), len(m.frames), len(m.areas),
                pl.kind, float(pl.value), pl.story, repr(eng.gmodel is m), repr(self.window_tower() if hasattr(
@@ -2365,9 +2369,7 @@ class ModelViewport(QtWidgets.QWidget):
         if cache is None or cache.get("sig") != sig:
             cache = self._snap_cache = {"sig": sig}
         eng.cache = cache
-        many = self._display_many_fn(near)
-        if many is not None:
-            eng.project_many = many
+        eng.project_many = many
         return eng
 
     def _display_many_fn(self, near):
