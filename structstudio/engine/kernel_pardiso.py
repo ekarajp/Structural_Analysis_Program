@@ -44,13 +44,58 @@ def _library():
     return _LIB
 
 
+def available_memory():
+    """Physical memory that can be used now (bytes), or None when it cannot be told."""
+    try:
+        import psutil
+        return float(psutil.virtual_memory().available)
+    except Exception:
+        pass
+    if os.name == "nt":
+        try:
+            class MS(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_uint32), ("dwMemoryLoad", ctypes.c_uint32),
+                            ("ullTotalPhys", ctypes.c_uint64), ("ullAvailPhys", ctypes.c_uint64),
+                            ("ullTotalPageFile", ctypes.c_uint64), ("ullAvailPageFile", ctypes.c_uint64),
+                            ("ullTotalVirtual", ctypes.c_uint64), ("ullAvailVirtual", ctypes.c_uint64),
+                            ("ullAvailExtendedVirtual", ctypes.c_uint64)]
+            ms = MS()
+            ms.dwLength = ctypes.sizeof(MS)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms)):
+                return float(ms.ullAvailPhys)
+        except Exception:
+            return None
+        return None
+    try:
+        avail = None
+        with open("/proc/meminfo") as fh:
+            for line in fh:
+                if line.startswith("MemAvailable:"):
+                    avail = float(line.split()[1]) * 1024.0
+        # a container's limit (cgroup v2) can be lower than the machine's memory
+        for path in ("/sys/fs/cgroup/memory.max",):
+            try:
+                with open(path) as fh:
+                    lim = fh.read().strip()
+                with open("/sys/fs/cgroup/memory.current") as fh:
+                    used = float(fh.read().strip())
+                if lim != "max":
+                    left = float(lim) - used
+                    avail = left if avail is None else min(avail, left)
+            except OSError:
+                pass
+        return avail
+    except Exception:
+        return None
+
+
 class _PardisoFactor:
     """Factor of a symmetric positive definite matrix (upper triangle, CSR)."""
 
     def __init__(self, lib, K: sparse.csr_matrix):
         self.lib = lib
         self.n = n = K.shape[0]
-        self.K = K.tocsr()
+        self.K = None  # (the full matrix is not kept: the residual uses the upper triangle)
         self.pt = np.zeros(64, np.int64)
         self.iparm = np.zeros(64, np.int32)
         self._alive = False
@@ -59,23 +104,36 @@ class _PardisoFactor:
         self.pivot_ratio = 1.0
         if n == 0:
             return
-        A = sparse.triu(self.K, format="csr")
+        A = sparse.triu(K.tocsr(), format="csr")
         A.sum_duplicates()
         A.sort_indices()
+        self.U = A  # upper triangle: the equilibrium check of every solve (half the memory of K)
         # every row of the upper triangle needs its diagonal entry (PARDISO requirement)
         d = A.diagonal()
         if np.any(d == 0.0):
             raise _Fallback("zero diagonal")
-        self.ia = A.indptr.astype(np.int32)
-        self.ja = A.indices.astype(np.int32)
+        self.ia = A.indptr.astype(np.int32, copy=False)  # (shared with U when already int32)
+        self.ja = A.indices.astype(np.int32, copy=False)
         self.a = np.ascontiguousarray(A.data, dtype=np.float64)
         self.mtype = 2
         lib.pardisoinit(self.pt.ctypes.data_as(ctypes.c_void_p), ctypes.byref(_I(self.mtype)),
                         self.iparm.ctypes.data_as(_P(_I)))
         self.iparm[34] = 1  # zero-based ia / ja
         self.iparm[55] = 1  # keep the pivots (pardiso_getdiag)
-        err = self._call(12, np.zeros((n, 1)))[1]
+        # ordering first (phase 11): it tells how much memory the factor needs, so a model too
+        # large for this computer is reported before the factorisation (phase 22) starts,
+        # instead of the program being stopped by the system part way
+        err = self._call(11, np.zeros((n, 1)))[1]
         self._alive = True
+        if err == 0:
+            need = (int(self.iparm[15]) + int(self.iparm[16])) * 1024.0  # bytes (permanent + factor)
+            self.memory_needed = need
+            avail = available_memory()
+            if avail is not None and need > avail:
+                self.free()
+                raise MemoryError(f"the factorisation of {n:,} equations needs about {need / 2 ** 30:.1f} GB; "
+                                  f"{avail / 2 ** 30:.1f} GB of memory is free")
+            err = self._call(22, np.zeros((n, 1)))[1]
         if err != 0:
             self.free()
             if err == -2:  # not enough memory: SuperLU would need more still - say so instead
@@ -122,12 +180,20 @@ class _PardisoFactor:
         x = x if b.ndim == 2 else x[:, 0]
         nb = float(np.linalg.norm(b))
         if nb > 0:
-            res = float(np.linalg.norm(self.K @ x - b)) / nb
+            res = float(np.linalg.norm(self._matvec(x) - b)) / nb
             if not np.isfinite(res) or res > 1e-6:
                 raise ModelError("UNSTABLE_STRUCTURE",
                                  f"Equilibrium could not be satisfied (relative residual {res:.2e}): the "
                                  "structure is unstable (mechanism) or severely ill-conditioned")
         return x
+
+    def _matvec(self, x: np.ndarray) -> np.ndarray:
+        """K @ x from the upper triangle (K symmetric): U x + U^T x - diag(U) x."""
+        U = self.U
+        d = U.diagonal()
+        if x.ndim == 2:
+            return U @ x + U.T @ x - d[:, None] * x
+        return U @ x + U.T @ x - d * x
 
     def free(self):
         if self._alive:

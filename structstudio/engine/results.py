@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from collections.abc import Mapping
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -28,6 +29,57 @@ class ModalData:
         return 1.0 / self.periods
 
 
+_GAUSS = None
+
+
+class ShellResultants(Mapping):
+    """Element id -> resultants dict of every shell of a case, kept as a few arrays.
+
+    The same as the dict of dicts it replaces (``r[eid]["M_nodes"]`` ...), but one
+    case of a large model takes a third of the memory: the dicts and the small
+    arrays of every element are made only when an element is asked for."""
+
+    KEYS = ("F", "M", "V", "F_nodes", "M_nodes", "V_nodes")
+
+    def __init__(self, ids, F, M, V, Fn, Mn, Vn, gauss=None):
+        self.ids = np.asarray(ids, dtype=np.int64)
+        self.F, self.M, self.V, self.Fn, self.Mn, self.Vn = F, M, V, Fn, Mn, Vn
+        self.gauss = gauss
+        self._pos = None
+
+    def _index(self) -> dict:
+        if self._pos is None:
+            self._pos = {int(e): k for k, e in enumerate(self.ids.tolist())}
+        return self._pos
+
+    def position(self, eids) -> np.ndarray:
+        """Rows of the arrays for the element ids ``eids``."""
+        pos = self._index()
+        return np.array([pos[int(e)] for e in eids], dtype=np.int64)
+
+    def __getitem__(self, eid) -> dict:
+        k = self._index()[int(eid)]
+        return {"gauss": self.gauss, "F": self.F[k], "M": self.M[k], "V": self.V[k],
+                "F_nodes": self.Fn[k], "M_nodes": self.Mn[k], "V_nodes": self.Vn[k]}
+
+    def __iter__(self):
+        return iter(self.ids.tolist())
+
+    def __len__(self) -> int:
+        return len(self.ids)
+
+    def __contains__(self, eid) -> bool:
+        try:
+            return int(eid) in self._index()
+        except (TypeError, ValueError):
+            return False
+
+    def __getstate__(self):
+        d = dict(self.__dict__)
+        d["_pos"] = None
+        return d
+
+
 @dataclass
 class CaseResult:
     """Results of one load case over the analysis model (SI).
@@ -43,7 +95,8 @@ class CaseResult:
     reactions: Dict[int, np.ndarray]  # node id -> (6,) global reaction (restrained + spring)
     frame_end_forces: np.ndarray  # (n_frames, 12) local: forces nodes apply to element at I and J
     frame_loads: Dict[int, list] = field(default_factory=dict)  # element id -> ElementLoads (for station forces)
-    shell_resultants: Dict[int, dict] = field(default_factory=dict)  # element id -> resultants dict
+    # element id -> resultants dict (a ShellResultants: arrays, dict-like)
+    shell_resultants: Mapping = field(default_factory=dict)
     is_envelope: bool = False
     modal: Optional[ModalData] = None
     mode_number: Optional[int] = None

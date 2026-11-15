@@ -132,3 +132,63 @@ def test_drawing_checks_on_a_changed_object_match_the_full_check():
     assert {key(i) for i in issues if i.code in ("DUPLICATE_FRAME", "OVERLAPPING_FRAMES", "AREAS_OVERLAP")} <= full
     # an area far from the changed one is not reported for it
     assert all(shifted.name in i.areas for i in issues if i.code == "AREAS_OVERLAP")
+
+
+def test_too_little_memory_is_reported_before_the_factorisation(monkeypatch):
+    pytest.importorskip("pypardiso")
+    from structstudio.engine import kernel_pardiso as kp
+    m = _tower(2, zones=False)
+    monkeypatch.setattr(kp, "available_memory", lambda: 1024.0)  # 1 kB free
+    with pytest.raises(ModelError) as e:
+        analyze(m, kernel=kp.PardisoKernel())
+    assert e.value.code == "OUT_OF_MEMORY"
+    assert "needs about" in e.value.message and "GB" in e.value.message
+
+
+def test_pardiso_factor_split_in_two_phases_solves_as_before():
+    pytest.importorskip("pypardiso")
+    from scipy import sparse
+    from structstudio.engine import kernel_pardiso as kp
+    rng = np.random.default_rng(3)
+    n = 400
+    A = sparse.random(n, n, density=0.02, random_state=4)
+    K = (A @ A.T + sparse.identity(n) * 5.0).tocsr()
+    fac = kp.PardisoKernel().factor(K)
+    b = rng.standard_normal(n)
+    x = fac.solve(b)
+    assert np.linalg.norm(K @ x - b) / np.linalg.norm(b) < 1e-12
+    assert fac.K is None and fac.memory_needed > 0
+    assert np.allclose(fac._matvec(x), K @ x, rtol=1e-13, atol=1e-12)
+
+
+def test_compact_shell_resultants_behave_like_the_dicts():
+    from structstudio.engine.results import ShellResultants
+    m = _tower(2, zones=True)
+    r = analyze(m)
+    sr = r._case("DL").shell_resultants
+    assert isinstance(sr, ShellResultants) and len(sr) == len(r.am.shells)
+    eid = next(iter(sr))
+    d = sr[eid]
+    assert set(d) == {"gauss", "F", "M", "V", "F_nodes", "M_nodes", "V_nodes"}
+    assert d["M_nodes"].shape == (4, 3) and d["V_nodes"].shape == (4, 2)
+    assert eid in sr and -1 not in sr and sorted(sr) == sorted(se.id for se in r.am.shells)
+    import pickle
+    sr2 = pickle.loads(pickle.dumps(sr))
+    assert np.array_equal(sr2[eid]["M_nodes"], d["M_nodes"])
+
+
+def test_modal_of_a_large_model_uses_the_static_factor(monkeypatch):
+    """Shift-invert with the sparse Cholesky of K instead of a SuperLU of K - sigma M
+    (memory): the same periods as the plain ARPACK route."""
+    pytest.importorskip("pypardiso")
+    from structstudio.engine import kernel as k
+    from structstudio.engine import kernel_pardiso as kp
+    m = _tower(3, zones=True)
+    m.add_modal_case("MODAL", max_modes=6)
+    monkeypatch.setattr(k.SciPyKernel, "SHIFT_INVERSE_MIN", 10)
+    fast = analyze(m, kernel=kp.PardisoKernel())
+    monkeypatch.setattr(k.SciPyKernel, "SHIFT_INVERSE_MIN", 10 ** 9)
+    plain = analyze(m, kernel=kp.PardisoKernel())
+    Tf = [x["Period"] for x in fast.modal_periods("MODAL")]
+    Tp = [x["Period"] for x in plain.modal_periods("MODAL")]
+    assert np.allclose(Tf, Tp, rtol=1e-9)

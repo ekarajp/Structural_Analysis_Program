@@ -12,7 +12,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from ..engine.results import CaseResult, ModalData
+from ..engine.results import CaseResult, ModalData, ShellResultants
 from ..mesh.analysis_model import AnalysisModel
 from ..model import Model, ModelError
 from ..model.loads import LoadCombination
@@ -979,8 +979,11 @@ class Results:
             else:
                 r = self._case(case)
                 ids = np.array(sorted(r.shell_resultants), dtype=int)
-                if len(ids):
-                    sr = r.shell_resultants
+                sr = r.shell_resultants
+                if len(ids) and isinstance(sr, ShellResultants):  # (arrays: no per-element dicts)
+                    pos = np.argsort(sr.ids, kind="stable")
+                    vals = np.concatenate([sr.Fn[pos], sr.Mn[pos], sr.Vn[pos]], axis=2) * fac
+                elif len(ids):
                     vals = np.concatenate([np.stack([sr[i]["F_nodes"] for i in ids]),
                                            np.stack([sr[i]["M_nodes"] for i in ids]),
                                            np.stack([sr[i]["V_nodes"] for i in ids])], axis=2) * fac

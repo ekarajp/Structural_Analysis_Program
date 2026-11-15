@@ -23,16 +23,26 @@ from .elements.shell import ShellFormulation
 
 
 def sum_csr(parts, n: int) -> sparse.csr_matrix:
-    """Sum of CSR matrices, pairwise (bounded memory, O(nnz log k))."""
-    parts = [p for p in parts if p is not None]
-    if not parts:
+    """Sum of CSR matrices, pairwise (O(nnz log k)).  ``parts`` may be a generator: the
+    parts are merged as they come (a binary counter: two partial sums of the same level
+    are added at once), so only O(log k) partial sums are held instead of every part -
+    the same pairs are added in the same order as the level-by-level pairwise sum of the
+    whole list, so the result is the same to the last bit."""
+    stack = []  # (level, matrix), levels strictly decreasing
+    for p in parts:
+        if p is None:
+            continue
+        lvl = 0
+        while stack and stack[-1][0] == lvl:
+            p = stack.pop()[1] + p
+            lvl += 1
+        stack.append((lvl, p))
+    if not stack:
         return sparse.csr_matrix((n, n))
-    while len(parts) > 1:
-        nxt = []
-        for i in range(0, len(parts), 2):
-            nxt.append(parts[i] + parts[i + 1] if i + 1 < len(parts) else parts[i])
-        parts = nxt
-    K = parts[0].tocsr()
+    K = stack.pop()[1]
+    while stack:  # the left-overs, right to left (as the odd ones out of each level)
+        K = stack.pop()[1] + K
+    K = K.tocsr()
     K.sum_duplicates()
     return K
 
@@ -510,12 +520,17 @@ class Assembler:
             rows.append(np.array(sp_rows))
             cols.append(np.array(sp_cols))
             vals.append(np.array(sp_vals))
-        parts = []
+        first = None
         if rows:
-            parts.append(sparse.coo_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))),
-                                           shape=(n_full, n_full)).tocsr())
-        parts += list(self.shell_stiffness_parts())
-        K = sum_csr(parts, n_full)
+            first = sparse.coo_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))),
+                                      shape=(n_full, n_full)).tocsr()
+        del rows, cols, vals
+
+        def parts():  # (a generator: the shell chunks are merged as they are made)
+            if first is not None:
+                yield first
+            yield from self.shell_stiffness_parts()
+        K = sum_csr(parts(), n_full)
         self._K_full = K
         return K
 

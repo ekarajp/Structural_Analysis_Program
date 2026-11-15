@@ -55,7 +55,7 @@ def analyze(model: Model, cases: Optional[Iterable[str]] = None, kernel: Optiona
     except dg.AnalysisError:
         raise
     except MemoryError as exc:
-        raise _out_of_memory(model, None) from exc
+        raise _out_of_memory(model, None, exc) from exc
     except (ModelError, ValueError) as exc:
         raise dg.AnalysisError(_located(model, dg.explain(model, None, exc)), getattr(exc, "code", "MESH_ERROR")) from exc
     am = _refine_until_converged(model, am, mesh_options, kernel, cases, report)
@@ -87,7 +87,7 @@ def analyze(model: Model, cases: Optional[Iterable[str]] = None, kernel: Optiona
                 report(42 + 55 * k / max(n, 1), f"Solving load case {name} ({k + 1}/{n})")
         case_results = engine.run(names, progress=case_progress)
     except MemoryError as exc:
-        raise _out_of_memory(model, am) from exc
+        raise _out_of_memory(model, am, exc) from exc
     except (ModelError, ValueError, ArithmeticError) as exc:
         asm = getattr(engine, "asm", None)
         fac = getattr(engine, "_factor", None)
@@ -124,7 +124,7 @@ def _size_hint(model, am) -> str:
     return "To make it smaller: " + "; or ".join(tips) + "."
 
 
-def _out_of_memory(model, am):
+def _out_of_memory(model, am, exc=None):
     from .. import diagnostics as dg
     if am is not None:
         s = am.summary()
@@ -132,7 +132,9 @@ def _out_of_memory(model, am):
                 f"about {6 * s['nodes']:,} equations)")
     else:
         size = " (while the mesh was being made)"
-    return dg.AnalysisError([dg.Issue("error", "The analysis model is too large for the memory of this computer" + size,
+    why = str(exc) if exc is not None and str(exc) and "PARDISO" not in str(exc) else ""
+    return dg.AnalysisError([dg.Issue("error", "The analysis model is too large for the memory of this computer" + size
+                                      + (f": {why}" if why else ""),
                                       hint=_size_hint(model, am))], "OUT_OF_MEMORY")
 
 

@@ -87,6 +87,11 @@ class _SciPyFactor:
         return x
 
 
+def _operator(fac, n):
+    from scipy.sparse.linalg import LinearOperator
+    return LinearOperator((n, n), matvec=lambda x: fac.solve(np.asarray(x, float).ravel()), dtype=float)
+
+
 class SciPyKernel:
     name = "scipy"
 
@@ -95,6 +100,19 @@ class SciPyKernel:
 
     def describe(self) -> str:
         return "SciPy SuperLU (single thread)"
+
+    SHIFT_INVERSE_MIN = 20000  # equations: from this size the shift-invert uses the kernel's factor
+
+    def _shift_inverse(self, K, M, sigma):
+        """LinearOperator x -> (K - sigma M)^-1 x from this kernel's factor (None: let ARPACK
+        factor it, for small problems or the plain SciPy kernel - as before)."""
+        if K.shape[0] < self.SHIFT_INVERSE_MIN or type(self).factor is SciPyKernel.factor:
+            return None
+        A = (sparse.csr_matrix(K) - sigma * sparse.csr_matrix(M)).tocsr()
+        fac = self.factor(A)
+        if getattr(fac, "unstable", None):
+            return None
+        return _operator(fac, K.shape[0])
 
     def eigen(self, K: sparse.csr_matrix, M: sparse.csr_matrix, n_modes: int, shift: float = 0.0,
               method: str = "auto", factor: Optional[Factorization] = None) -> Tuple[np.ndarray, np.ndarray]:
@@ -190,7 +208,25 @@ class SciPyKernel:
             if k < 1:
                 raise ModelError("TOO_FEW_DOF", "Not enough dynamic degrees of freedom for sparse eigensolution")
             try:
-                w2, phi = eigsh(K.tocsc(), k=k, M=Ms.tocsc(), sigma=sigma, which="LM", mode="normal")
+                # shift-invert with this kernel's own factorisation of K - sigma M (the sparse
+                # Cholesky when there is one) instead of ARPACK's built-in SuperLU, whose fill on
+                # a large shell model needs many times the memory: the same operator
+                op = None
+                if factor is not None and not getattr(factor, "unstable", None) \
+                        and not getattr(factor, "negative", None) and n >= self.SHIFT_INVERSE_MIN:
+                    # the static factor of this same (positive definite) K: shift-invert about 0,
+                    # no second factorisation held beside it (the shift only steers the iteration
+                    # to the lowest modes; K has no zero eigenvalue here)
+                    sigma = 0.0
+                    op = _operator(factor, n)
+                if op is None:
+                    op = self._shift_inverse(K, Ms, sigma)
+                if op is None:
+                    w2, phi = eigsh(K.tocsc(), k=k, M=Ms.tocsc(), sigma=sigma, which="LM", mode="normal")
+                else:
+                    w2, phi = eigsh(K.tocsr(), k=k, M=Ms.tocsr(), sigma=sigma, which="LM", mode="normal", OPinv=op)
+            except MemoryError:
+                raise
             except Exception as exc:  # ARPACK failure
                 raise ModelError("EIGEN_FAILED", f"Sparse eigensolver failed: {exc}") from exc
             order = np.argsort(w2)

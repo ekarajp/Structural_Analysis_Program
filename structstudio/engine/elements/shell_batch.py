@@ -302,8 +302,9 @@ class Block:
         return (_T(A)[:, None, :, :] @ tmp).reshape(n, 24, 24)  # sum_k A[k i] tmp[a k .]
 
     # ---------------------------------------------------------------- recovery
-    def resultants(self, u_global: np.ndarray) -> List[dict]:
-        """Resultants of every element; ``u_global`` (n, 24)."""
+    def resultants(self, u_global: np.ndarray):
+        """Resultants of every element, ``u_global`` (n, 24): (F, M, V) at the Gauss points
+        and (F, M, V) at the nodes, arrays (n, 4, 3 or 2)."""
         n = self.n
         u = np.einsum("nkj,naj->nak", self.axes, u_global.reshape(n, 8, 3)).reshape(n, 24)
         F = np.empty((n, 4, 3))
@@ -331,8 +332,7 @@ class Block:
         Fn = np.einsum("ij,njk->nik", ext, F[:, order])
         Mn = np.einsum("ij,njk->nik", ext, M[:, order])
         Vn = np.einsum("ij,njk->nik", ext, V[:, order])
-        return [{"gauss": _GAUSS_LIST, "F": F[k], "M": M[k], "V": V[k],
-                 "F_nodes": Fn[k], "M_nodes": Mn[k], "V_nodes": Vn[k]} for k in range(n)]
+        return F, M, V, Fn, Mn, Vn
 
 
 # ---------------------------------------------------------------- front end
@@ -381,33 +381,36 @@ def global_stiffness(shells: Sequence["S.ShellFormulation"]) -> Iterator[Tuple[n
         yield element_dofs(part), blk.to_global(K)
 
 
-def resultants(shells: Sequence["S.ShellFormulation"], u_full: np.ndarray) -> Dict[int, dict]:
-    """Element id -> resultants dict (as ShellFormulation.resultants)."""
-    out: Dict[int, dict] = {}
+def resultants(shells: Sequence["S.ShellFormulation"], u_full: np.ndarray):
+    """Element id -> resultants dict (as ShellFormulation.resultants): a
+    :class:`~structstudio.engine.results.ShellResultants` (arrays, dict-like)."""
+    from ..results import ShellResultants
     if not supported():
+        out: Dict[int, dict] = {}
         for se in shells:
             d = element_dofs([se])[0]
             out[se.el.id] = se.resultants(u_full[d])
         return out
+    parts = []
     for sl in chunks(len(shells)):
         part = shells[sl]
         d = element_dofs(part)
-        blk = Block(part)
-        for se, r in zip(part, blk.resultants(u_full[d])):
-            out[se.el.id] = r
-    return out
+        parts.append(Block(part).resultants(u_full[d]))
+    ids = [se.el.id for se in shells]
+    if not parts:
+        z3, z2 = np.zeros((0, 4, 3)), np.zeros((0, 4, 2))
+        return ShellResultants(ids, z3, z3, z2, z3, z3, z2, _GAUSS_LIST)
+    arrays = [np.concatenate([p[k] for p in parts]) if len(parts) > 1 else parts[0][k] for k in range(6)]
+    return ShellResultants(ids, *arrays, gauss=_GAUSS_LIST)
 
 
-def zero_resultants(shells: Sequence["S.ShellFormulation"]) -> Dict[int, dict]:
+def zero_resultants(shells: Sequence["S.ShellFormulation"]):
     """Resultants of an unloaded case (all zero), without evaluating the elements."""
+    from ..results import ShellResultants
     n = len(shells)
-    G = np.zeros((n, 4, 3))
-    out: Dict[int, dict] = {}
-    Z3 = [np.zeros((n, 4, 3)) for _ in range(5)]
-    Z2 = [np.zeros((n, 4, 2)) for _ in range(2)]
-    for k, se in enumerate(shells):
-        out[se.el.id] = {"gauss": _GAUSS_LIST, "F": Z3[0][k], "M": Z3[1][k], "V": Z2[0][k],
-                         "F_nodes": Z3[2][k], "M_nodes": Z3[3][k], "V_nodes": Z2[1][k]}
-    del G
-    return out
+    z3 = np.zeros((n, 4, 3))
+    z2 = np.zeros((n, 4, 2))
+    z3.setflags(write=False)
+    z2.setflags(write=False)
+    return ShellResultants([se.el.id for se in shells], z3, z3, z2, z3, z3, z2, gauss=_GAUSS_LIST)
 
