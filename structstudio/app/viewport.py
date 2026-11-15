@@ -1225,6 +1225,7 @@ class ModelViewport(QtWidgets.QWidget):
             pass
 
     def _on_doc_change(self, what: str):
+        self._doc_serial = getattr(self, "_doc_serial", 0) + 1  # (snap targets listed again)
         if what == "replaced":  # another document: nothing typed / referenced survives
             self._forget_typed_input()
             return
@@ -2352,7 +2353,65 @@ class ModelViewport(QtWidgets.QWidget):
                          tower=self.window_tower() if hasattr(self, "window_tower") else None,
                          same_level=bool(getattr(self.config, "same_level", True)))
         eng.override = getattr(st, "snap_override", None)
+        # large models: the view's snap targets are listed once (until the model or what the
+        # window shows changes) and only those near the cursor are tested (see SnapEngine)
+        objs = eng.objects
+        sig = (id(m), getattr(self, "_doc_serial", 0), len(m.points), len(m.frames), len(m.areas),
+               pl.kind, float(pl.value), pl.story, repr(eng.gmodel is m), repr(self.window_tower() if hasattr(
+                   self, "window_tower") else None), bool(getattr(self.config, "same_level", True)),
+               tuple(None if q is None else (len(q), hash(frozenset(q))) for q in objs),
+               tuple((tuple(a), tuple(b)) for a, b in refs), float(eng.plane_tol))
+        cache = getattr(self, "_snap_cache", None)
+        if cache is None or cache.get("sig") != sig:
+            cache = self._snap_cache = {"sig": sig}
+        eng.cache = cache
+        many = self._display_many_fn(near)
+        if many is not None:
+            eng.project_many = many
         return eng
+
+    def _display_many_fn(self, near):
+        """World points -> display, many at once (the camera's own matrix): the function
+        the snap engine culls with, or None when it does not reproduce the renderer's own
+        projection here (checked on three points each time)."""
+        try:
+            self._sync_aspect()
+            ren = self.renderer
+            cam = ren.GetActiveCamera()
+            M = cam.GetCompositeProjectionTransformMatrix(ren.GetTiledAspectRatio(), -1.0, 1.0)
+            T = np.array([[M.GetElement(i, j) for j in range(4)] for i in range(4)], float)
+            sx, sy = ren.GetRenderWindow().GetSize()
+            v0, v1, v2, v3 = ren.GetViewport()
+            parallel = bool(cam.GetParallelProjection())
+        except Exception:
+            return None
+        if sx <= 0 or sy <= 0 or not np.all(np.isfinite(T)):
+            return None
+
+        def many(X):
+            X = np.asarray(X, float).reshape(-1, 3)
+            H = X @ T[:, :3].T + T[:, 3]
+            w = H[:, 3]
+            with np.errstate(divide="ignore", invalid="ignore"):
+                px = (H[:, 0] / w + 1.0) * (sx * (v2 - v0)) / 2.0 + sx * v0
+                py = (H[:, 1] / w + 1.0) * (sy * (v3 - v1)) / 2.0 + sy * v1
+            if parallel or near is None:
+                ok = w > 0.0 if not parallel else np.ones(len(X), bool)
+            else:
+                ok = w > max(near, 0.0) * 1.001 + 1e-12
+            return np.column_stack([px, py]), ok & np.isfinite(px) & np.isfinite(py)
+
+        # the three points of a check: the focal point and two points off it
+        f = np.asarray(cam.GetFocalPoint(), float)
+        r = max(float(cam.GetParallelScale()) if parallel else float(cam.GetDistance()) * 0.2, 1e-6)
+        up = np.asarray(cam.GetViewUp(), float)
+        side = np.cross(np.asarray(cam.GetDirectionOfProjection(), float), up)
+        probe = np.array([f, f + 0.37 * r * up, f + 0.53 * r * side - 0.21 * r * up])
+        P, ok = many(probe)
+        for q, pq, k in zip(probe, P, ok):
+            if not k or np.max(np.abs(np.subtract(self._display(q), pq))) > 1e-3:
+                return None
+        return many
 
     def _snapped(self, x: int, y: int):
         """(point, SnapHit) on the drawing plane for display (x, y).

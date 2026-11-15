@@ -2570,14 +2570,30 @@ class Mesher:
                     feats.points.append((float(uv[0]), float(uv[1])))
         A, B = self._feat_A, self._feat_B
         if len(A):
-            inplane = (np.abs((A - o) @ n) <= tol) & (np.abs((B - o) @ n) <= tol)
-            box = np.all((np.minimum(A, B) <= hi) & (np.maximum(A, B) >= lo), axis=1)
-            for k in np.nonzero(inplane & box)[0]:
-                kind, name = self._feat_owner[k]
-                if kind == "area" and name == a.name:
-                    continue
-                for seg in am_.clip_segment(pg.to_2d(A[k][None], fr)[0], pg.to_2d(B[k][None], fr)[0], Q2, tol):
-                    feats.lines.append(seg)
+            # the segments do not change while the mesh is made: the lines of a shell in a
+            # given frame are found once (they are asked for by the plane's shared lines, the
+            # test for features in the plane and the mesh of the shell itself)
+            cache = self.__dict__.setdefault("_feat_lines", {})
+            ck = (a.name, np.asarray(fr, float).round(12).tobytes())
+            lines = cache.get(ck)
+            if lines is None:
+                lines = cache[ck] = []
+                bx = self.__dict__.get("_feat_box")
+                if bx is None or len(bx[0]) != len(A):
+                    bx = self._feat_box = (np.minimum(A, B), np.maximum(A, B))
+                smin, smax = bx
+                box = ((smin[:, 0] <= hi[0]) & (smin[:, 1] <= hi[1]) & (smin[:, 2] <= hi[2])
+                       & (smax[:, 0] >= lo[0]) & (smax[:, 1] >= lo[1]) & (smax[:, 2] >= lo[2]))
+                near = np.nonzero(box)[0]
+                if len(near):
+                    near = near[(np.abs((A[near] - o) @ n) <= tol) & (np.abs((B[near] - o) @ n) <= tol)]
+                for k in near:
+                    kind, name = self._feat_owner[k]
+                    if kind == "area" and name == a.name:
+                        continue
+                    for seg in am_.clip_segment(pg.to_2d(A[k][None], fr)[0], pg.to_2d(B[k][None], fr)[0], Q2, tol):
+                        lines.append(seg)
+            feats.lines += lines
         return feats
 
     def _divisions(self, quad: np.ndarray, size: Optional[float]) -> Tuple[int, int]:

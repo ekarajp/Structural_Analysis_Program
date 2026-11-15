@@ -330,3 +330,90 @@ def test_hidden_window_builds_its_scene_when_first_shown(app, tmp_path):
         w.close()
         w.deleteLater()
         app.processEvents()
+
+
+@pytest.fixture
+def bwindow(app):
+    """A window on a building with frames, slabs and core walls."""
+    from structstudio.app.mainwindow import MainWindow
+    from structstudio.app.templates import build_model
+    doc = Document(build_model(structure="core_frame", x_ordinates=(0, 6, 12, 19), y_ordinates=(0, 5, 10.5, 15),
+                               stories=[(f"S{k}", 3.5) for k in range(1, 4)]))
+    w = MainWindow(doc)
+    w.resize(1400, 900)
+    w.show()
+    app.processEvents()
+    for v in w.views.viewports:
+        if v.isVisible():
+            v.fit()
+    app.processEvents()
+    yield w
+    w.doc.dirty = False
+    w.views.finalize()
+    w.close()
+    w.deleteLater()
+    app.processEvents()
+
+
+@gui
+def test_snap_broad_phase_finds_the_same_hits(bwindow, app):
+    window = bwindow
+    """G Tower audit D1: with the window's cache and many-points projection the snap engine
+    tests only the targets near the cursor; every list of hits must be the one of the
+    plain engine (same hits, same order, same distances)."""
+    import dataclasses
+    st = window.state
+    window.tool_actions["beam"].trigger()
+    app.processEvents()
+    snap0 = dataclasses.replace(st.snap) if dataclasses.is_dataclass(st.snap) else None
+    checked = with_hits = 0
+    try:
+        for variant in ("default", "all", "previous"):
+            if variant != "default":
+                st.snap.select_all(True)
+                st.snap.osnap = True
+            for vp in [v for v in window.views.viewports if v.isVisible()]:
+                w, h = vp.vtk_widget.GetRenderWindow().GetSize()
+                if variant == "previous":
+                    p = next(iter(window.doc.model.points.values()))
+                    st.tool.points = [tuple(p.xyz)]
+                for i in range(9):
+                    for j in range(9):
+                        x, y = int(w * (0.1 + 0.1 * i)) + (i * 7) % 5, int(h * (0.1 + 0.1 * j)) + (j * 3) % 4
+                        fast = vp._snap_engine(x, y)
+                        assert fast.project_many is not None and fast.cache is not None
+                        plain = vp._snap_engine(x, y)
+                        plain.project_many, plain.cache = None, None
+                        a, b = fast.find(x, y), plain.find(x, y)
+                        assert a == b, (variant, vp.config.kind, x, y)
+                        checked += 1
+                        with_hits += bool(a)
+                st.tool.points = []
+    finally:
+        st.tool.points = []
+        if snap0 is not None:
+            for f in dataclasses.fields(snap0):
+                setattr(st.snap, f.name, getattr(snap0, f.name))
+        st.cancel_tool()
+    assert checked >= 400 and with_hits >= 100, (checked, with_hits)
+
+
+@gui
+def test_snap_cache_follows_the_model(bwindow, app):
+    window = bwindow
+    vp = next(v for v in window.views.viewports if v.config.kind == "plan" and v.isVisible())
+    window.tool_actions["beam"].trigger()
+    app.processEvents()
+    z = vp.plane().value
+    e1 = vp._snap_engine(10, 10)
+    n1 = len(e1._static_points("before"))
+    e1.find(10, 10)
+    assert vp._snap_engine(10, 10).cache is e1.cache  # nothing changed: the same lists
+    window.doc.edit(lambda m: m.add_point(2.345, 1.234, z))
+    e2 = vp._snap_engine(10, 10)
+    assert e2.cache is not e1.cache
+    assert len(e2._static_points("before")) == n1 + 1
+    x, y = vp._display((2.345, 1.234, z))
+    hits = e2.find(x, y)
+    assert hits and hits[0].kind == "joint" and np.allclose(hits[0].xyz, (2.345, 1.234, z))
+    window.state.cancel_tool()

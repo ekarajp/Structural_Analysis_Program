@@ -245,6 +245,15 @@ class SnapEngine:
         self.px_scale = max(float(px_scale or 1.0), 1e-6)
         self._segs: Optional[List[_Seg]] = None
         self._disp_cache: Dict[Tuple[float, float, float], np.ndarray] = {}
+        # Large models: the window can give (a) ``cache``, a dict it keeps while neither the
+        # model nor what the window shows changes - the snap lines and points of the view are
+        # then listed once, not for every cursor move - and (b) ``project_many``, the
+        # projection of many world points at once: (N, 3) -> ((N, 2) display, (N,) True where
+        # the point is in front of the eye).  With it only the targets near the cursor go
+        # through the exact tests below (the same hits, found in the same order).
+        self.cache: Optional[dict] = None
+        self.project_many: Optional[Callable[[np.ndarray], Tuple[np.ndarray, np.ndarray]]] = None
+        self._seg_scr = None
         self.override: Optional[str] = None  # one-shot snap override (Shift / Ctrl + right-click menu)
 
     # ------------------------------------------------------------ helpers
@@ -277,6 +286,9 @@ class SnapEngine:
         """Line segments of the view: frames, shell edges, grid lines, reference lines."""
         if self._segs is not None:
             return self._segs
+        if self.cache is not None and "segs" in self.cache:
+            self._segs = self.cache["segs"]
+            return self._segs
         m = self.model
         pts = m.points
         out: List[_Seg] = []
@@ -299,7 +311,65 @@ class SnapEngine:
         for a, b in self.reference_lines:
             out.append(_Seg(np.asarray(a, float), np.asarray(b, float), "reference", None))
         self._segs = out
+        if self.cache is not None:
+            self.cache["segs"] = out
         return out
+
+    # ------------------------------------------------------- broad phase
+    BROAD_MARGIN_PX = 2.0  # the broad phase keeps everything this much beyond the aperture
+
+    def _points_near(self, xyz: np.ndarray, cursor, radius: float) -> Optional[np.ndarray]:
+        """Indices (ascending) of the points that may be within ``radius`` px of the cursor
+        (a superset: also every point not clearly in front of the eye); None without
+        ``project_many`` (then every point is tested)."""
+        if self.project_many is None or cursor is None or radius is None:
+            return None
+        if not len(xyz):
+            return np.zeros(0, dtype=int)
+        P, ok = self.project_many(xyz)
+        r = radius + self.BROAD_MARGIN_PX
+        d2 = (P[:, 0] - cursor[0]) ** 2 + (P[:, 1] - cursor[1]) ** 2
+        return np.nonzero(~ok | ~np.isfinite(d2) | (d2 <= r * r))[0]
+
+    def _segments_near(self, cursor, radius: float, extend: bool = False) -> Optional[np.ndarray]:
+        """Indices (ascending) of the snap lines that may pass within ``radius`` px of the
+        cursor - of their whole line for frames and edges with ``extend``.  A superset
+        (lines not wholly in front of the eye are always kept); None without
+        ``project_many``."""
+        if self.project_many is None:
+            return None
+        segs = self.segments()
+        if not segs:
+            return np.zeros(0, dtype=int)
+        scr = self._seg_scr
+        if scr is None or len(scr[0]) != len(segs):
+            c = self.cache if self.cache is not None else {}
+            arr = c.get("seg_arrays")
+            if arr is None or len(arr[0]) != len(segs):
+                arr = (np.array([s.a for s in segs], float).reshape(-1, 3),
+                       np.array([s.b for s in segs], float).reshape(-1, 3),
+                       np.array([s.kind in ("frame", "edge") for s in segs], bool))
+                c["seg_arrays"] = arr
+            PA, oka = self.project_many(arr[0])
+            PB, okb = self.project_many(arr[1])
+            scr = self._seg_scr = (PA, PB, oka & okb, arr[2])
+        PA, PB, ok, member = scr
+        cur = np.asarray(cursor, float)
+        D = PB - PA
+        R = cur[None, :] - PA
+        L2 = np.einsum("ij,ij->i", D, D)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            t = np.einsum("ij,ij->i", R, D) / L2
+            tc = np.clip(t, 0.0, 1.0)
+            F = PA + tc[:, None] * D - cur[None, :]
+            d_seg = np.hypot(F[:, 0], F[:, 1])
+            d_line = np.abs(R[:, 0] * D[:, 1] - R[:, 1] * D[:, 0]) / np.sqrt(L2)
+        d = np.where(member, d_line, d_seg) if extend else d_seg
+        tiny = L2 <= 1e-12
+        if tiny.any():
+            d = np.where(tiny, np.hypot(R[:, 0], R[:, 1]), d)
+        r = radius + self.BROAD_MARGIN_PX
+        return np.nonzero(~ok | ~np.isfinite(d) | (d <= r))[0]
 
     def _grid_segments(self) -> List[_Seg]:
         """Grid lines of the view as snap lines: in a plan / 3D the lines (and the
@@ -359,23 +429,54 @@ class SnapEngine:
         """Object points (joints, ends, midpoints, grid points, intersections, centres).
         With ``cursor`` the intersections are searched only among the lines passing
         within ``tol`` of it (an intersection near the cursor lies on two of them) (D15)."""
-        m = self.model
         o = self.opt
         out: List[SnapHit] = []
+        # the candidates that do not depend on the cursor: (xyz, kind, target) lists, kept in
+        # the window's cache; near the cursor only when the window projects many points at once
+        for part in ("before", "after"):
+            if part == "after" and o.intersections and self.plane.kind != "3d":
+                out += self._intersections(cursor, tol)
+            key = ("points", part, bool(o.joints), bool(o.ends_midpoints), bool(o.grid), bool(o.centers))
+            c = self.cache
+            static = c.get(key) if c is not None else None
+            if static is None:
+                items = self._static_points(part)
+                static = (items, np.array([it[0] for it in items], float).reshape(-1, 3))
+                if c is not None:
+                    c[key] = static
+            items, xyz = static
+            near = self._points_near(xyz, cursor, tol)
+            if near is None:
+                out += [SnapHit(q, kind, name) for q, kind, name in items]
+            else:
+                out += [SnapHit(*items[int(i)]) for i in near]
+        return out
+
+    def _static_points(self, part: str) -> List[Tuple[XYZ, str, Optional[str]]]:
+        """Point targets that do not depend on the cursor, in the order they are offered:
+        "before" the intersections (joints, midpoints / ends, grid points) and "after"
+        (centres of areas)."""
+        m = self.model
+        o = self.opt
+        out: List[Tuple[XYZ, str, Optional[str]]] = []
+        if part == "after":
+            if o.centers:
+                out += [(h.xyz, h.kind, h.target) for h in self._centers_of_areas()]
+            return out
         if o.joints:
             for p in m.points.values():
                 if not self._shown("point", p.name):
                     continue
                 if self.plane.kind == "3d" or self._in_plane(p.xyz):
-                    out.append(SnapHit(tuple(p.xyz), "joint", p.name))
+                    out.append((tuple(p.xyz), "joint", p.name))
         if o.ends_midpoints:
             for s in self.segments():
                 if s.kind in ("frame", "edge"):
                     mid = 0.5 * (s.a + s.b)
-                    out.append(SnapHit(tuple(mid.tolist()), "midpoint", s.name))
+                    out.append((tuple(mid.tolist()), "midpoint", s.name))
                     if not o.joints:
-                        out.append(SnapHit(tuple(s.a.tolist()), "end", s.name))
-                        out.append(SnapHit(tuple(s.b.tolist()), "end", s.name))
+                        out.append((tuple(s.a.tolist()), "end", s.name))
+                        out.append((tuple(s.b.tolist()), "end", s.name))
         if o.grid:
             from .tools import grid_intersections
             m = self.gmodel
@@ -384,23 +485,23 @@ class SnapEngine:
             levels = story_levels(m)
             pl = self.plane
             if pl.kind == "plan":
-                out += [SnapHit((x, y, pl.value), "grid") for x, y in gpts]
+                out += [((x, y, pl.value), "grid", None) for x, y in gpts]
             elif pl.kind == "xz":
-                out += [SnapHit((x, pl.value, z), "grid") for x in xs for z in levels]
+                out += [((x, pl.value, z), "grid", None) for x in xs for z in levels]
             elif pl.kind == "yz":
-                out += [SnapHit((pl.value, y, z), "grid") for y in ys for z in levels]
+                out += [((pl.value, y, z), "grid", None) for y in ys for z in levels]
             else:
-                out += [SnapHit((x, y, z), "grid") for x, y in gpts for z in levels]
-        if o.intersections and self.plane.kind != "3d":
-            out += self._intersections(cursor, tol)
-        if o.centers:
-            out += self._centers_of_areas()
+                out += [((x, y, z), "grid", None) for x, y in gpts for z in levels]
         return out
 
     def _intersections(self, cursor=None, tol: Optional[float] = None) -> List[SnapHit]:
         """Crossings of segments in the plane (frames, edges, grid lines)."""
         segs = [s for s in self.segments() if s.kind in ("frame", "edge", "grid", "reference")]
         if cursor is not None and tol is not None:
+            idx = self._segments_near(cursor, tol)
+            if idx is not None:
+                allsegs = self.segments()
+                segs = [allsegs[int(i)] for i in idx if allsegs[int(i)].kind in ("frame", "edge", "grid", "reference")]
             near = []
             for s in segs:
                 a, b = self._disp(s.a), self._disp(s.b)
@@ -624,7 +725,9 @@ class SnapEngine:
         out: List[SnapHit] = []
         if not (o.lines or o.edges or o.perpendicular or o.extensions or o.reference):
             return out
-        for s in self.segments():
+        segs = self.segments()
+        idx = self._segments_near(cursor, tol, extend=bool(o.extensions))
+        for s in (segs if idx is None else [segs[int(i)] for i in idx]):
             if s.kind == "grid" and not o.lines:
                 continue
             if s.kind == "reference" and not o.reference:
@@ -695,7 +798,9 @@ class SnapEngine:
                 angles.append(k)
                 k += o.polar_angle
         if o.parallels:
-            for s in self.segments():
+            segs = self.segments()
+            idx = self._segments_near(cursor, 4 * tol)
+            for s in (segs if idx is None else [segs[int(i)] for i in idx]):
                 if s.kind not in ("frame", "edge"):
                     continue
                 res = self._nearest_on_segment_display(s, cursor)

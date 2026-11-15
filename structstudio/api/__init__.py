@@ -54,6 +54,8 @@ def analyze(model: Model, cases: Optional[Iterable[str]] = None, kernel: Optiona
         am = build_analysis_model(model, mesh_options, progress=lambda f, msg: report(2 + 23 * f, msg))
     except dg.AnalysisError:
         raise
+    except MemoryError as exc:
+        raise _out_of_memory(model, None) from exc
     except (ModelError, ValueError) as exc:
         raise dg.AnalysisError(_located(model, dg.explain(model, None, exc)), getattr(exc, "code", "MESH_ERROR")) from exc
     am = _refine_until_converged(model, am, mesh_options, kernel, cases, report)
@@ -61,6 +63,9 @@ def analyze(model: Model, cases: Optional[Iterable[str]] = None, kernel: Optiona
         (am.info if "changed" not in fine_note else am.warnings).append(fine_note)
     s = am.summary()
     report(35, f"Mesh: {s['nodes']} nodes, {s['frame_elements']} frame and {s['shell_elements']} shell elements")
+    if s["shell_elements"] >= LARGE_MODEL_SHELLS:
+        am.info.append(f"Large analysis model: {s['shell_elements']:,} shell elements, about {6 * s['nodes']:,} "
+                       f"equations - the solution needs a lot of memory and time.  " + _size_hint(model, am))
     report(36, "Checking connections and loads")
     issues = dg.pre_checks(model, am)
     if any(i.severity == "error" for i in issues):
@@ -79,6 +84,8 @@ def analyze(model: Model, cases: Optional[Iterable[str]] = None, kernel: Optiona
             if name:
                 report(42 + 55 * k / max(n, 1), f"Solving load case {name} ({k + 1}/{n})")
         case_results = engine.run(names, progress=case_progress)
+    except MemoryError as exc:
+        raise _out_of_memory(model, am) from exc
     except (ModelError, ValueError, ArithmeticError) as exc:
         asm = getattr(engine, "asm", None)
         fac = getattr(engine, "_factor", None)
@@ -98,6 +105,33 @@ def analyze(model: Model, cases: Optional[Iterable[str]] = None, kernel: Optiona
     res.issues = _located(model, issues + extra)
     report(100, "Analysis complete")
     return res
+
+
+# A note in the analysis log from this many shell elements: what makes the model large
+LARGE_MODEL_SHELLS = 150_000
+
+
+def _size_hint(model, am) -> str:
+    """What the user can change when the analysis model is very large."""
+    tips = []
+    if am is not None and getattr(am, "bodies", None) and model.options.slab_column_rigid_zone:
+        tips.append("turn off 'Slabs: rigid zone over columns' in Analyze > Analysis Model Defaults (each column "
+                    "gets a fine graded mesh in every slab it meets, whatever the maximum mesh size)")
+    tips.append("use a larger maximum mesh size (Analyze > Automatic Mesh Settings)")
+    tips.append("model floors that only spread load as membranes with a rigid diaphragm")
+    return "To make it smaller: " + "; or ".join(tips) + "."
+
+
+def _out_of_memory(model, am):
+    from .. import diagnostics as dg
+    if am is not None:
+        s = am.summary()
+        size = (f" ({s['nodes']} nodes, {s['frame_elements']} frame and {s['shell_elements']} shell elements - "
+                f"about {6 * s['nodes']:,} equations)")
+    else:
+        size = " (while the mesh was being made)"
+    return dg.AnalysisError([dg.Issue("error", "The analysis model is too large for the memory of this computer" + size,
+                                      hint=_size_hint(model, am))], "OUT_OF_MEMORY")
 
 
 def mesh_signature(model) -> str:

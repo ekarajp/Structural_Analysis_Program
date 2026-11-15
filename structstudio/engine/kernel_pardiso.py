@@ -78,6 +78,8 @@ class _PardisoFactor:
         self._alive = True
         if err != 0:
             self.free()
+            if err == -2:  # not enough memory: SuperLU would need more still - say so instead
+                raise MemoryError(f"PARDISO: not enough memory to factor {n} equations")
             raise _Fallback(f"PARDISO error {err}")
         df = np.zeros(n)
         da = np.zeros(n)
