@@ -151,7 +151,7 @@ class Document:
     def edit(self, func: Callable[[Model], None], what: str = "model"):
         """One command = one undo step.  If ``func`` fails half way the model is
         put back exactly as it was (no partial edit, no extra undo step)."""
-        redo = list(self._redo)
+        undo, redo = list(self._undo), list(self._redo)  # full history (begin_edit may drop the oldest)
         self.begin_edit()
         try:
             # several towers: new objects go to the tower of the window drawn in
@@ -167,10 +167,16 @@ class Document:
                                  f"The command would put point {bad[0]} at ({p.x!r}, {p.y!r}, {p.z!r}) - a coordinate "
                                  f"is not a finite number; nothing was changed")
         except BaseException:
-            self.model = self._restore(self._undo.pop())
-            self._redo = redo
+            self._rollback(undo, redo)
             raise
         self.end_edit(what)
+
+    def _rollback(self, undo: List[str], redo: List[str]):
+        """Put the model back as it was before a failed command, with the undo / redo
+        history exactly as it was (also when the history was full and begin_edit had
+        dropped its oldest step - audit G05)."""
+        self.model = self._restore(self._undo[-1])
+        self._undo, self._redo = undo, redo
 
     def edit_design(self, func: Callable[[Model], None]):
         """A change of design data only (design preferences, Cd / Ie of the load cases,
@@ -179,13 +185,12 @@ class Document:
         if self.busy:
             raise ModelError("ANALYSIS_RUNNING", "The analysis is running - wait for it to finish or press Cancel")
         res = self.results
-        redo = list(self._redo)
+        undo, redo = list(self._undo), list(self._redo)  # full history (begin_edit may drop the oldest)
         self.begin_edit(check=False)
         try:
             func(self.model)
         except BaseException:
-            self.model = self._restore(self._undo.pop())
-            self._redo = redo
+            self._rollback(undo, redo)
             raise
         self.dirty = True
         self.results = res

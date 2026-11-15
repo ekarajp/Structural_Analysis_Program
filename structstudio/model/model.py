@@ -31,6 +31,42 @@ SCHEMA_VERSION = "2.3"  # 2.1: area loads are load panels made from the areas (P
 # 2.2: the mesh refinement check is off by default (files before 2.2 saved it on by default)
 # 2.3: multiple towers (Model.towers, Story.tower, GridSystem.tower)
 
+def write_text_atomic(path: str, text: str, backup: bool = True) -> None:
+    """Write ``text`` to ``path`` so that a failure part way (disk full, the drive
+    removed, an exception) never leaves a truncated file: the text goes to a
+    temporary file next to it, is flushed to disk, and only then replaces the old
+    file in one step (audit G02).  With ``backup`` the previous file is kept as
+    ``<path>.bak``.  On failure the temporary file is removed and the old file is
+    untouched; the error is raised."""
+    import os
+    import shutil
+    import time
+    path = os.fspath(path)
+    folder = os.path.dirname(os.path.abspath(path))
+    tmp = os.path.join(folder, f".{os.path.basename(path)}.{os.getpid()}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        if backup and os.path.isfile(path):
+            shutil.copy2(path, path + ".bak")
+        for attempt in range(5):  # Windows: a scanner may hold the old file a moment
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.2)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def _version_tuple(text) -> tuple:
     try:
         return tuple(int(x) for x in str(text).split("."))
@@ -1184,7 +1220,10 @@ class Model:
             p = self.points[name]
             err("NONFINITE_COORDINATE", f"Point {name!r} has a coordinate that is not a finite number "
                 f"({p.x!r}, {p.y!r}, {p.z!r})", f"points.{name}")
-        other = [q for q in nonfinite_values(self.to_dict()) if not q.startswith("points.")]
+        # (a point's coordinates are reported above; its loads, springs, masses ... here)
+        other = [q for q in nonfinite_values(self.to_dict())
+                 if not (q.startswith("points.") and q.rsplit(".", 1)[-1] in ("x", "y", "z")
+                         and q.count(".") == 2)]
         for q in other[:20]:
             err("NONFINITE_VALUE", f"{q} is not a finite number (infinite or NaN)", q)
         if len(other) > 20:
@@ -1538,8 +1577,7 @@ class Model:
     def to_json(self, path: Optional[str] = None, indent: int = 1) -> str:
         text = json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
         if path:
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write(text)
+            write_text_atomic(path, text)
         return text
 
     @classmethod
