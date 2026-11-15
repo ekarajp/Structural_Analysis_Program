@@ -78,9 +78,29 @@ def in_hole(uv, holes: Sequence[Hole]) -> bool:
     return any(pg.inside(uv, H) for _, H in holes)
 
 
+_FILL_CACHE: dict = {}  # (corners, holes, tol) -> polygons: the pictures are rebuilt after every command
+_FILL_CACHE_MAX = 200_000
+
+
 def fill_polygons(P: np.ndarray, holes: Sequence[Hole], tol: float) -> List[np.ndarray]:
     """3-D polygons to draw for a shell: the shell itself, its rectangles with
-    the openings left out, or triangles of a non-convex outline."""
+    the openings left out, or triangles of a non-convex outline.  (Kept for the
+    same corners and openings: the arrays returned are read-only.)"""
+    P = np.asarray(P, float)
+    key = (P.tobytes(), P.shape, tuple((n, np.asarray(H, float).tobytes()) for n, H in holes), float(tol))
+    out = _FILL_CACHE.get(key)
+    if out is None:
+        out = _fill_polygons(P, holes, tol)
+        out = [np.array(q, float) for q in out]
+        for q in out:
+            q.setflags(write=False)
+        if len(_FILL_CACHE) >= _FILL_CACHE_MAX:
+            _FILL_CACHE.clear()
+        _FILL_CACHE[key] = out
+    return list(out)
+
+
+def _fill_polygons(P: np.ndarray, holes: Sequence[Hole], tol: float) -> List[np.ndarray]:
     try:
         fr = pg.plane_frame(P)
     except ValueError:

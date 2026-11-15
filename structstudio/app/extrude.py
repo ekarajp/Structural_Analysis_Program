@@ -210,11 +210,11 @@ _PRISMS_MAX = 400_000
 def frame_solids(model: Model, names: Iterable[str]) -> Tuple[Optional[vtk.vtkPolyData], List[str]]:
     """Solid polydata of the frames with a usable section, and the names of the
     frames that have none (drawn as tubes by the caller)."""
-    mb = _MeshBuilder()
     missing: List[str] = []
     profiles: dict = {}  # a section's profile and cardinal offsets are the same for all its frames
     offsets: dict = {}
     profile_keys: dict = {}
+    solids = []  # (member key, prisms) in the order of ``names``
     for n in names:
         f = model.frames[n]
         if f.section not in profiles:
@@ -253,9 +253,51 @@ def frame_solids(model: Model, names: Iterable[str]) -> Tuple[Optional[vtk.vtkPo
             if len(_PRISMS) >= _PRISMS_MAX:
                 _PRISMS.clear()
             _PRISMS[key] = prisms
-        for bottom, top in prisms:
-            mb.prism(bottom, top)
-    return mb.polydata(), missing
+        solids.append((key, prisms))
+    return _chunked_polydata(solids), missing
+
+
+_SOLID_CHUNK = 256  # members per cached piece of the picture
+_SOLID_CACHE: dict = {}  # tuple of member keys -> vtkPolyData of those members (normals done)
+_SOLID_CACHE_MAX = 4000
+
+
+def _chunked_polydata(solids, triangulate: bool = False) -> Optional[vtk.vtkPolyData]:
+    """The prisms of the members as one polydata, made of pieces of _SOLID_CHUNK members
+    kept between rebuilds: after a command only the pieces with a changed member are made
+    again.  The members' prisms share no points, so the normals of a piece are those of
+    the whole and the result is the same polydata (same points, cells and order)."""
+    if not solids:
+        return None
+    pieces = []
+    for i0 in range(0, len(solids), _SOLID_CHUNK):
+        part = solids[i0:i0 + _SOLID_CHUNK]
+        ck = (bool(triangulate),) + tuple(k for k, _ in part)
+        pd = _SOLID_CACHE.get(ck)
+        if pd is None:
+            mb = _MeshBuilder()
+            for _k, ops in part:
+                for op in ops:
+                    if len(op) == 2:  # (bottom ring, top ring) of a prism
+                        mb.prism(op[0], op[1])
+                    else:  # ("face", polygon, reverse)
+                        mb.face(op[1], reverse=op[2])
+            pd = mb.polydata(triangulate=triangulate)
+            if len(_SOLID_CACHE) >= _SOLID_CACHE_MAX:
+                _SOLID_CACHE.clear()
+            _SOLID_CACHE[ck] = pd
+        pieces.append(pd)
+    if len(pieces) == 1:
+        out = vtk.vtkPolyData()
+        out.DeepCopy(pieces[0])  # (the cached piece is never handed out to be changed)
+        return out
+    app = vtk.vtkAppendPolyData()
+    for pd in pieces:
+        app.AddInputData(pd)
+    app.Update()
+    out = vtk.vtkPolyData()
+    out.ShallowCopy(app.GetOutput())
+    return out
 
 
 def area_solids(model: Model, areas: Iterable) -> Optional[vtk.vtkPolyData]:
@@ -265,7 +307,7 @@ def area_solids(model: Model, areas: Iterable) -> Optional[vtk.vtkPolyData]:
     from ..mesh import openings as opn
     from ..mesh import polygon2d as pg
 
-    mb = _MeshBuilder()
+    items = []  # (area key, ops) in the order of ``areas``: pieces kept between rebuilds
     index = None
     tol = max(float(model.options.merge_tolerance or 1e-3), 1e-6)
     for a in areas:
@@ -291,8 +333,9 @@ def area_solids(model: Model, areas: Iterable) -> Optional[vtk.vtkPolyData]:
             except ValueError:
                 holes = []
         if not holes:
-            mb.prism(P + lo, P + hi)
+            items.append((("p", P.tobytes(), lo.tobytes(), hi.tobytes()), [(P + lo, P + hi)]))
             continue
+        ops = []
         # faces: the shell with the holes left out; sides: the outline and the hole
         # edges inside the shell (an opening over the edge leaves a notch).  Every
         # face is oriented outward here (no neighbour to copy it from at the T-joints)
@@ -300,8 +343,8 @@ def area_solids(model: Model, areas: Iterable) -> Optional[vtk.vtkPolyData]:
         for piece in opn.fill_polygons(P, holes, tol):
             fn = polygon_normal(piece)
             flip = float(fn @ up) < 0
-            mb.face(piece + lo, reverse=not flip)
-            mb.face(piece + hi, reverse=flip)
+            ops.append(("face", piece + lo, not flip))
+            ops.append(("face", piece + hi, flip))
         Q = pg.to_2d(P, fr)
         if pg.signed_area(Q) < 0:
             Q = Q[::-1]
@@ -311,8 +354,10 @@ def area_solids(model: Model, areas: Iterable) -> Optional[vtk.vtkPolyData]:
             quad = np.array([p0 + lo, p1 + lo, p1 + hi, p0 + hi])
             if float(np.cross(quad[1] - quad[0], quad[2] - quad[0]) @ o3) < 0:
                 quad = quad[::-1]
-            mb.face(quad)
-    return mb.polydata(triangulate=True)
+            ops.append(("face", quad, False))
+        items.append((("h", P.tobytes(), lo.tobytes(), hi.tobytes(),
+                       tuple((n, np.asarray(H, float).tobytes()) for n, H in holes)), ops))
+    return _chunked_polydata(items, triangulate=True)
 
 
 def _split_at(seg, polys) -> List[float]:

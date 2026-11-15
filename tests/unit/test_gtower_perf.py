@@ -192,3 +192,40 @@ def test_modal_of_a_large_model_uses_the_static_factor(monkeypatch):
     Tf = [x["Period"] for x in fast.modal_periods("MODAL")]
     Tp = [x["Period"] for x in plain.modal_periods("MODAL")]
     assert np.allclose(Tf, Tp, rtol=1e-9)
+
+
+def test_cached_pictures_of_members_and_slabs_follow_every_change():
+    """The extruded pictures are made of cached pieces: after a joint moves, the members
+    and slabs on it must be drawn at the new place, the others exactly as before."""
+    from vtkmodules.util.numpy_support import vtk_to_numpy
+    from structstudio.app import extrude
+    from structstudio.mesh import openings
+    m = build_model(structure="rc_frame", x_ordinates=(0, 6, 12, 18), y_ordinates=(0, 5, 10),
+                    stories=[("S1", 3.5), ("S2", 3.5)])
+    floor = next(a for a in m.areas.values() if a.type == "Floor")
+    X = np.array([m.points[p].xyz for p in floor.points])
+    c = X.mean(axis=0)
+    hole = [m.add_point(c[0] + dx, c[1] + dy, c[2]) for dx, dy in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+    m.add_area(hole, None, type="Opening")
+
+    def cells(pd):
+        P = vtk_to_numpy(pd.GetPoints().GetData())
+        return P[vtk_to_numpy(pd.GetPolys().GetConnectivityArray())].copy()
+
+    def fresh(fn, *args):  # the same picture without any cached piece
+        extrude._SOLID_CACHE.clear()
+        openings._FILL_CACHE.clear()
+        return cells(fn(*args))
+
+    names = list(m.frames)
+    areas = list(m.areas.values())
+    f0, a0 = cells(extrude.frame_solids(m, names)[0]), cells(extrude.area_solids(m, areas))
+    assert np.array_equal(f0, fresh(lambda: extrude.frame_solids(m, names)[0]))
+    assert np.array_equal(a0, fresh(extrude.area_solids, m, areas))
+    extrude.frame_solids(m, names), extrude.area_solids(m, areas)  # warm the caches again
+    p = floor.points[0]
+    m.points[p].z += 0.5
+    f1, a1 = cells(extrude.frame_solids(m, names)[0]), cells(extrude.area_solids(m, areas))
+    assert not np.array_equal(f0, f1) and not np.array_equal(a0, a1)
+    assert np.array_equal(f1, fresh(lambda: extrude.frame_solids(m, names)[0]))
+    assert np.array_equal(a1, fresh(extrude.area_solids, m, areas))

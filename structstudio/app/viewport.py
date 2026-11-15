@@ -1245,7 +1245,7 @@ class ModelViewport(QtWidgets.QWidget):
                 self.apply_camera()
             else:  # new / resized objects (e.g. after a change of units): nothing clipped away
                 self.renderer.ResetCameraClippingRange()
-                self.render()
+                self.request_render()
         elif what == "results":
             self.invalidate("overlays")
 
@@ -1287,7 +1287,7 @@ class ModelViewport(QtWidgets.QWidget):
             self._style_scene()
             if "selection" in parts or "scene" in parts:
                 self._build_panels()
-            self.render()
+            self.request_render()  # (one frame for everything a command changed)
 
     def refresh(self):
         """View > Refresh: everything again (when shown)."""
@@ -1880,7 +1880,7 @@ class ModelViewport(QtWidgets.QWidget):
         for a in self._overlay_actors:
             self.renderer.AddActor(a)
         self._make_legend_room(any(isinstance(a, vtk.vtkScalarBarActor) for a in self._overlay_actors))
-        self.render()
+        self.request_render()  # (one frame for everything a command changed)
 
     LEGEND_ROOM = 0.07  # the model moves left by this fraction of the width when a colour scale is shown
 
