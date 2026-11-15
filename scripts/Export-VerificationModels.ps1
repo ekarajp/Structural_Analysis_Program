@@ -1,12 +1,13 @@
 # Exports the ETABS verification examples to text (.e2k) using the official ETABS API.
-# Needs an installed, licensed ETABS 21.  Nothing outside F:\REA ETABS is written.
+# Needs an installed, licensed ETABS 21.  Nothing outside G:\Structural Analysis Program is written.
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File "F:\REA ETABS\studio\scripts\Export-VerificationModels.ps1"
+#   powershell -NoProfile -ExecutionPolicy Bypass -File "G:\Structural Analysis Program\studio\scripts\Export-VerificationModels.ps1"
 #
 $ErrorActionPreference = 'Stop'
 $EtabsDir = 'C:\Program Files\Computers and Structures\ETABS 21'
-$Source   = 'F:\REA ETABS\reference\etabs21\Verification\Analysis Examples'
-$Dest     = 'F:\REA ETABS\studio\tests\verification\data\etabs'
+$Root     = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)  # the project folder
+$Source   = Join-Path $Root 'reference\etabs21\Verification\Analysis Examples'
+$Dest     = Join-Path $Root 'studio\tests\verification\data\etabs'
 $Log      = Join-Path $Dest 'export.log'
 
 New-Item -ItemType Directory -Force -Path $Dest | Out-Null

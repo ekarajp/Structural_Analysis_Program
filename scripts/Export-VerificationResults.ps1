@@ -3,15 +3,16 @@
 # frame end forces) to CSV files so StructStudio can be checked against the
 # program itself, not only against the (older) verification manual.
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File "F:\REA ETABS\studio\scripts\Export-VerificationResults.ps1"
+#   powershell -NoProfile -ExecutionPolicy Bypass -File "G:\Structural Analysis Program\studio\scripts\Export-VerificationResults.ps1"
 #
-# Needs an installed, licensed ETABS 21.  Nothing outside F:\REA ETABS is written.
-# Output: F:\REA ETABS\studio\tests\verification\data\etabs\results\<Example>.<table>.csv
+# Needs an installed, licensed ETABS 21.  Nothing outside G:\Structural Analysis Program is written.
+# Output: G:\Structural Analysis Program\studio\tests\verification\data\etabs\results\<Example>.<table>.csv
 $ErrorActionPreference = 'Stop'
 $EtabsDir = 'C:\Program Files\Computers and Structures\ETABS 21'
-$Source   = 'F:\REA ETABS\reference\etabs21\Verification\Analysis Examples'
-$Work     = 'F:\REA ETABS\studio\tests\verification\data\etabs\run'
-$Dest     = 'F:\REA ETABS\studio\tests\verification\data\etabs\results'
+$Root     = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)  # the project folder
+$Source   = Join-Path $Root 'reference\etabs21\Verification\Analysis Examples'
+$Work     = Join-Path $Root 'studio\tests\verification\data\etabs\run'
+$Dest     = Join-Path $Root 'studio\tests\verification\data\etabs\results'
 $Log      = Join-Path $Dest 'results.log'
 
 New-Item -ItemType Directory -Force -Path $Work | Out-Null

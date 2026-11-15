@@ -9,10 +9,11 @@
 # level is in both towers.  Columns 40x40, beams 30x50, 150 mm shell slabs, fixed bases,
 # lateral loads EQX at the corner joints, a modal case.
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File "F:\REA ETABS\studio\scripts\Make-TowerSample.ps1"
+#   powershell -NoProfile -ExecutionPolicy Bypass -File "G:\Structural Analysis Program\studio\scripts\Make-TowerSample.ps1"
 #
-# Nothing outside the output folder (default F:\REA ETABS\samples\towers) is written.
-param([string]$OutDir = "F:\REA ETABS\samples\towers")
+# Nothing outside the output folder (default G:\Structural Analysis Program\samples\towers) is written.
+param([string]$OutDir = "")
+if (-not $OutDir) { $OutDir = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "samples\towers" }
 $ErrorActionPreference = 'Continue'
 $Studio = Split-Path -Parent $PSScriptRoot
 . (Join-Path $Studio 'structstudio\io\csi_api.ps1')

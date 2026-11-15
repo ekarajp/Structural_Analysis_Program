@@ -1,10 +1,10 @@
 # Collects sample / verification models shipped with the installed SAP2000 and SAFE
-# (and the ETABS verification examples already in F:\REA ETABS\reference) and converts
+# (and the ETABS verification examples already in G:\Structural Analysis Program\reference) and converts
 # them to text with the installed programs, for the Structural Studio import tests.
-# Nothing outside F:\REA ETABS is written.  Progress is shown in the window and in
+# Nothing outside G:\Structural Analysis Program is written.  Progress is shown in the window and in
 # tests\verification\data\csi_samples.log.
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File "F:\REA ETABS\studio\scripts\Export-CsiSamples.ps1" [-Only safe|sap2000|etabs]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File "G:\Structural Analysis Program\studio\scripts\Export-CsiSamples.ps1" [-Only safe|sap2000|etabs]
 #
 param([string[]]$Only = @())
 $ErrorActionPreference = 'Continue'
@@ -70,7 +70,7 @@ foreach ($p in @(@{ Name = 'sap2000'; Dirs = 'SAP2000*'; Ext = '*.sdb' }, @{ Nam
 }
 
 # ETABS verification examples -> database tables (to check the tables importer against .e2k)
-$etabsSrc = 'F:\REA ETABS\reference\etabs21\Verification\Analysis Examples'
+$etabsSrc = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'reference\etabs21\Verification\Analysis Examples'
 if ((Test-Path $etabsSrc) -and ($Only.Count -eq 0 -or $Only -contains 'etabs')) {
     $edbs = @(Get-ChildItem -Path $etabsSrc -Filter 'Example *.edb' | Select-Object -First 30 | ForEach-Object { $_.FullName })
     if ($edbs.Count -gt 0) {

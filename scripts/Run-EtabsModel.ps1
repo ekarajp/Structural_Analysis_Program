@@ -4,7 +4,7 @@
 # Modal Periods ... in kN-m) and run_etabs.log.  The original file is not changed (a copy is
 # opened).
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File "F:\REA ETABS\studio\scripts\Run-EtabsModel.ps1" <file>
+#   powershell -NoProfile -ExecutionPolicy Bypass -File "G:\Structural Analysis Program\studio\scripts\Run-EtabsModel.ps1" <file>
 #
 param([Parameter(Mandatory = $true)][string]$File, [string]$OutDir = "")
 $ErrorActionPreference = 'Continue'
