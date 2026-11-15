@@ -1350,23 +1350,64 @@ def _tube_radius(model: Model) -> float:
     return max(r, 1e-3)
 
 
+# Sizes of the whole model (extent, typical member length) are asked for once per
+# symbol / highlighted area while a picture is built; each walks every point or frame.
+# While a build_* function runs the model does not change, so they are computed once
+# per build (Select All of a large model went from minutes to seconds).
+_MODEL_MEMO: Optional[dict] = None
+_MODEL_MEMO_DEPTH = 0
+
+
+def _memo_model(fn):
+    """Decorator of the build_* functions: model-wide sizes are computed once per call."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        global _MODEL_MEMO, _MODEL_MEMO_DEPTH
+        if _MODEL_MEMO_DEPTH == 0:
+            _MODEL_MEMO = {}
+        _MODEL_MEMO_DEPTH += 1
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _MODEL_MEMO_DEPTH -= 1
+            if _MODEL_MEMO_DEPTH == 0:
+                _MODEL_MEMO = None
+    return wrapper
+
+
+def _memoized(name: str, model: Model, compute):
+    memo = _MODEL_MEMO
+    if memo is None:
+        return compute()
+    key = (name, id(model))
+    if key not in memo:
+        memo[key] = compute()
+    return memo[key]
+
+
 def typical_member_length(model: Model) -> float:
     """Median length of the frame objects (0 if none)."""
-    if not model.frames:
-        return 0.0
-    P = model.points
-    a = np.array([P[f.point_i].xyz for f in model.frames.values()], float)
-    b = np.array([P[f.point_j].xyz for f in model.frames.values()], float)
-    L = np.linalg.norm(b - a, axis=1)
-    L = L[L > 1e-9]
-    return float(np.median(L)) if len(L) else 0.0
+    def compute():
+        if not model.frames:
+            return 0.0
+        P = model.points
+        a = np.array([P[f.point_i].xyz for f in model.frames.values()], float)
+        b = np.array([P[f.point_j].xyz for f in model.frames.values()], float)
+        L = np.linalg.norm(b - a, axis=1)
+        L = L[L > 1e-9]
+        return float(np.median(L)) if len(L) else 0.0
+    return _memoized("typical", model, compute)
 
 
 def model_extent(model: Model) -> float:
-    if not model.points:
-        return 10.0
-    xyz = np.array([p.xyz for p in model.points.values()])
-    return float(np.max(xyz.max(axis=0) - xyz.min(axis=0)) or 1.0)
+    def compute():
+        if not model.points:
+            return 10.0
+        xyz = np.array([p.xyz for p in model.points.values()])
+        return float(np.max(xyz.max(axis=0) - xyz.min(axis=0)) or 1.0)
+    return _memoized("extent", model, compute)
 
 
 def _grid_extent(model: Model):
@@ -3166,3 +3207,10 @@ def build_load_actors(model: Model, pattern, frames: Optional[set] = None, areas
     if pts.GetNumberOfPoints():
         out.append(_text_labels(pts, texts, color, int(round(gsize("load_text"))), background=True))
     return out
+
+
+# every build_* function computes the model-wide sizes once (see _memo_model)
+for _name, _fn in list(globals().items()):
+    if _name.startswith("build_") and callable(_fn):
+        globals()[_name] = _memo_model(_fn)
+del _name, _fn
