@@ -1987,6 +1987,7 @@ def build_deformed_mesh_actors(model: Model, results, case: str, mode: Optional[
                 thick_shell(sm, model, s.object, X[list(s.nodes)], mag[list(s.nodes)] * fac)
         r = _tube_radius(model) * 0.9
         ring_cache = {}  # the pieces of one member share its section and axes
+        profile_cache = {}  # ... and the members of one section its profile
         for k, e in enumerate(plan.fe):
             f = am.frames[int(e)]
             line = slice(line_off[k], line_off[k + 1])
@@ -1995,7 +1996,7 @@ def build_deformed_mesh_actors(model: Model, results, case: str, mode: Optional[
             rings = ring_cache.get(key)
             if rings is None:
                 obj = model.frames.get(f.object)
-                rings = frame_rings(model, obj, axes=axes) if obj is not None else None
+                rings = frame_rings(model, obj, axes=axes, profiles=profile_cache) if obj is not None else None
                 if rings is None:
                     rings = tube_rings(r, axes)
                 ring_cache[key] = rings
@@ -2935,14 +2936,16 @@ def build_load_actors(model: Model, pattern, frames: Optional[set] = None, areas
         pts.InsertNextPoint(*np.asarray(at, float))
         texts.InsertNextValue(text)
 
+    from ..mesh.geometry import cross3 as _cross3
+
     def side_of(d):
         """A unit vector perpendicular to ``d``, in the view plane when there is one."""
         if nview is not None:
-            perp = np.cross(d, nview)
+            perp = _cross3(d, nview)
         else:
-            perp = np.cross(d, (0, 0, 1))
+            perp = _cross3(d, (0, 0, 1))
             if np.linalg.norm(perp) < 1e-6:
-                perp = np.cross(d, (0, 1, 0))
+                perp = _cross3(d, (0, 1, 0))
         n = np.linalg.norm(perp)
         return perp / n if n > 1e-9 else np.array([1.0, 0, 0])
 
@@ -2966,7 +2969,7 @@ def build_load_actors(model: Model, pattern, frames: Optional[set] = None, areas
         the screen) or circle + dot (towards the viewer)."""
         at = np.asarray(at, float)
         e1 = side_of(nview)
-        e2 = np.cross(nview, e1)
+        e2 = _cross3(nview, e1)
         ring = [at + radius * (math.cos(t) * e1 + math.sin(t) * e2) for t in np.linspace(0, 2 * math.pi, 25)]
         for a, b in zip(ring[:-1], ring[1:]):
             seg(a, b)

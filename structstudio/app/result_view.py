@@ -308,9 +308,17 @@ def mapped_actor(poly, lut, lit: bool = True, line_width: float = 1.0, opacity: 
     return actor
 
 
-def frame_rings(model: Model, frame, axes: Optional[np.ndarray] = None) -> Optional[List[np.ndarray]]:
-    """The member's section pieces as 3-D offsets (placed by the cardinal point)."""
-    pieces = ex.section_profile(model.frame_sections.get(frame.section))
+def frame_rings(model: Model, frame, axes: Optional[np.ndarray] = None,
+                profiles: Optional[dict] = None) -> Optional[List[np.ndarray]]:
+    """The member's section pieces as 3-D offsets (placed by the cardinal point).
+    ``profiles``: a dict the caller keeps while it goes through many members (a section's
+    profile is the same for all of them)."""
+    if profiles is None:
+        pieces = ex.section_profile(model.frame_sections.get(frame.section))
+    else:
+        if frame.section not in profiles:
+            profiles[frame.section] = ex.section_profile(model.frame_sections.get(frame.section))
+        pieces = profiles[frame.section]
     if pieces is None:
         return None
     if axes is None:
@@ -437,6 +445,7 @@ def frame_color_actors(model: Model, results, case: str, quantity: str, frames=N
         nice = (rng[0], rng[1], step)
     solid, lines = ScalarMesh(), ScalarMesh()
     r = scene._tube_radius(model)
+    profiles: dict = {}  # a section's profile is the same for all its members
     for name, (x, v) in vals.items():
         f = model.frames[name]
         a, b = ex.frame_ends(model, f)
@@ -447,7 +456,7 @@ def frame_color_actors(model: Model, results, case: str, quantity: str, frames=N
         x, v = x[order], v[order]
         path = a + np.clip(x / L, 0, 1)[:, None] * (b - a)
         if extruded:
-            rings = frame_rings(model, f)
+            rings = frame_rings(model, f, profiles=profiles)
             if rings is None:
                 rings = tube_rings(r, frame_axes(a, b, f.angle))
             solid.sweep(path, v, rings)

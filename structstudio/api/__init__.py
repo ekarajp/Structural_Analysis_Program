@@ -64,6 +64,8 @@ def analyze(model: Model, cases: Optional[Iterable[str]] = None, kernel: Optiona
     s = am.summary()
     report(35, f"Mesh: {s['nodes']} nodes, {s['frame_elements']} frame and {s['shell_elements']} shell elements")
     if s["shell_elements"] >= LARGE_MODEL_SHELLS:
+        report(35.5, f"Large analysis model: about {6 * s['nodes']:,} equations - this can take long and needs "
+                     f"a lot of memory")
         am.info.append(f"Large analysis model: {s['shell_elements']:,} shell elements, about {6 * s['nodes']:,} "
                        f"equations - the solution needs a lot of memory and time.  " + _size_hint(model, am))
     report(36, "Checking connections and loads")

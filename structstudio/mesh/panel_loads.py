@@ -38,6 +38,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from .geometry import cross3
+
 XYZ = Tuple[float, float, float]
 
 
@@ -110,7 +112,7 @@ def polygon_frame(poly: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray,
     n = np.zeros(3)
     for i in range(len(P)):
         a, b = P[i], P[(i + 1) % len(P)]
-        n += np.cross(a, b)
+        n += cross3(a, b)
     ln = np.linalg.norm(n)
     if ln < 1e-12:
         raise ValueError("Panel polygon is degenerate")
@@ -118,11 +120,11 @@ def polygon_frame(poly: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray,
     e1 = P[1] - P[0]
     e1 -= n * (e1 @ n)
     if np.linalg.norm(e1) < 1e-12:
-        e1 = np.cross(n, (0, 0, 1))
+        e1 = cross3(n, (0, 0, 1))
         if np.linalg.norm(e1) < 1e-12:
             e1 = np.array([1.0, 0, 0])
     e1 /= np.linalg.norm(e1)
-    e2 = np.cross(n, e1)
+    e2 = cross3(n, e1)
     return P[0].copy(), e1, e2, n
 
 
@@ -749,7 +751,7 @@ def _poly3_area(P) -> float:
     P = np.asarray(P, float)
     n = np.zeros(3)
     for i in range(len(P)):
-        n += np.cross(P[i], P[(i + 1) % len(P)])
+        n += cross3(P[i], P[(i + 1) % len(P)])
     return 0.5 * float(np.linalg.norm(n))
 
 
