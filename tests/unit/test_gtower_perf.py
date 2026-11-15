@@ -229,3 +229,45 @@ def test_cached_pictures_of_members_and_slabs_follow_every_change():
     assert not np.array_equal(f0, f1) and not np.array_equal(a0, a1)
     assert np.array_equal(f1, fresh(lambda: extrude.frame_solids(m, names)[0]))
     assert np.array_equal(a1, fresh(extrude.area_solids, m, areas))
+
+
+def test_compact_file_reads_back_the_same_model(tmp_path):
+    import json
+    from structstudio.model import model as mm
+    m = _tower(3)
+    m.frames[next(iter(m.frames))].angle = -0.0  # a signed zero is not "the default 0.0"
+    p = tmp_path / "t.ssj.json"
+    m.to_json(str(p))
+    data = json.loads(p.read_text(encoding="utf-8"))
+    assert data["schema_version"] == mm.SCHEMA_VERSION and "defaults" in data
+    f = next(iter(data["frames"].values()))
+    assert "releases_i" not in f and "Frame" in data["defaults"]  # left out, written once
+    m2 = Model.from_json(str(p))
+    assert m2.hash() == m.hash()
+    assert str(m2.frames[next(iter(m2.frames))].angle) == "-0.0"
+    assert len(p.read_text(encoding="utf-8")) < 0.5 * len(m.to_json(compact=False))
+
+
+def test_compact_file_keeps_the_defaults_it_was_saved_with(tmp_path, monkeypatch):
+    """A default changed in a later version must not change what an older file means."""
+    import dataclasses
+    import json
+    from structstudio.model import model as mm
+    from structstudio.model.objects import Frame
+    m = _tower(2)
+    p = tmp_path / "t.ssj.json"
+    m.to_json(str(p))
+    data = json.loads(p.read_text(encoding="utf-8"))
+    data["defaults"]["Frame"]["min_stations"] = 7  # as if saved by a version whose default was 7
+    m2 = Model.from_dict(data)
+    assert all(f.min_stations == 7 for f in m2.frames.values())
+    assert dataclasses.fields(Frame)  # (the class itself unchanged)
+    assert mm._DEFAULTS is None  # not left over for the next file
+
+
+def test_full_files_of_earlier_versions_still_open(tmp_path):
+    m = _tower(2)
+    p = tmp_path / "old.ssj.json"
+    p.write_text(m.to_json(compact=False).replace('"schema_version": "2.4"', '"schema_version": "2.3"'),
+                 encoding="utf-8")
+    assert Model.from_json(str(p)).hash() == m.hash()

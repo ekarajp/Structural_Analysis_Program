@@ -6,6 +6,7 @@ elements; :mod:`structstudio.mesh` turns it into an analysis model and
 """
 from __future__ import annotations
 
+import copy
 import dataclasses
 import math
 import hashlib
@@ -27,9 +28,12 @@ from .nonlinear import (NONLINEAR_TYPES, FiberSectionDef, FrameHingeAssignment, 
                         HingeProperty, LinkDOF, LinkObject, LinkProperty, NonlinearMaterial, NonlinearStaticCase,
                         TimeHistoryCase, TimeHistoryLoad)
 
-SCHEMA_VERSION = "2.3"  # 2.1: area loads are load panels made from the areas (PanelLoad.area)
+SCHEMA_VERSION = "2.4"  # 2.1: area loads are load panels made from the areas (PanelLoad.area)
 # 2.2: the mesh refinement check is off by default (files before 2.2 saved it on by default)
 # 2.3: multiple towers (Model.towers, Story.tower, GridSystem.tower)
+# 2.4: compact files - a field equal to its default is left out of each object and the defaults
+#      used are written once in "defaults" (read back from there, never from this version's own
+#      defaults: a later change of a default cannot change what a saved file means)
 
 def write_text_atomic(path: str, text: str, backup: bool = True) -> None:
     """Write ``text`` to ``path`` so that a failure part way (disk full, the drive
@@ -78,7 +82,7 @@ _KNOWN_KEYS = {"schema_version", "units", "display_units", "info", "options", "m
                "frame_sections", "shell_sections", "stories", "towers", "grid_systems", "grid_lines", "diaphragms", "points",
                "frames", "areas", "groups", "line_springs", "tendons", "panel_loads", "load_patterns", "mass_sources",
                "functions", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",
-               "frame_nonlinear", "hinge_properties", "link_properties", "links", "design"}
+               "frame_nonlinear", "hinge_properties", "link_properties", "links", "design", "defaults"}
 
 _CASE_TYPES = {
     "LinearStatic": LinearStaticCase,
@@ -1574,8 +1578,11 @@ class Model:
             **{k: v for k, v in (getattr(self, "unknown_data", None) or {}).items() if k not in _KNOWN_KEYS},
         }
 
-    def to_json(self, path: Optional[str] = None, indent: int = 1) -> str:
-        text = json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+    def to_json(self, path: Optional[str] = None, indent: int = 1, compact: bool = True) -> str:
+        """The model as JSON text (written to ``path`` when given).  ``compact``: fields
+        equal to their default are left out (see :func:`compact_dict`); read back exactly."""
+        d = self.to_dict()
+        text = json.dumps(compact_dict(d) if compact else d, indent=indent, ensure_ascii=False)
         if path:
             write_text_atomic(path, text)
         return text
@@ -1593,13 +1600,16 @@ class Model:
                                               f"this version reads schema {SCHEMA_VERSION} and older.  The file was not "
                                               "opened, so none of its data is lost - use the newer version",
                              "schema_version")
+        global _DEFAULTS
         _UNKNOWN = []
+        _DEFAULTS = data.get("defaults") if isinstance(data.get("defaults"), dict) else None
         try:
             m = cls._from_dict_checked(data)
             m.unknown_data = {k: v for k, v in data.items() if k not in _KNOWN_KEYS}
             m.unknown_fields = list(_UNKNOWN)
         finally:
             _UNKNOWN = None
+            _DEFAULTS = None
         return m
 
     @classmethod
@@ -1677,6 +1687,69 @@ def _coerce_tuples(d: dict) -> dict:
 
 
 _UNKNOWN: Optional[List[str]] = None  # paths of unknown fields met by the current from_dict
+_DEFAULTS: Optional[dict] = None  # the "defaults" of the compact file being read
+
+
+def _same_json(a, b) -> bool:
+    """Equal JSON values, strictly: the same types (1 is not 1.0), -0.0 is not 0.0."""
+    if type(a) is not type(b):
+        return False
+    if a is None or type(a) is bool or type(a) is str or type(a) is int:
+        return a == b
+    if isinstance(a, float):
+        return a == b and math.copysign(1.0, a) == math.copysign(1.0, b)
+    if isinstance(a, list):
+        return len(a) == len(b) and all(_same_json(x, y) for x, y in zip(a, b))
+    if isinstance(a, dict):
+        return a.keys() == b.keys() and all(_same_json(a[k], b[k]) for k in a)
+    return a == b
+
+
+_DEFAULT_JSON: Dict[str, Dict[str, object]] = {}
+
+
+def _type_defaults(cls) -> Dict[str, object]:
+    """field -> JSON value of its default, for the fields of ``cls`` that have one."""
+    out = _DEFAULT_JSON.get(cls.__name__)
+    if out is None:
+        out = {}
+        for f in dataclasses.fields(cls):
+            if f.default is not dataclasses.MISSING:
+                out[f.name] = to_dict(f.default)
+            elif f.default_factory is not dataclasses.MISSING:
+                out[f.name] = to_dict(f.default_factory())
+        _DEFAULT_JSON[cls.__name__] = out
+    return out
+
+
+def compact_dict(data: dict) -> dict:
+    """The full model dict with every object's fields that equal their default left out,
+    and those defaults written once under "defaults" (only the ones left out somewhere).
+    :meth:`Model.from_dict` reads it back to the same model (the same hash)."""
+    used: Dict[str, Dict[str, object]] = {}
+
+    def walk(v):
+        if isinstance(v, dict):
+            t = v.get("_type")
+            cls = _TYPE_REGISTRY.get(t) if isinstance(t, str) else None
+            if cls is None:
+                return {k: walk(x) for k, x in v.items()}
+            dflt = _type_defaults(cls)
+            out = {}
+            for k, x in v.items():
+                if k != "_type" and k in dflt and _same_json(x, dflt[k]):
+                    used.setdefault(t, {})[k] = dflt[k]
+                    continue
+                out[k] = walk(x)
+            return out
+        if isinstance(v, list):
+            return [walk(x) for x in v]
+        return v
+    out = {k: (walk(v) if k not in ("info", "options", "units", "display_units", "schema_version") else v)
+           for k, v in data.items()}
+    if used:
+        out["defaults"] = used
+    return out
 
 
 def _from_dict(d, path: str = ""):
@@ -1687,11 +1760,17 @@ def _from_dict(d, path: str = ""):
                                              "version; the file was not opened (its data would be lost)", path)
         kwargs = {}
         names = set()
+        dflt = _DEFAULTS.get(d["_type"]) if _DEFAULTS else None
         for f in dataclasses.fields(cls):
             names.add(f.name)
-            if f.name not in d:
+            if f.name in d:
+                v = d[f.name]
+            elif dflt is not None and f.name in dflt:
+                v = dflt[f.name]  # (a compact file: the default it was saved with)
+                if isinstance(v, (list, dict)):
+                    v = copy.deepcopy(v)
+            else:
                 continue
-            v = d[f.name]
             kwargs[f.name] = _from_dict(v, f"{path}.{f.name}" if path else f.name)
             # dataclass tuples are serialised as lists
             if isinstance(kwargs[f.name], list) and str(f.type).startswith(("Tuple", "SixBool", "Six", "Vec3", "typing.Tuple")):
