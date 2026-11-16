@@ -118,10 +118,12 @@ def _size_hint(model, am) -> str:
     tips = []
     if am is not None and getattr(am, "bodies", None) and model.options.slab_column_rigid_zone:
         tips.append("turn off 'Slabs: rigid zone over columns' in Analyze > Analysis Model Defaults (each column "
-                    "gets a fine graded mesh in every slab it meets, whatever the maximum mesh size)")
+                    "gets a fine graded mesh in every slab it meets, whatever the maximum mesh size; without it the "
+                    "slab-column joints are more flexible and the results change)")
     tips.append("use a larger maximum mesh size (Analyze > Automatic Mesh Settings)")
     tips.append("model floors that only spread load as membranes with a rigid diaphragm")
-    return "To make it smaller: " + "; or ".join(tips) + "."
+    return ("Without changing the model: close other programs (and other open models) to free memory, then run "
+            "again. To make the model smaller: " + "; or ".join(tips) + ".")
 
 
 def _out_of_memory(model, am, exc=None):

@@ -224,10 +224,17 @@ A complete example: `examples/nonlinear_rc_frame.py`.
   reports the difference of the monitored translations (`history["temporal_check"]`,
   warning above `dt_check_tolerance`).  A step larger than a record's sampling
   interval is warned.
-* **Softening branch (arc-length)** – unchanged behaviour, now disclosed: when the
-  arc-length fallback holds softening hinges on their loading branch the substeps are
-  listed in `history["branch_events"]` with a warning.  A user setting for this choice
-  needs an agreed contract first.
+* **Softening branch (arc-length)** – contract (decided 2026-11-16): the analysis
+  continues past a strength drop; when the arc-length fallback has to hold softening
+  hinges on their loading branch (no unloading) to converge, those substeps are listed
+  in `history["branch_events"]` and a warning names them.  The post-peak curve is kept
+  (needed e.g. for SPO2IDA), and the points that rest on this solver choice are marked
+  rather than hidden.
+* **Mass of members with end offsets** – contract (decided 2026-11-16): the member's
+  mass (and self-weight) is taken over its clear length between the end offsets; the
+  part inside the joint is the joint region already counted with the column, so a
+  full-length member mass would count it twice.  OpenSees elements carry the mass of
+  their full node-to-node length - a modelling difference, not an error of either.
 * Not changed: lumped mass (consistent mass is a separate formulation option), DKMQ
-  shells, the clear-span mass of members with end offsets.
+  shells.
 

@@ -92,8 +92,18 @@ def available_memory():
 class _PardisoFactor:
     """Factor of a symmetric positive definite matrix (upper triangle, CSR)."""
 
-    def __init__(self, lib, K: sparse.csr_matrix):
+    # relative residual the refinement of a single-precision factor aims at (the solve
+    # still accepts up to 1e-6, as for the double factor)
+    REFINE_TOL = 1e-12
+    REFINE_MAX_IT = 300
+
+    def __init__(self, lib, K, allow_single: bool = True):
+        holder = K if isinstance(K, list) else None
+        if holder is not None:  # the caller hands the matrix over: released once triangulated
+            K = holder.pop()
         self.lib = lib
+        self.precision = "double"
+        self.refine_iterations = 0
         self.n = n = K.shape[0]
         self.K = None  # (the full matrix is not kept: the residual uses the upper triangle)
         self.pt = np.zeros(64, np.int64)
@@ -105,6 +115,7 @@ class _PardisoFactor:
         if n == 0:
             return
         A = sparse.triu(K.tocsr(), format="csr")
+        del K  # (with a holder, the full matrix is freed here: only the upper triangle stays)
         A.sum_duplicates()
         A.sort_indices()
         self.U = A  # upper triangle: the equilibrium check of every solve (half the memory of K)
@@ -131,16 +142,23 @@ class _PardisoFactor:
             avail = available_memory()
             if avail is not None and need > avail:
                 self.free()
-                raise MemoryError(f"the factorisation of {n:,} equations needs about {need / 2 ** 30:.1f} GB; "
-                                  f"{avail / 2 ** 30:.1f} GB of memory is free")
-            err = self._call(22, np.zeros((n, 1)))[1]
+                if not allow_single:
+                    raise MemoryError(f"the factorisation of {n:,} equations needs about {need / 2 ** 30:.1f} GB; "
+                                      f"{avail / 2 ** 30:.1f} GB of memory is free")
+                err = self._single_precision(need, avail)
+            else:
+                err = self._call(22, np.zeros((n, 1)))[1]
         if err != 0:
             self.free()
             if err == -2:  # not enough memory: SuperLU would need more still - say so instead
                 raise MemoryError(f"PARDISO: not enough memory to factor {n} equations")
+            if self.precision == "single":  # SuperLU (double, more memory) cannot take over here
+                raise MemoryError(f"the factorisation of {n:,} equations does not fit in double precision and the "
+                                  f"single-precision factor failed (PARDISO error {err}: the stiffness may be unstable)")
             raise _Fallback(f"PARDISO error {err}")
-        df = np.zeros(n)
-        da = np.zeros(n)
+        dt = np.float32 if self.precision == "single" else np.float64
+        df = np.zeros(n, dt)
+        da = np.zeros(n, dt)
         e2 = _I(0)
         lib.pardiso_getdiag(self.pt.ctypes.data_as(ctypes.c_void_p), df.ctypes.data_as(ctypes.c_void_p),
                             da.ctypes.data_as(ctypes.c_void_p), ctypes.byref(_I(1)), ctypes.byref(e2))
@@ -151,13 +169,105 @@ class _PardisoFactor:
                 raise _Fallback("invalid pivots")
             if p.size:
                 self.pivot_ratio = float(np.min(p) / np.max(p))
-                if self.pivot_ratio <= FALLBACK_PIVOT:
+                if self.precision == "single":
+                    # pivots of the diagonally scaled matrix: a stable structure has them of order 1;
+                    # one below the single-precision resolution is a (near) mechanism that cannot be
+                    # told apart here and that the double-precision diagnosis has no memory for
+                    if self.pivot_ratio <= 1e3 * float(np.finfo(np.float32).eps) * 1e-3:
+                        self.free()
+                        raise MemoryError(f"the factorisation of {n:,} equations does not fit in double precision, "
+                                          f"and in single precision a pivot is {self.pivot_ratio:.1e} of the largest "
+                                          "(a near mechanism that needs the double-precision diagnosis)")
+                elif self.pivot_ratio <= FALLBACK_PIVOT:
                     self.free()
                     raise _Fallback("near-singular pivot")
 
+    def _single_precision(self, need_double: float, avail: float) -> int:
+        """Factor in single precision when the double-precision factor does not fit.
+
+        The matrix is scaled to unit diagonal (D^-1/2 K D^-1/2, so translations and
+        rotations keep their digits in float32) and factored by PARDISO in single
+        precision; every solve then runs preconditioned conjugate gradients in double
+        precision on the original matrix, to the same equilibrium residual test as the
+        double factor.  The factor takes about half the memory."""
+        n = self.n
+        d = np.asarray(self.U.diagonal(), float)
+        if np.any(d <= 0) or not np.all(np.isfinite(d)):
+            raise _Fallback("non-positive diagonal")
+        self.scale = 1.0 / np.sqrt(d)
+        U = self.U
+        rows = np.repeat(np.arange(n, dtype=np.int64), np.diff(U.indptr))
+        a32 = (U.data * self.scale[rows] * self.scale[U.indices]).astype(np.float32)
+        del rows
+        self.pt = np.zeros(64, np.int64)
+        self.iparm = np.zeros(64, np.int32)
+        self.lib.pardisoinit(self.pt.ctypes.data_as(ctypes.c_void_p), ctypes.byref(_I(self.mtype)),
+                             self.iparm.ctypes.data_as(_P(_I)))
+        self.iparm[34] = 1
+        self.iparm[55] = 1
+        self.iparm[27] = 1  # single precision: a, b, x and the factor in float32
+        self.iparm[7] = 0   # no internal refinement: the refinement is the double-precision CG below
+        self.precision = "single"
+        self.a = a32
+        err = self._call(11, np.zeros((n, 1)))[1]
+        self._alive = True
+        if err != 0:
+            return err
+        need = (int(self.iparm[15]) + int(self.iparm[16])) * 1024.0
+        self.memory_needed = need
+        self.memory_needed_double = need_double
+        avail2 = available_memory()
+        avail2 = avail if avail2 is None else avail2
+        if need > avail2:
+            self.free()
+            raise MemoryError(f"the factorisation of {n:,} equations needs about {need_double / 2 ** 30:.1f} GB "
+                              f"(double precision) or {need / 2 ** 30:.1f} GB (single precision with refinement); "
+                              f"{avail2 / 2 ** 30:.1f} GB of memory is free")
+        return self._call(22, np.zeros((n, 1)))[1]
+
+    def _precondition(self, R: np.ndarray) -> np.ndarray:
+        """(single-precision factor)^-1 R, for a block of right-hand sides (n, k)."""
+        s = self.scale[:, None]
+        x, err = self._call(33, (R * s).astype(np.float32))
+        if err != 0:
+            raise ModelError("UNSTABLE_STRUCTURE", f"The sparse solver failed (PARDISO error {err})")
+        return np.asarray(x, np.float64) * s
+
+    def _refine(self, B: np.ndarray) -> np.ndarray:
+        """Preconditioned conjugate gradients in double precision, column by column
+        (blocked); converges in a few steps when the single factor is good."""
+        nb = np.linalg.norm(B, axis=0)
+        X = np.zeros_like(B)
+        act = np.where(nb > 0)[0]
+        if act.size == 0:
+            return X
+        R = B[:, act].copy()
+        Z = self._precondition(R)
+        P = Z.copy()
+        rz = np.einsum("ij,ij->j", R, Z)
+        it = 0
+        for it in range(1, self.REFINE_MAX_IT + 1):
+            AP = self._matvec(P)
+            pap = np.einsum("ij,ij->j", P, AP)
+            ok = (pap > 0) & np.isfinite(pap)
+            alpha = np.where(ok, rz / np.where(ok, pap, 1.0), 0.0)
+            X[:, act] += P * alpha
+            R -= AP * alpha
+            res = np.linalg.norm(R, axis=0) / nb[act]
+            keep = (res > self.REFINE_TOL) & ok
+            if not np.any(keep):
+                break
+            act, R, P, rz = act[keep], R[:, keep], P[:, keep], rz[keep]
+            Z = self._precondition(R)
+            rz_new = np.einsum("ij,ij->j", R, Z)
+            P = Z + P * (rz_new / np.where(rz != 0, rz, 1.0))
+            rz = rz_new
+        self.refine_iterations = max(self.refine_iterations, it)
+        return X
+
     def _call(self, phase: int, b: np.ndarray):
         n = self.n
-        b = np.asfortranarray(b, dtype=np.float64)
+        b = np.asfortranarray(b, dtype=np.float32 if self.precision == "single" else np.float64)
         nrhs = b.shape[1] if b.ndim == 2 else 1
         x = np.zeros_like(b)
         err = _I(0)
@@ -174,9 +284,15 @@ class _PardisoFactor:
         if self.n == 0:
             return np.zeros_like(b)
         b = np.asarray(b, float)
-        x, err = self._call(33, b if b.ndim == 2 else b[:, None])
-        if err != 0:
-            raise ModelError("UNSTABLE_STRUCTURE", f"The sparse solver failed (PARDISO error {err})")
+        if self.precision == "single":
+            B = b if b.ndim == 2 else b[:, None]
+            # a few right-hand sides at a time: the CG keeps several n x k work arrays
+            x = np.concatenate([self._refine(B[:, j:j + 8]) for j in range(0, B.shape[1], 8)], axis=1) \
+                if B.shape[1] else np.zeros_like(B)
+        else:
+            x, err = self._call(33, b if b.ndim == 2 else b[:, None])
+            if err != 0:
+                raise ModelError("UNSTABLE_STRUCTURE", f"The sparse solver failed (PARDISO error {err})")
         x = x if b.ndim == 2 else x[:, 0]
         nb = float(np.linalg.norm(b))
         if nb > 0:
@@ -221,14 +337,21 @@ class PardisoKernel(SciPyKernel):
         self.lib = _library()
         self.last_fallback = None
 
-    def factor(self, K: sparse.csr_matrix):
+    accepts_holder = True  # factor([K]) takes the matrix over and frees it once triangulated
+
+    def factor(self, K):
+        holder = K if isinstance(K, list) else None
+        fac = _PardisoFactor.__new__(_PardisoFactor)
         try:
-            fac = _PardisoFactor(self.lib, K)
+            fac.__init__(self.lib, K)
             self.last_fallback = None
             return fac
         except _Fallback as why:
             # not positive definite / nearly singular: SuperLU names the DOFs (or raises)
             self.last_fallback = str(why)
+            if holder is not None:  # the full matrix was released: rebuilt from the triangle
+                U = fac.U
+                K = (U + U.T - sparse.diags(U.diagonal())).tocsr()
             return _SciPyFactor(K)
 
     def describe(self) -> str:

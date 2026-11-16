@@ -172,8 +172,23 @@ class Engine:
             self._check_definite(fac, f"Stiffness from {stiffness_from!r}")
             return fac
         if self._factor is None:
-            fac = self.kernel.factor(self._free_matrix(self.K_reduced()))
+            if getattr(self.kernel, "accepts_holder", False):
+                # memory: the free-DOF matrix is handed over (freed once the kernel has its
+                # triangle) and the reduced matrix is dropped while the factor is made (it is
+                # rebuilt from the full one when a later step needs it)
+                holder = [self._free_matrix(self.K_reduced())]
+                self._K_red = None
+                fac = self.kernel.factor(holder)
+            else:
+                fac = self.kernel.factor(self._free_matrix(self.K_reduced()))
             self._check_definite(fac, "Linear stiffness")
+            if getattr(fac, "precision", "double") == "single":
+                need = getattr(fac, "memory_needed_double", 0.0) / 2 ** 30
+                self.am.warnings.append(
+                    f"Memory: the stiffness ({fac.n:,} equations) did not fit in memory in double precision "
+                    f"(about {need:.1f} GB needed); it was factored in single precision and every solution is "
+                    "refined in double precision to the same equilibrium check (relative residual 1e-12 aimed, "
+                    "1e-6 required) - slower solves, same accuracy")
             self._factor = fac
             self._report_instability(self._factor)
         return self._factor
