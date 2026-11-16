@@ -50,8 +50,6 @@ class MenuCommandsMixin:
             "edit.grid_at_joints": self.edit_grid_at_joints,
             "edit.replicate": self.edit_replicate_tabs,
             "edit.merge_joints": self.edit_merge_joints,
-            "edit.align": self.edit_align,
-            "edit.point_coordinates": self.edit_point,
             "edit.join_frames": self.edit_join_frames,
             "edit.reverse_frames": self.edit_reverse_frames,
             "edit.beam_axis": self.edit_beam_axis,
@@ -462,15 +460,6 @@ class MenuCommandsMixin:
             n = C.merge_joints(self.doc, list(self.state.points), v["tol"])
             self.state.clear_selection()
             self._info(f"Merged {n} joint(s)")
-
-    def edit_align(self):
-        if not self._need("point"):
-            return
-        v = ask(self, "Align Selected Joints", [("axis", "Align joints to", "Z-Ordinate",
-                                                 {"choices": ["X-Ordinate", "Y-Ordinate", "Z-Ordinate"]}),
-                                                ("value", "Ordinate", 0.0)])
-        if v:
-            C.align_points(self.doc, list(self.state.points), v["axis"][0], v["value"])
 
     def edit_join_frames(self):
         if not self._need("frame"):

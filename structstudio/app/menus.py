@@ -152,8 +152,6 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
         ("Move Objects with Grid Lines", "edit.glue_joints"),
         "-",
         ("Merge Joints...", "edit.merge_joints"),
-        ("Align Joints/Frames/Edges...", "edit.align", "Ctrl+Shift+M"),
-        ("Edit Joint Coordinates...", "edit.point_coordinates"),
         "-",
         ("Edit Frames", [("Divide Frames...", "edit.divide_frames"), ("Join Frames", "edit.join_frames"),
                          ("Reverse Frame Connectivity", "edit.reverse_frames"),
