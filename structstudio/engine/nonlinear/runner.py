@@ -19,6 +19,31 @@ from .domain import NonlinearDomain
 _DOF = {"UX": 0, "UY": 1, "UZ": 2, "RX": 3, "RY": 4, "RZ": 5, "U1": 0, "U2": 1, "U3": 2, "R1": 3, "R2": 4, "R3": 5}
 
 
+def _capacity_points(steps):
+    """Where a pushover curve peaks and where it has failed.
+
+    ``peak``: the step of the largest load factor (the capacity); ``strength_loss_20``: the
+    first later step whose load factor is at or below 80 % of the peak (the conventional
+    ultimate / failure point; None while the strength is kept); ``first_branch_hold``:
+    the first step recorded after the arc-length solver held softening hinges on their
+    loading branch (None if it never did); ``last``: the final step.  Each is a dict
+    step / lambda / control (the monitored displacement, internal units) or None."""
+    if not steps:
+        return {"peak": None, "strength_loss_20": None, "first_branch_hold": None, "last": None}
+
+    def pt(st):
+        return {"step": st["step"], "lambda": float(st["lambda"]), "control": st["control"]}
+    lam = [abs(float(st["lambda"])) for st in steps]
+    k = max(range(len(lam)), key=lam.__getitem__)
+    loss = next((steps[j] for j in range(k + 1, len(steps)) if lam[j] <= 0.8 * lam[k]), None) if lam[k] > 0 else None
+    hold = next((st for st in steps if st.get("branch_hold")), None)
+    return {"peak": pt(steps[k]), "strength_loss_20": pt(loss) if loss else None,
+            "first_branch_hold": pt(hold) if hold else None, "last": pt(steps[-1])}
+
+
+ENERGY_BALANCE_WARN = 0.05  # relative energy balance error of a time history above which it is warned
+
+
 @dataclass
 class NLState:
     """End state of a nonlinear case, used by cases that continue from it."""
@@ -153,11 +178,16 @@ class NonlinearRunner:
         failed = None
         n = max(int(case.n_steps), 1)
 
+        held = [0]
+
         def record():
             uf, react = self._state(dom)
             st = {"step": len(steps) + 1, "lambda": sa.lam,
                   "control": float(ctrl_c @ dom.u) if ctrl_c is not None else None,
                   "base_reaction": self._base_reaction(react, uf), "hinges": dom.hinge_results()}
+            if len(sa.branch_events) > held[0]:  # this step follows an arc-length branch hold
+                held[0] = len(sa.branch_events)
+                st["branch_hold"] = True
             steps.append(st)
             if case.save_steps.lower().startswith("mult"):
                 disps.append(uf.reshape(-1, 6).copy())
@@ -239,6 +269,24 @@ class NonlinearRunner:
         res = self._final_result(case, "NonlinearStatic", dom, history)
         if failed:
             res.warnings.append(f"Case {case.name}: stopped before the end ({failed})")
+        cap = _capacity_points(steps)
+        history["capacity_points"] = cap
+        if cap.get("peak") and (cap.get("strength_loss_20") or cap.get("first_branch_hold")):
+            is_u = case.monitored_dof.upper().startswith("U")
+            fl = U.factor("length") if is_u else 1.0
+            unit = U.length if is_u and hasattr(U, "length") else ""
+
+            def at(pt):
+                d = "" if pt["control"] is None else f", displacement {pt['control'] / fl:.4g} {unit}".rstrip()
+                return f"step {pt['step']}{d}, load factor {pt['lambda']:.4g}"
+            msg = f"Case {case.name}: peak capacity at {at(cap['peak'])}"
+            if cap.get("strength_loss_20"):
+                msg += (f"; the strength has dropped to 80% of the peak at {at(cap['strength_loss_20'])} - the usual "
+                        "definition of the ultimate (failure) point; the curve beyond it is post-failure response")
+            if cap.get("first_branch_hold"):
+                msg += (f"; from {at(cap['first_branch_hold'])} the curve rests on the solver's branch hold "
+                        "(see the next warning)")
+            res.warnings.append(msg)
         if sa.branch_events:
             history["branch_events"] = list(sa.branch_events)
             res.warnings.append(f"Case {case.name}: in {len(sa.branch_events)} arc-length substep(s) after a strength "
@@ -442,11 +490,18 @@ class NonlinearRunner:
                                "beta": ta.beta, "alpha": ta.alpha},
                 "algorithm_stats": {k: (len(v) if isinstance(v, list) else v) for k, v in ta.stats.items()},
                 "equilibrium": "converged at every step" if not failed else "stopped (not converged)",
+                "energy_balance": ta.energy_balance(),
                 "temporal_check": {"status": "not checked (set dt_check to compare with dt/2)"}}
         kind = "NonlinearTimeHistory" if case.nonlinear else "LinearTimeHistory"
         res = self._final_result(case, kind, dom, hist)
         for w in ta.integrator_warnings:
             res.warnings.append(f"Case {case.name}: {w}")
+        eb = hist["energy_balance"]["relative_error"]
+        if eb is not None and eb > ENERGY_BALANCE_WARN and not failed:
+            res.warnings.append(f"Case {case.name}: energy balance error {100 * eb:.1f}% of the largest energy term "
+                                "(kinetic + internal + damping work - external work) - numerical dissipation of "
+                                "the integrator or a time step too coarse for the nonlinear response; compare "
+                                "with a smaller dt")
         if failed:
             res.warnings.append(f"Case {case.name}: stopped at t = {ta.t:.4f} s ({failed})")
         final = dict(const)

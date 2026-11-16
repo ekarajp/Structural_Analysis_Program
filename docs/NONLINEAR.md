@@ -210,7 +210,7 @@ A complete example: `examples/nonlinear_rc_frame.py`.
   `INVALID_INTEGRATOR_PARAMETER`).  gamma < 0.5, gamma > 0.5, beta < gamma/2 and HHT
   alpha < 1 run with a warning.  `history["integrator"]` gives requested and effective.
 * **Eigen** – a negative eigenvalue is set to 0 only when the mode's Rayleigh quotient
-  is zero to its rounding (1e3 eps |phi|^T|K||phi|); otherwise it is kept and reported
+  is zero to the accuracy of a computed shape (|phi^T K phi| <= 1e-9 |phi|^T|K||phi|); otherwise it is kept and reported
   (`NEGATIVE_EIGENVALUE`, also for the damping / FNA modes of nonlinear cases).  With a
   semi-definite mass the number of shapes equals the number of finite eigenvalues.
   Residuals and mass orthonormality are checked (`ModalData.solver`).
@@ -238,3 +238,14 @@ A complete example: `examples/nonlinear_rc_frame.py`.
 * Not changed: lumped mass (consistent mass is a separate formulation option), DKMQ
   shells.
 
+* **Energy balance (time history)** – every direct-integration case reports
+  `history["energy_balance"]`: kinetic energy, internal work (strain + hysteretic),
+  damping work, external work (trapezoidal over each accepted step) and their balance
+  error relative to the largest term.  It is zero to rounding for a linear model with
+  Newmark average acceleration; above 5 % a warning is given (numerical dissipation of
+  the integrator, or a time step too coarse for the nonlinear response).
+* **Where a pushover has failed** – `history["capacity_points"]` gives the peak
+  (largest load factor), `strength_loss_20` (first later step at or below 80 % of the
+  peak: the conventional ultimate / failure point), `first_branch_hold` (first step
+  that rests on the arc-length branch hold) and the last step; a warning states them
+  with step, monitored displacement and load factor whenever the strength dropped.

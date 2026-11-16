@@ -82,3 +82,34 @@ def test_frame_results_identical_with_single_precision(monkeypatch):
     got = res.joint_displacement(c.name, "P")
     assert np.allclose(got, ref, rtol=1e-10, atol=1e-14)
     assert any("single precision" in i.message for i in res.issues)
+
+
+def test_memory_retry_releases_the_assembled_stiffness(monkeypatch):
+    """A MemoryError at the factor is retried once with the full stiffness released;
+    the results are those of the normal run."""
+    def model():
+        m = Model("cant", "N m")
+        m.add_material("S", E=200e9, nu=.3)
+        m.add_frame_section(FrameSection.general("B", "S", A=.02, I33=8e-5, I22=4e-5, J=1e-5))
+        a, b = m.add_point(0, 0, 0, restraints=FIXED), m.add_point(3, 0, 0)
+        m.add_frame(a, b, "B")
+        m.add_load_pattern("P")
+        m.add_point_load(b, "P", force=(0, 0, -1e4))
+        m.add_linear_static_case("P")
+        return m, b
+    m, b = model()
+    ref = analyze(m, kernel=KERNEL).joint_displacement(b.name, "P")
+    k = kp.PardisoKernel()
+    real, n = k.factor, []
+
+    def flaky(K):
+        n.append(1)
+        if len(n) == 1:
+            raise MemoryError("test")
+        return real(K)
+    k.factor = flaky
+    m, b = model()
+    res = analyze(m, kernel=k)
+    assert len(n) == 2
+    assert np.allclose(res.joint_displacement(b.name, "P"), ref, rtol=1e-12, atol=0)
+    assert any("released" in i.message for i in res.issues)

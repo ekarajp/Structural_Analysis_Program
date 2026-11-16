@@ -259,14 +259,18 @@ class SciPyKernel:
     last_eigen_check = None  # diagnostics of the last eigen() call (see _check_eigenpairs)
 
 
+RIGID_MODE_RATIO = 1e-9  # |phi^T K phi| / (|phi|^T |K| |phi|) below this: a zero (rigid-body) eigenvalue
+
+
 def _check_eigenpairs(K, M, w2, phi):
     """Validate mass-normalised eigenpairs and settle the sign of near-zero eigenvalues.
 
     A negative eigenvalue is set to zero (a rigid-body mode) only when the mode's own
-    Rayleigh quotient phi^T K phi is zero to the rounding of that product, i.e. within
-    1e3 eps |phi|^T |K| |phi|; otherwise it is kept, so that a negative stiffness is
-    reported and never hidden as a rigid mode (the bound is per mode, not relative to
-    the highest computed eigenvalue).  Returns (w2, diagnostics): per-mode relative
+    Rayleigh quotient phi^T K phi is zero to the accuracy of a computed shape, i.e.
+    |phi^T K phi| <= RIGID_MODE_RATIO |phi|^T |K| |phi| (the cancellation in that product
+    for a shape known to about 1e-6: real free models give 1e-16 .. 1e-11); otherwise it
+    is kept, so that a negative stiffness is reported and never hidden as a rigid mode
+    (the bound is per mode, not relative to the highest computed eigenvalue).  Returns (w2, diagnostics): per-mode relative
     residual ||K phi - w2 M phi|| / (||K phi|| + |w2| ||M phi||), the largest deviation
     of phi^T M phi from the identity, the original eigenvalues and the modes set to 0."""
     eps = np.finfo(float).eps
@@ -275,16 +279,18 @@ def _check_eigenpairs(K, M, w2, phi):
     Mp = M @ phi
     rq = np.einsum("ij,ij->j", phi, Kp)
     s = np.einsum("ij,ij->j", np.abs(phi), abs(K) @ np.abs(phi))
-    rigid = (w2 < 0) & np.isfinite(w2) & (np.abs(rq) <= 1e3 * eps * np.maximum(s, 1e-300))
+    ratio = np.abs(rq) / np.maximum(s, 1e-300)
+    rigid = (w2 < 0) & np.isfinite(w2) & (ratio <= RIGID_MODE_RATIO)
     w2 = np.where(rigid, 0.0, w2)
     res = np.linalg.norm(Kp - Mp * w2, axis=0)
-    den = np.linalg.norm(Kp, axis=0) + np.abs(w2) * np.linalg.norm(Mp, axis=0)
+    # scaled by |K||phi| (not K phi, which is itself ~0 for a rigid-body mode)
+    den = np.linalg.norm(abs(K) @ np.abs(phi), axis=0) + np.abs(w2) * np.linalg.norm(Mp, axis=0)
     rel = np.where(den > 0, res / np.maximum(den, 1e-300), 0.0)
     G = phi.T @ Mp
     gram = float(np.max(np.abs(G - np.eye(G.shape[0])))) if G.size else 0.0
     return w2, {"relative_residual": rel, "max_residual": float(np.max(rel)) if rel.size else 0.0,
                 "mass_orthonormality_error": gram, "eigenvalues_computed": w_in,
-                "rayleigh_quotients": rq, "set_to_zero": np.where(rigid)[0].tolist()}
+                "rayleigh_quotients": rq, "rayleigh_ratio": ratio, "set_to_zero": np.where(rigid)[0].tolist()}
 
 
 def _eigh_semidefinite(K: np.ndarray, M: np.ndarray):

@@ -178,7 +178,22 @@ class Engine:
                 # rebuilt from the full one when a later step needs it)
                 holder = [self._free_matrix(self.K_reduced())]
                 self._K_red = None
-                fac = self.kernel.factor(holder)
+                try:
+                    fac = self.kernel.factor(holder)
+                except MemoryError:
+                    # last resort: also drop the assembled full stiffness while the factor is
+                    # made (it is assembled again when the results are recovered)
+                    import gc
+                    del holder
+                    self.asm._K_full = None
+                    gc.collect()
+                    holder = [self._free_matrix(self.K_reduced())]
+                    self._K_red = None
+                    self.asm._K_full = None
+                    gc.collect()
+                    fac = self.kernel.factor(holder)
+                    self.am.warnings.append("Memory: the assembled stiffness was released while the equations "
+                                            "were factored and assembled again afterwards (slower, same results)")
             else:
                 fac = self.kernel.factor(self._free_matrix(self.K_reduced()))
             self._check_definite(fac, "Linear stiffness")

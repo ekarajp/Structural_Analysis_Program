@@ -383,3 +383,53 @@ def test_core01_nonfinite_point_force_rejected():
     with pytest.raises(Exception) as ei:
         analyze(m, kernel=SciPyKernel())
     assert "NONFINITE" in str(getattr(ei.value, "code", "")) + str(ei.value)
+
+
+# ----------------------------------------------------------------- energy balance
+def test_energy_balance_closes_for_linear_average_acceleration():
+    m, _ = _th({})
+    eb = analyze(m, ['TH'], kernel=SciPyKernel())._case('TH').history["energy_balance"]
+    assert eb["external_work"] != 0 and eb["relative_error"] <= 1e-10
+    assert eb["kinetic"] + eb["internal_work"] + eb["damping_work"] == pytest.approx(eb["external_work"], rel=1e-9)
+
+
+def test_energy_balance_shows_numerical_dissipation():
+    m, _ = _th({'gamma': .9, 'beta': .49})  # strongly dissipative Newmark
+    res = analyze(m, ['TH'], kernel=SciPyKernel())
+    eb = res._case('TH').history["energy_balance"]
+    assert eb["relative_error"] > 1e-2  # (1e-10 with average acceleration)
+    warned = any("energy balance error" in i.message for i in res.issues)
+    assert warned == (eb["relative_error"] > 0.05)
+
+
+# ----------------------------------------------------------------- DYN02 through a user model
+def test_dyn02_user_model_with_rigid_body_modes_gives_zero_not_error():
+    """A model free along UX (rollers): the zero-frequency mode must stay a rigid mode
+    (w2 = 0) in the user-model path - the per-mode criterion must not turn it into
+    NEGATIVE_EIGENVALUE."""
+    for n_bays in (1, 6):
+        m = Model('free', 'N m')
+        m.use_csi_frame_defaults()
+        m.add_material('S', E=2e11, nu=.3)
+        m.add_frame_section(FrameSection.general('B', 'S', A=.01, I33=1e-4, I22=1e-4, J=1e-4))
+        pts = [m.add_point(4. * i, 0, 0, restraints=(False, True, True, True, False, True), mass=(100., 0, 0))
+               for i in range(n_bays + 2)]
+        for a, b in zip(pts, pts[1:]):
+            m.add_frame(a, b, 'B')
+        m.add_modal_case('M', max_modes=3)
+        modal = analyze(m, kernel=SciPyKernel())._case('M').modal
+        assert modal.eigenvalues[0] >= 0 and modal.eigenvalues[0] <= 1e-6 * modal.eigenvalues[1]
+
+
+def test_dyn02_sparse_solver_rigid_modes_of_a_free_chain_are_zero():
+    """ARPACK shapes are only accurate to its tolerance: the rigid-body mode of a free
+    model then has a tiny negative Rayleigh quotient, which must still read as zero
+    (found on a real free frame model: ratio 3e-12), while a true -1 is kept."""
+    n = 600
+    k = 1e9 * (1 + np.arange(n - 1) % 7)
+    K = sparse.diags([np.r_[k, 0] + np.r_[0, k], -k, -k], [0, 1, -1]).tocsr()
+    kern = SciPyKernel()
+    w2, _ = kern.eigen(K, sparse.eye(n).tocsr(), 4, method="sparse")
+    assert w2[0] == 0.0 or 0 <= w2[0] <= 1e-6 * w2[1]
+    assert w2[1] > 0
+    assert kern.last_eigen_check["max_residual"] <= 1e-8

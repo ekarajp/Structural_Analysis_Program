@@ -377,3 +377,32 @@ def test_pmm_fiber_hinge_equals_plastic_hinge_integration_and_feels_axial_load()
     v_hi = np.array([r["BaseForce"] for r in r_hi.pushover_curve("PUSH")])
     assert v_hi.max() > 1.2 * vh.max()
     assert v_hi[-1] < v_hi.max()
+
+
+def test_pushover_reports_peak_and_failure_point():
+    """The capacity curve continues past the strength drop, and the result says where
+    the peak is and where the strength has fallen to 80 % of it (the failure point)."""
+    My = 120.0
+    pts = [(0.0, My), (0.02, 1.1 * My), (0.02, 0.3 * My), (0.06, 0.3 * My)]
+    m, top = _cantilever(pts)
+    m.add_nonlinear_static_case("PUSH", {"L": 1.0}, control="Displacement", monitored_point=top.name,
+                                monitored_dof="UX", target_displacement=0.15, n_steps=17,
+                                geometric_nonlinearity="None")
+    res = analyze(m, ["PUSH"])
+    cap = res._case("PUSH").history["capacity_points"]
+    assert cap["peak"]["lambda"] == pytest.approx(1.1 * My / 3.0, rel=1e-6)
+    loss = cap["strength_loss_20"]
+    assert loss is not None and loss["step"] > cap["peak"]["step"]
+    assert loss["lambda"] <= 0.8 * cap["peak"]["lambda"]
+    assert loss["control"] == pytest.approx(cap["peak"]["control"], abs=1e-9)  # vertical drop: same displacement
+    assert cap["last"]["lambda"] == pytest.approx(0.3 * My / 3.0, rel=1e-6)
+    msg = [i.message for i in res.issues if "peak capacity" in i.message]
+    assert msg and "80% of the peak" in msg[0]
+    # no drop: no failure point, no message
+    m, top = _cantilever([(0.0, My), (0.2, My)])
+    m.add_nonlinear_static_case("PUSH", {"L": 1.0}, control="Displacement", monitored_point=top.name,
+                                monitored_dof="UX", target_displacement=0.2, n_steps=40,
+                                geometric_nonlinearity="None")
+    res = analyze(m, ["PUSH"])
+    assert res._case("PUSH").history["capacity_points"]["strength_loss_20"] is None
+    assert not any("peak capacity" in i.message for i in res.issues)

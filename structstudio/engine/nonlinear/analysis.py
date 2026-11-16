@@ -586,6 +586,8 @@ class TransientAnalysis:
         self.stats = {"line_search_evaluations": 0, "line_search_scaled": 0, "line_search_eta": [],
                       "anderson_corrections": 0, "anderson_max_change": 0.0}
         self._F_prev = self._external(0.0)
+        self.energy = {"external_work": 0.0, "internal_work": 0.0, "damping_work": 0.0, "kinetic": 0.0,
+                       "error": 0.0, "max_abs_error": 0.0, "_scale": 0.0, "_R": None, "_fd": None, "_kinetic0": 0.0}
         self.a = self._initial_acceleration(self._F_prev)
 
     def _initial_acceleration(self, F0: np.ndarray) -> np.ndarray:
@@ -647,6 +649,40 @@ class TransientAnalysis:
         out: Dict[str, float] = {}
         for g in self.ground:
             out[g.direction] = out.get(g.direction, 0.0) + g(t)
+        return out
+
+    def _energy_step(self, u, v, F1, R1, K):
+        """Energy balance of the accepted step (trapezoidal work over the step):
+        kinetic + internal work (strain and hysteretic) + damping work - external work.
+        Zero to rounding for a linear model with Newmark average acceleration; otherwise it
+        measures numerical dissipation and the time-step error of the nonlinear path -
+        a check that equilibrium convergence at each step does not give."""
+        e = self.energy
+        fd, _ = self._damping_force_and_matrix(v, K if K is not None else self._K0)
+        if self._modal is not None:
+            MPhi, cd = self._modal
+            fd = fd + MPhi @ (cd * (MPhi.T @ v))
+        if e["_R"] is None:  # state at the start of the analysis
+            e["_R"], e["_fd"] = np.zeros_like(R1), np.zeros_like(fd)
+            if np.any(self.u):
+                e["_R"] = np.array(self.dom.resisting(self.u, self.v, tangent=False)[0], float)
+        du = u - self.u
+        e["external_work"] += 0.5 * float((self._F_prev + F1) @ du)
+        e["internal_work"] += 0.5 * float((e["_R"] + R1) @ du)
+        e["damping_work"] += 0.5 * float((e["_fd"] + fd) @ du)
+        e["kinetic"] = 0.5 * float(v @ (self.M @ v))
+        e["_R"], e["_fd"] = R1, fd
+        err = e["kinetic"] - e["_kinetic0"] + e["internal_work"] + e["damping_work"] - e["external_work"]
+        scale = max(abs(e["external_work"]), abs(e["internal_work"]), e["kinetic"], abs(e["damping_work"]))
+        e["_scale"] = max(e["_scale"], scale)
+        e["max_abs_error"] = max(e["max_abs_error"], abs(err))
+        e["error"] = err
+
+    def energy_balance(self) -> dict:
+        e = self.energy
+        rel = e["max_abs_error"] / e["_scale"] if e["_scale"] > 0 else None
+        out = {k: v for k, v in e.items() if not k.startswith("_")}
+        out["relative_error"] = rel  # None: no energy in the system (N/A)
         return out
 
     def _damping_force_and_matrix(self, v, K_tan):
@@ -777,7 +813,7 @@ class TransientAnalysis:
             if it > 1:
                 ok, _ = self.test.check(du, r, ref_f + float(np.linalg.norm(R)), float(np.linalg.norm(u - un)) + 1e-300)
                 if ok:
-                    self._accept(u, v1, a1, t1, F1, K)
+                    self._accept(u, v1, a1, t1, F1, K, R if al == 1.0 else None)
                     return it
             du = fac.solve(r)
             if algorithm == "NewtonLineSearch":
@@ -797,11 +833,12 @@ class TransientAnalysis:
             u = u + du
         raise StepFailed(f"time step did not converge with {algorithm}")
 
-    def _accept(self, u, v, a, t, F1, K):
+    def _accept(self, u, v, a, t, F1, K, R=None):
         dom = self.dom
         # make sure the element state corresponds to u_{n+1}
-        if self.alpha != 1.0:
-            dom.resisting(u, v, tangent=False)
+        if self.alpha != 1.0 or R is None:
+            R = dom.resisting(u, v, tangent=False)[0]
+        self._energy_step(u, v, F1, np.array(R, float), K)
         dom.u = u
         dom.commit()
         self.u, self.v, self.a, self.t = u, v, a, t
