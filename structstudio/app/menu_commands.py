@@ -49,8 +49,6 @@ class MenuCommandsMixin:
             "edit.grid_stories": self.edit_grid_stories,
             "edit.grid_at_joints": self.edit_grid_at_joints,
             "edit.replicate": self.edit_replicate_tabs,
-            "edit.extrude_joints": self.edit_extrude_joints,
-            "edit.extrude_frames": self.edit_extrude_frames,
             "edit.merge_joints": self.edit_merge_joints,
             "edit.align": self.edit_align,
             "edit.point_coordinates": self.edit_point,
@@ -455,36 +453,6 @@ class MenuCommandsMixin:
             made = self._try("Replicate", lambda: C.replicate_transform(self.doc, *sel, T, reverse_areas=rev,
                                                                         delete_original=v.get("delete", False)))
         self._info(f"Replicate: created {len(made or [])} object(s)")
-
-    def edit_extrude_joints(self):
-        if not self._need("point"):
-            return
-        secs = list(self.doc.model.frame_sections)
-        if not secs:
-            return QtWidgets.QMessageBox.information(self, "Extrude", "Define a frame section first.")
-        v = ask(self, "Extrude Joints to Frames", [("section", "Property", secs[0], {"choices": secs}),
-                                                   ("dx", "dx", 0.0), ("dy", "dy", 0.0), ("dz", "dz", 3.0),
-                                                   ("n", "Number", 1, {"min": 1, "max": 1000})])
-        if v:
-            made = self._try("Extrude", lambda: C.extrude_points_to_frames(
-                self.doc, list(self.state.points), v["dx"], v["dy"], v["dz"], v["n"], v["section"])) or []
-            self.state.set_selection(made)
-
-    def edit_extrude_frames(self):
-        if not self._need("frame"):
-            return
-        secs = list(self.doc.model.shell_sections)
-        v = ask(self, "Extrude Frames to Shells", [("section", "Property", secs[0] if secs else "None",
-                                                    {"choices": secs + ["None"]}),
-                                                   ("dx", "dx", 0.0), ("dy", "dy", 0.0), ("dz", "dz", 3.0),
-                                                   ("n", "Number", 1, {"min": 1, "max": 1000}),
-                                                   ("delete", "Delete source frames", False)])
-        if v:
-            sec = None if v["section"] == "None" else v["section"]
-            made = self._try("Extrude", lambda: C.extrude_frames_to_shells(
-                self.doc, list(self.state.frames), v["dx"], v["dy"], v["dz"], v["n"], sec,
-                delete_frames=v["delete"])) or []
-            self.state.set_selection(areas=made)
 
     def edit_merge_joints(self):
         if not self._need("point"):
