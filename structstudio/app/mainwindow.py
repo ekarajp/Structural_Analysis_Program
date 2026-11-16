@@ -1941,36 +1941,14 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         if not self.state.frames:
             return self._need("frame")
         from . import frame_divide as FD
-        from .forms import TabbedFormDialog
+        from .divide_dialog import DivideFramesDialog
         from .tools import divide_frames_at
         m = self.doc.model
         L = "coordinates"
-        tol0 = 10 * m.options.merge_tolerance
-        d = TabbedFormDialog("Divide Frames", [
-            ("equal", "Equal pieces", [("n", "Number of pieces", 2, {"min": 2, "max": 1000})]),
-            ("length", "Maximum length", [("lmax", "Longest piece", 1.0, {"item": L})]),
-            ("dist", "Distances", [
-                ("values", "Distances (e.g. 1.5, 3.2  or  4@1.2)", ""),
-                ("end", "Measured from", "End I", {"choices": ["End I", "End J"]}),
-                ("rel", "Distances are ratios of the length (0-1)", False)]),
-            ("cross", "Intersections", [
-                ("-", "Divide where the frame meets"),
-                ("joints", "Joints lying on the frame", True),
-                ("frames", "Other frames crossing it", True),
-                ("frames_scope", "    crossing frames to look at", "All frames",
-                 {"choices": ["All frames", "Selected frames only"]}),
-                ("cut_others", "    also divide the crossing frames (shared joint)", False),
-                ("grids", "Grid lines (in plan)", False),
-                ("ref", "Reference lines through joints", False),
-                ("ref_axes", "    reference lines parallel to", "X and Y",
-                 {"choices": ["X and Y", "X, Y and Z", "X", "Y", "Z"]}),
-                ("stories", "Story levels (columns, braces)", False),
-                ("edges", "Floor / wall edges", False),
-                ("tol", "Tolerance", tol0, {"item": L})]),
-        ], self)
+        d = DivideFramesDialog(10 * m.options.merge_tolerance, self)
         if not d.exec():
             return
-        kind, v = d.result_values()
+        kind, v = d.choice()
         frames = [f for f in self.state.frames if f in m.frames]
         if kind == "equal":
             st = FD.equal(m, frames, v["n"])
