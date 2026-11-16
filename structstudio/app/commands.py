@@ -1168,10 +1168,13 @@ def _collinear(a: np.ndarray, b: np.ndarray, c: np.ndarray, tol: float) -> bool:
     return n > 0 and np.linalg.norm(np.cross(u, v)) / n < 1e-6 and float(np.dot(u, v)) > 0
 
 
-def _join_problem(model: Model, f: Frame, g: Frame, mid: str, f_at_mid: str, g_at_mid: str) -> Optional[str]:
-    """Why f and g cannot become one member without losing something (None: they can)."""
+def _join_problem(model: Model, f: Frame, g: Frame, mid: str, f_at_mid: str, g_at_mid: str,
+                  keep_mid: bool = False) -> Optional[str]:
+    """Why f and g cannot become one member without losing something (None: they can).
+    ``keep_mid``: the joint between them stays (other objects use it), so what is
+    assigned to it stays too."""
     pm = model.points[mid]
-    if has_assignments(pm):
+    if not keep_mid and has_assignments(pm):
         return f"joint {mid} between them has supports, springs, mass or loads"
     for h, end in ((f, f_at_mid), (g, g_at_mid)):
         rel = h.releases_i if end == "i" else h.releases_j
@@ -1195,19 +1198,28 @@ def _join_problem(model: Model, f: Frame, g: Frame, mid: str, f_at_mid: str, g_a
 
 def join_frames(doc: Document, frames: Sequence[str]) -> List[str]:
     """*Edit > Edit Frames > Join Frames*: selected collinear frames with the same
-    section that meet at a joint used by nothing else are joined into one.  Every
-    load of both frames is kept at its place along the joined member, the outer end
-    conditions are kept; pairs that would lose something (a release or an end
-    offset at the joint between them, a load at that joint ...) are not joined and
-    the reason is reported (function audit FA07)."""
+    section that meet end to end are joined into one.  Every load of both frames is
+    kept at its place along the joined member, the outer end conditions are kept;
+    pairs that would lose something (a release or an end offset at the joint between
+    them ...) are not joined and the reason is reported (function audit FA07).
+
+    The joint between them is removed when nothing else uses it.  When a slab, a
+    wall, another beam, a support or a load uses it, it stays: the joined member still
+    gets an analysis node there (the frame is meshed at the joints on it), so the
+    model is connected as before.  Not across a column or a rigid link: the beams'
+    automatic rigid end zones at that column (and the column's own) would be lost and
+    the results would change."""
     m = doc.model
     names = [n for n in frames if n in m.frames]
     if len(names) < 2:
         return []
     usage: Dict[str, int] = {}
+    hard: Dict[str, str] = {}  # joint -> what makes it impossible to join through it
     for f in m.frames.values():
         for p in (f.point_i, f.point_j):
             usage[p] = usage.get(p, 0) + 1
+            if f.type in ("Column", "Rigid") and f.name not in names:
+                hard.setdefault(p, "a column" if f.type == "Column" else "a rigid link")
     for a in m.areas.values():
         for p in a.points:
             usage[p] = usage.get(p, 0) + 10
@@ -1218,8 +1230,10 @@ def join_frames(doc: Document, frames: Sequence[str]) -> List[str]:
         for p in (lk.point_i, lk.point_j):
             if p:
                 usage[p] = usage.get(p, 0) + 10
+                hard.setdefault(p, "a link")
     joined: List[str] = []
     problems: List[str] = []
+    found = {"pairs": 0}
 
     def mutate(model: Model):
         pool = set(names)
@@ -1232,7 +1246,9 @@ def join_frames(doc: Document, frames: Sequence[str]) -> List[str]:
                     continue
                 for o in sorted(pool - {n}):
                     g = model.frames.get(o)
-                    if g is None or g.section != f.section or g.type != f.type:
+                    if g is None:
+                        continue
+                    if not ({f.point_i, f.point_j} & {g.point_i, g.point_j}):
                         continue
                     # (a, mid, b): the joined member runs a -> b; f_end / g_end: their end at mid
                     if f.point_j == g.point_i:
@@ -1245,10 +1261,21 @@ def join_frames(doc: Document, frames: Sequence[str]) -> List[str]:
                         a, mid, b, fe, ge = g.point_j, f.point_i, f.point_j, "i", "i"
                     else:
                         continue
-                    if usage.get(mid, 0) != 2:
-                        continue
                     P = lambda q: np.array(model.points[q].xyz, float)  # noqa: E731
                     if not _collinear(P(a), P(mid), P(b), model.options.merge_tolerance):
+                        continue  # meeting at an angle (a corner): not a pair to join
+                    found["pairs"] += 1
+                    if g.section != f.section or g.type != f.type:
+                        problems.append(f"{f.name} + {g.name}: different section or type")
+                        continue
+                    keep_mid = usage.get(mid, 0) != 2 or has_assignments(model.points[mid])
+                    if mid in hard:
+                        problems.append(f"{f.name} + {g.name}: joint {mid} between them is on {hard[mid]} "
+                                        "(joining would remove the rigid end zones there and change the results)")
+                        continue
+                    if keep_mid and not all(h.auto_mesh and h.mesh_at_intersections for h in (f, g)):
+                        problems.append(f"{f.name} + {g.name}: joint {mid} is used by other objects and the frames "
+                                        "are not meshed at intersections (they would no longer connect there)")
                         continue
                     Lf = float(np.linalg.norm(P(f.point_j) - P(f.point_i)))
                     Lg = float(np.linalg.norm(P(g.point_j) - P(g.point_i)))
@@ -1259,7 +1286,7 @@ def join_frames(doc: Document, frames: Sequence[str]) -> List[str]:
                     if abs(ang_g - f.angle) > 1e-9:
                         problems.append(f"{f.name} + {g.name}: different local axis angles")
                         continue
-                    why = _join_problem(model, f, g, mid, fe, ge)
+                    why = _join_problem(model, f, g, mid, fe, ge, keep_mid)
                     if why:
                         problems.append(f"{f.name} + {g.name}: {why}")
                         continue
@@ -1282,13 +1309,14 @@ def join_frames(doc: Document, frames: Sequence[str]) -> List[str]:
                     f.releases_j, f.fixity_j_trans, f.fixity_j_rot, f.end_offset_j, f.joint_offset_j = eb
                     f.loads = loads
                     model.frames.pop(o)
-                    model.points.pop(mid, None)
+                    if not keep_mid:
+                        model.points.pop(mid, None)
                     for grp in model.groups.values():
                         if o in grp.frames:
                             grp.frames.remove(o)
                             if f.name not in grp.frames:
                                 grp.frames.append(f.name)
-                        if mid in grp.points:
+                        if mid in grp.points and not keep_mid:
                             grp.points.remove(mid)
                     pool.discard(o)
                     joined.append(o)
@@ -1300,6 +1328,8 @@ def join_frames(doc: Document, frames: Sequence[str]) -> List[str]:
     doc.edit(mutate)
     if problems:
         doc.note("Not joined: " + "; ".join(dict.fromkeys(problems)), "warning")
+    join_frames.last_problems = list(dict.fromkeys(problems))
+    join_frames.last_pairs = found["pairs"]
     return joined
 
 

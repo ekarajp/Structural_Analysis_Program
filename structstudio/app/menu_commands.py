@@ -464,9 +464,19 @@ class MenuCommandsMixin:
     def edit_join_frames(self):
         if not self._need("frame"):
             return
-        joined = C.join_frames(self.doc, list(self.state.frames))
-        self.state.set_selection([f for f in self.state.frames if f in self.doc.model.frames])
-        self._info(f"Joined {len(joined)} frame(s)")
+        sel = list(self.state.frames)
+        joined = C.join_frames(self.doc, sel)
+        self.state.set_selection([f for f in sel if f in self.doc.model.frames])
+        problems = getattr(C.join_frames, "last_problems", [])
+        if joined and not problems:
+            return self._info(f"Joined {len(joined)} frame(s)")
+        if not joined and not getattr(C.join_frames, "last_pairs", 0):
+            text = ("Nothing to join: no two of the selected frames continue each other in a straight line "
+                    "(they must share an end joint and lie on one line). Select the pieces of one member.")
+        else:
+            text = (f"Joined {len(joined)} frame(s).\n\nNot joined:\n" + "\n".join("- " + p for p in problems[:12])
+                    + ("\n..." if len(problems) > 12 else ""))
+        QtWidgets.QMessageBox.information(self, "Join Frames", text)
 
     def edit_reverse_frames(self):
         if self._need("frame"):
