@@ -1935,13 +1935,85 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         return self._wait_for("any", 2)
 
     def edit_divide(self):
+        """Edit > Edit Frames > Divide Frames: equal pieces, a maximum length, given
+        distances, or where something meets the frame (joints, crossing frames, grid
+        lines, reference lines, story levels, shell edges)."""
         if not self.state.frames:
             return self._need("frame")
-        n, ok = QtWidgets.QInputDialog.getInt(self, "Divide frames", "Number of pieces:", 2, 2, 100)
-        if ok:
-            from .tools import divide_frames
-            created = divide_frames(self.doc, list(self.state.frames), n)
-            self.state.set_selection(created)
+        from . import frame_divide as FD
+        from .forms import TabbedFormDialog
+        from .tools import divide_frames_at
+        m = self.doc.model
+        L = "coordinates"
+        tol0 = 10 * m.options.merge_tolerance
+        d = TabbedFormDialog("Divide Frames", [
+            ("equal", "Equal pieces", [("n", "Number of pieces", 2, {"min": 2, "max": 1000})]),
+            ("length", "Maximum length", [("lmax", "Longest piece", 1.0, {"item": L})]),
+            ("dist", "Distances", [
+                ("values", "Distances (e.g. 1.5, 3.2  or  4@1.2)", ""),
+                ("end", "Measured from", "End I", {"choices": ["End I", "End J"]}),
+                ("rel", "Distances are ratios of the length (0-1)", False)]),
+            ("cross", "Intersections", [
+                ("-", "Divide where the frame meets"),
+                ("joints", "Joints lying on the frame", True),
+                ("frames", "Other frames crossing it", True),
+                ("frames_scope", "    crossing frames to look at", "All frames",
+                 {"choices": ["All frames", "Selected frames only"]}),
+                ("cut_others", "    also divide the crossing frames (shared joint)", False),
+                ("grids", "Grid lines (in plan)", False),
+                ("ref", "Reference lines through joints", False),
+                ("ref_axes", "    reference lines parallel to", "X and Y",
+                 {"choices": ["X and Y", "X, Y and Z", "X", "Y", "Z"]}),
+                ("stories", "Story levels (columns, braces)", False),
+                ("edges", "Floor / wall edges", False),
+                ("tol", "Tolerance", tol0, {"item": L})]),
+        ], self)
+        if not d.exec():
+            return
+        kind, v = d.result_values()
+        frames = [f for f in self.state.frames if f in m.frames]
+        if kind == "equal":
+            st = FD.equal(m, frames, v["n"])
+        elif kind == "length":
+            st = FD.max_length(m, frames, v["lmax"])
+        elif kind == "dist":
+            try:
+                vals = FD.parse_numbers(v["values"])
+            except ValueError:
+                return QtWidgets.QMessageBox.warning(self, "Divide Frames", "Distances: numbers separated by commas, "
+                                                     "or n@d for n equal steps of d.")
+            if not v["rel"]:
+                from .forms import display_units
+                du = display_units()
+                if du is not None:
+                    k = du.factor(L)
+                    vals = [x / k for x in vals]
+            st = FD.distances(m, frames, vals, "J" if v["end"] == "End J" else "I", relative=v["rel"])
+        else:
+            tol = v["tol"]
+            parts = []
+            if v["joints"]:
+                parts.append(FD.at_joints(m, frames, tol))
+            if v["frames"]:
+                others = frames if v["frames_scope"].startswith("Selected") else None
+                parts.append(FD.at_crossing_frames(m, frames, others, tol, cut_others=v["cut_others"]))
+            if v["grids"]:
+                parts.append(FD.at_grid_lines(m, frames, tol))
+            if v["ref"]:
+                axes = {"X and Y": "XY", "X, Y and Z": "XYZ"}.get(v["ref_axes"], v["ref_axes"])
+                parts.append(FD.at_reference_lines(m, frames, axes, tol))
+            if v["stories"]:
+                parts.append(FD.at_stories(m, frames))
+            if v["edges"]:
+                parts.append(FD.at_shell_edges(m, frames, tol))
+            st = FD.merge(*parts)
+        st = {f: ss for f, ss in st.items() if ss}
+        if not st:
+            return QtWidgets.QMessageBox.information(self, "Divide Frames", "Nothing to divide: no point was found "
+                                                     "inside the selected frames.")
+        created = self._try("Divide Frames", lambda: divide_frames_at(self.doc, st)) or []
+        self.state.set_selection(created)
+        self._info(f"Divide Frames: {len(st)} frame(s) divided into {len(created)} piece(s)")
 
     def edit_point(self):
         pts = list(self.state.points)

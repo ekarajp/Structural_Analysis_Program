@@ -2298,44 +2298,75 @@ def replicate_to_stories(doc: Document, frames: Sequence[str], areas: Sequence[s
 
 
 def divide_frames(doc: Document, frames: Sequence[str], n: int = 2) -> List[str]:
-    """Divide frames into ``n`` equal objects (ETABS "Divide Frames").  Every load
-    stays where it acts (each piece gets its part of distributed and temperature
-    loads, a point load goes to the piece it is on); end releases, partial
-    fixities and end / joint offsets stay at the original outer ends only, the new
-    inner joints are continuous (function audit FA09)."""
+    """Divide frames into ``n`` equal objects (ETABS "Divide Frames")."""
+    frames = [f for f in frames if f in doc.model.frames]
+    if n < 2 or not frames:
+        return []
+    return divide_frames_at(doc, {f: [k / n for k in range(1, n)] for f in frames})
+
+
+def divide_frames_at(doc: Document, stations: Dict[str, Sequence[float]]) -> List[str]:
+    """Divide each frame at the given relative stations (0 < s < 1, from end I).
+
+    Every load stays where it acts (each piece gets its part of distributed and
+    temperature loads, a point load goes to the piece it is on); end releases,
+    partial fixities and end / joint offsets stay at the original outer ends only,
+    the new inner joints are continuous (function audit FA09); hinges go to the
+    piece they are on.  A new joint at the place of an existing joint is that joint
+    (so frames divided where they cross share it).  Stations closer than the merge
+    tolerance to each other or to an end are dropped.  Returns the new frames."""
     import math
     from ..model.frame_ops import piece_loads
     created: List[str] = []
-    frames = [f for f in frames if f in doc.model.frames]
-    if n < 2 or not frames:
+    m0 = doc.model
+    tol = m0.options.merge_tolerance
+    plan: Dict[str, List[float]] = {}
+    for name, ss in stations.items():
+        f = m0.frames.get(name)
+        if f is None:
+            continue
+        L = math.dist(m0.points[f.point_i].xyz, m0.points[f.point_j].xyz)
+        if L <= 2 * tol:
+            continue
+        keep: List[float] = []
+        for s in sorted(float(x) for x in ss):
+            if s * L > tol and (1 - s) * L > tol and (not keep or (s - keep[-1]) * L > tol):
+                keep.append(s)
+        if keep:
+            plan[name] = keep
+    if not plan:
         return created
     free3 = (0.0, 0.0, 0.0)
 
     def mutate(model: Model):
-        for name in frames:
+        for name, ss in plan.items():
             f = model.frames.pop(name)
             a, b = model.points[f.point_i], model.points[f.point_j]
             L = math.dist(a.xyz, b.xyz)
-            nodes = [a] + [model.add_point(a.x + (b.x - a.x) * k / n, a.y + (b.y - a.y) * k / n, a.z + (b.z - a.z) * k / n)
-                           for k in range(1, n)] + [b]
+            cuts = [0.0] + list(ss) + [1.0]
+            n = len(cuts) - 1
+            nodes = [a] + [model.add_point(a.x + (b.x - a.x) * s, a.y + (b.y - a.y) * s, a.z + (b.z - a.z) * s)
+                           for s in ss] + [b]
+            mine: List[str] = []
             for k in range(n):
+                lo, hi = cuts[k], cuts[k + 1]
                 new = _copy_frame(model, f, nodes[k], nodes[k + 1], f.story)
-                new.loads = piece_loads(f.loads, L, L * k / n, L * (k + 1) / n, last=k == n - 1)
+                new.loads = piece_loads(f.loads, L, L * lo, L * hi, last=k == n - 1)
                 if k > 0:  # inner end I
                     new.releases_i, new.fixity_i_trans, new.fixity_i_rot = (False,) * 6, free3, free3
                     new.end_offset_i, new.joint_offset_i = 0.0, free3
                 if k < n - 1:  # inner end J
                     new.releases_j, new.fixity_j_trans, new.fixity_j_rot = (False,) * 6, free3, free3
                     new.end_offset_j, new.joint_offset_j = 0.0, free3
-                lo, hi = k / n, (k + 1) / n
-                new.hinges = [dataclasses.replace(h, relative_distance=(h.relative_distance - lo) * n)
+                new.hinges = [dataclasses.replace(h, relative_distance=(h.relative_distance - lo) / (hi - lo))
                               for h in f.hinges if lo - 1e-9 <= h.relative_distance <= hi + 1e-9
                               and (k == n - 1 or h.relative_distance < hi - 1e-9)]
-                created.append(new.name)
+                mine.append(new.name)
+            created.extend(mine)
             for g in model.groups.values():
                 if name in g.frames:
                     i = g.frames.index(name)
-                    g.frames[i:i + 1] = created[-n:]
+                    g.frames[i:i + 1] = mine
 
     doc.edit(mutate)
     return created
