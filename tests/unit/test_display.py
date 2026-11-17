@@ -277,3 +277,22 @@ def test_steel_members_have_their_own_default_colour():
         key, col = scene._group_color(m, beam, "frame", "beam")
         assert key == "steel" and col == scene.COLORS["steel"]
     assert scene.COLORS["steel"] != scene.COLORS["beam"] != scene.COLORS["column"]
+
+
+def test_frame_ends_display_option_and_actors():
+    """Display option 'Frame ends i / j': off by default, saved, and drawn as one arrow
+    actor plus a label per end (Reverse Frame Connectivity turns it on)."""
+    from structstudio.app.display import LABELS, DisplayOptions
+    from structstudio.app.scene import _frame_end_actors
+    from structstudio import Model
+    from structstudio.model import FrameSection
+    assert DisplayOptions().frame_ends is False and "frame_ends" in LABELS
+    o = DisplayOptions()
+    o.frame_ends = True
+    assert DisplayOptions.from_dict(o.to_dict()).frame_ends is True
+    m = Model("e", "kN m")
+    m.add_material("C", E=25e6, nu=.2)
+    m.add_frame_section(FrameSection.general("B", "C", A=.1, I33=1e-3, I22=1e-3, J=1e-3))
+    f = m.add_frame(m.add_point(0, 0, 0), m.add_point(6, 0, 0), "B")
+    acts = _frame_end_actors(m, [f])
+    assert len(acts) == 3  # arrow lines + label i + label j

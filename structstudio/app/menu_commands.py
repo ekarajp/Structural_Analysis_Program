@@ -479,8 +479,16 @@ class MenuCommandsMixin:
         QtWidgets.QMessageBox.information(self, "Join Frames", text)
 
     def edit_reverse_frames(self):
-        if self._need("frame"):
-            C.reverse_frames(self.doc, list(self.state.frames))
+        """Edit > Edit Frames > Reverse Frame Connectivity: swap ends i and j.  The
+        frame ends (i / j and an arrow i -> j) are switched on in every window so the
+        new direction shows; Set Display Options > Frame ends turns them off."""
+        if not self._need("frame"):
+            return
+        n = C.reverse_frames(self.doc, list(self.state.frames))
+        views = getattr(self, "views", None)
+        if views is not None and hasattr(views, "set_option_all"):
+            views.set_option_all("frame_ends", True)
+        self._info(f"Reversed {n} frame(s) - ends i / j shown (View > Set Display Options > Frame ends)")
 
     def edit_beam_axis(self):
         """Edit > Edit Frames > Move Beams to Real Axis (Rigid Links)."""

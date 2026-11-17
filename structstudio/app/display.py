@@ -33,6 +33,7 @@ class DisplayOptions:
     springs: bool = True  # spring supports (elastic): drawn like the rigid supports
     releases: bool = True  # pins / releases: rings near the released ends
     local_axes: bool = False
+    frame_ends: bool = False  # "i" / "j" at the frame ends and an arrow i -> j (turned on by Reverse Frame Connectivity)
     # ---- labels
     joint_labels: bool = False
     frame_labels: bool = False
@@ -107,7 +108,8 @@ GROUPS: List[Tuple[str, List[Tuple[str, str]]]] = [
                            ("ramps", "Ramps"), ("openings", "Openings / null areas"),
                            ("load_panels", "Load panels (drawn load areas)")]),
     ("Assignments", [("supports", "Joint restraints"), ("springs", "Joint springs"),
-                     ("releases", "Frame releases"), ("local_axes", "Frame local axes")]),
+                     ("releases", "Frame releases"), ("local_axes", "Frame local axes"),
+                     ("frame_ends", "Frame ends i / j (direction)")]),
     ("Labels", [("joint_labels", "Joint labels"), ("frame_labels", "Frame labels"), ("area_labels", "Area labels"),
                 ("section_names", "Frame section names")]),
     ("Other", [("extrude", "Extrude frames and areas (real sections)"), ("fill_areas", "Fill areas"),

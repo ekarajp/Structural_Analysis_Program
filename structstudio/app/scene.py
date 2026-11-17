@@ -815,6 +815,9 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
     if base_on and opts.local_axes and vis_frames:
         for k, a in enumerate(_local_axes_actors(model, vis_frames)):
             out.actors[f"local_axes_{k}"] = a
+    if base_on and getattr(opts, "frame_ends", False) and vis_frames:
+        for k, a in enumerate(_frame_end_actors(model, vis_frames)):
+            out.actors[f"frame_ends_{k}"] = a
     # ---- grids ----------------------------------------------------------------
     # the grid names (bubbles) belong to the grid lines: hiding the lines hides them too
     bubbles_on = opts.grid_bubbles and opts.grid_lines
@@ -1300,6 +1303,82 @@ def _local_axes_actors(model: Model, frames) -> List[vtk.vtkActor]:
         out.append(_text_labels(_points_of(spots), _strings([str(k + 1)] * len(spots)), color,
                                 max(6, int(round(gsize("local_axes_text")))), bold=True))
     return out
+
+
+FRAME_END_LABELS_EACH = 600  # up to this many i / j labels: one actor each (all shown)
+
+
+def _frame_end_actors(model: Model, frames) -> List[vtk.vtkProp]:
+    """End "i" (green) and end "j" (red) of each frame, just inside each end, and an
+    arrow at mid length pointing from i to j in the colour of local axis 1.
+    Size follows the local-axes graphics sizes."""
+    L = model_extent(model) * 0.03
+    typ = typical_member_length(model)
+    if typ > 0:
+        L = min(L, typ * 0.15)
+    L *= gsize("local_axes_length")
+    color = COLORS.get("axis_1", (0.9, 0.2, 0.2))
+    spots, texts, coords = [], [], []
+    lines = vtk.vtkCellArray()
+    n = 0
+    for f in frames:
+        a = np.array(model.points[f.point_i].xyz, float)
+        b = np.array(model.points[f.point_j].xyz, float)
+        d = b - a
+        Lf = float(np.linalg.norm(d))
+        if Lf <= 0:
+            continue
+        u = d / Lf
+        side = np.cross(u, [0.0, 0.0, 1.0])
+        if np.linalg.norm(side) < 1e-6:  # vertical member
+            side = np.array([1.0, 0.0, 0.0])
+        side = side / np.linalg.norm(side)
+        lift = np.cross(side, u)  # beams: up; columns: sideways
+        inset = min(0.18 * Lf, 1.5 * L)
+        off = 0.35 * L * (lift if f.type != "Column" else side)  # beside the member, not hidden in its tube
+        spots += [a + u * inset + off, b - u * inset + off]
+        texts += ["i", "j"]
+        # arrow at mid length, i -> j
+        h = min(1.3 * L, 0.3 * Lf)
+        mid = 0.5 * (a + b)
+        tail, tip = mid - u * 0.5 * h, mid + u * 0.5 * h
+        back = tip - u * 0.45 * h
+        for q0, q1 in ((tail, tip), (tip, back + side * 0.3 * h), (tip, back - side * 0.3 * h)):
+            coords += [q0, q1]
+            lines.InsertNextCell(2)
+            lines.InsertCellPoint(2 * n)
+            lines.InsertCellPoint(2 * n + 1)
+            n += 1
+    out: List[vtk.vtkProp] = []
+    if coords:
+        poly = vtk.vtkPolyData()
+        poly.SetPoints(_points_of(coords))
+        poly.SetLines(lines)
+        out.append(_actor_from_polydata(poly, color, gsize("local_axes_width") + 1, lighting=False))
+    if spots:
+        size = max(9, int(round(gsize("local_axes_text")))) + 2
+        # i (start) green, j (end) red, as the arrow pointing to j: the two ends read apart at a glance
+        col = {"i": COLORS.get("frame_end_i", (0.10, 0.65, 0.20)), "j": COLORS.get("frame_end_j", color)}
+        if len(spots) <= FRAME_END_LABELS_EACH:  # every end labelled (not thinned out like name labels)
+            out += [_billboard_label(q, t, col[t], size) for q, t in zip(spots, texts)]
+        else:  # a large model: one label actor per end, crowded labels dropped until zoomed in
+            for t in ("i", "j"):
+                qs = [q for q, x in zip(spots, texts) if x == t]
+                out.append(_text_labels(_points_of(qs), _strings([t] * len(qs)), col[t], size, bold=True))
+    return out
+
+
+def _billboard_label(xyz, text: str, color, size: int) -> vtk.vtkProp:
+    a = vtk.vtkBillboardTextActor3D()
+    a.SetInput(text)
+    a.SetPosition(*map(float, xyz))
+    tp = a.GetTextProperty()
+    tp.SetColor(*color)
+    tp.SetFontSize(size)
+    tp.SetBold(True)
+    tp.SetJustificationToCentered()
+    tp.SetVerticalJustificationToCentered()
+    return a
 
 
 def _frame_lines_actor(model: Model, names: Sequence[str], color, width: float,
