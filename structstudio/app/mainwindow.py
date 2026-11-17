@@ -2188,9 +2188,12 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         if self.qsettings is None:
             import tempfile
             # (one per process: a window made without settings never reads another run's choices)
-            self.qsettings = QtCore.QSettings(os.path.join(tempfile.gettempdir(),
-                                                           f"structstudio-session-{os.getpid()}.ini"),
-                                              QtCore.QSettings.IniFormat)
+            path = os.path.join(tempfile.gettempdir(), f"structstudio-session-{os.getpid()}.ini")
+            try:  # process ids are reused: a file left by an earlier run would bring its choices back
+                os.remove(path)
+            except OSError:
+                pass
+            self.qsettings = QtCore.QSettings(path, QtCore.QSettings.IniFormat)
         return self.qsettings
 
     @property

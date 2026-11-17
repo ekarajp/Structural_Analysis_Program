@@ -1310,17 +1310,19 @@ FRAME_END_LABELS_EACH = 600  # up to this many i / j labels: one actor each (all
 
 def _frame_end_actors(model: Model, frames) -> List[vtk.vtkProp]:
     """End "i" (green) and end "j" (red) of each frame, just inside each end, and an
-    arrow at mid length pointing from i to j: its tail half in the colour of "i", its
-    head half (with the arrow head) in the colour of "j". Size follows the local-axes
-    graphics sizes."""
+    arrow at mid length pointing from i to j: the half of its shaft on the i side in
+    the colour of "i", the half on the j side and the head in the colour of "j".
+    Everything is an overlay drawn over the model, so no member or slab hides it; the
+    arrow is a little wider than the member lines and each letter sits on a box framed
+    in its colour. Size follows the local-axes graphics sizes."""
     L = model_extent(model) * 0.03
     typ = typical_member_length(model)
     if typ > 0:
         L = min(L, typ * 0.15)
     L *= gsize("local_axes_length")
-    color = COLORS.get("axis_1", (0.9, 0.2, 0.2))
     spots, texts = [], []
-    segs = {"i": [], "j": []}  # arrow segments drawn in the colour of each end
+    shaft = {"i": [], "j": []}  # line segments drawn in the colour of each end
+    heads = []  # arrow heads (filled triangles), colour of j
     for f in frames:
         a = np.array(model.points[f.point_i].xyz, float)
         b = np.array(model.points[f.point_j].xyz, float)
@@ -1334,54 +1336,97 @@ def _frame_end_actors(model: Model, frames) -> List[vtk.vtkProp]:
             side = np.array([1.0, 0.0, 0.0])
         side = side / np.linalg.norm(side)
         lift = np.cross(side, u)  # beams: up; columns: sideways
-        inset = min(0.18 * Lf, 1.5 * L)
-        off = 0.35 * L * (lift if f.type != "Column" else side)  # beside the member, not hidden in its tube
+        inset = min(0.15 * Lf, 1.5 * L)
+        off = 0.5 * L * (lift if f.type != "Column" else side)  # beside the member, clear of the arrow
         spots += [a + u * inset + off, b - u * inset + off]
         texts += ["i", "j"]
-        # arrow at mid length, i -> j
-        h = min(1.3 * L, 0.3 * Lf)
+        # arrow at mid length, i -> j: long enough to read, short of the end letters
+        h = min(3.0 * L, 0.5 * Lf)
         mid = 0.5 * (a + b)
         tail, tip = mid - u * 0.5 * h, mid + u * 0.5 * h
-        back = tip - u * 0.45 * h
-        segs["i"].append((tail, mid))
-        segs["j"] += [(mid, tip), (tip, back + side * 0.3 * h), (tip, back - side * 0.3 * h)]
+        hl = min(0.3 * h, 0.9 * L)  # head length
+        back = tip - u * hl
+        shaft["i"].append((tail, mid))
+        shaft["j"].append((mid, back))
+        # the head as two crossed triangles: it reads as an arrow head from any view angle
+        heads.append((tip, back + side * 0.4 * hl, back - side * 0.4 * hl))
+        heads.append((tip, back + lift * 0.4 * hl, back - lift * 0.4 * hl))
     out: List[vtk.vtkProp] = []
-    # i (start) green, j (end) red; the arrow carries both, so the two ends read apart at a glance
-    col = {"i": COLORS.get("frame_end_i", (0.10, 0.65, 0.20)), "j": COLORS.get("frame_end_j", color)}
+    col = {"i": COLORS.get("frame_end_i", (0.10, 0.65, 0.20)),
+           "j": COLORS.get("frame_end_j", COLORS.get("axis_1", (0.9, 0.2, 0.2)))}
+    # a little wider than the widest member line, so the arrow stands out from the member
+    width = max(gsize("frame_width"), gsize("column_width"), gsize("local_axes_width")) + 3
     for t in ("i", "j"):
-        if not segs[t]:
+        if not shaft[t] and not (t == "j" and heads):
             continue
-        coords, lines = [], vtk.vtkCellArray()
-        for k, (q0, q1) in enumerate(segs[t]):
-            coords += [q0, q1]
+        coords, lines, polys = [], vtk.vtkCellArray(), vtk.vtkCellArray()
+        for q0, q1 in shaft[t]:
             lines.InsertNextCell(2)
-            lines.InsertCellPoint(2 * k)
-            lines.InsertCellPoint(2 * k + 1)
+            for q in (q0, q1):
+                lines.InsertCellPoint(len(coords))
+                coords.append(q)
+        if t == "j":
+            for tri in heads:
+                polys.InsertNextCell(3)
+                for q in tri:
+                    polys.InsertCellPoint(len(coords))
+                    coords.append(q)
         poly = vtk.vtkPolyData()
         poly.SetPoints(_points_of(coords))
         poly.SetLines(lines)
-        out.append(_actor_from_polydata(poly, col[t], gsize("local_axes_width") + 1, lighting=False))
+        if t == "j":
+            poly.SetPolys(polys)
+        out.append(_overlay_actor(poly, col[t], width))
     if spots:
-        size = max(9, int(round(gsize("local_axes_text")))) + 2
+        size = max(9, int(round(gsize("local_axes_text")))) + 3
         if len(spots) <= FRAME_END_LABELS_EACH:  # every end labelled (not thinned out like name labels)
-            out += [_billboard_label(q, t, col[t], size) for q, t in zip(spots, texts)]
+            out += [_overlay_label(q, t, col[t], size) for q, t in zip(spots, texts)]
         else:  # a large model: one label actor per end, crowded labels dropped until zoomed in
             for t in ("i", "j"):
                 qs = [q for q, x in zip(spots, texts) if x == t]
-                out.append(_text_labels(_points_of(qs), _strings([t] * len(qs)), col[t], size, bold=True))
+                out.append(_text_labels(_points_of(qs), _strings([t] * len(qs)), col[t], size,
+                                        background=True, bold=True))
     return out
 
 
-def _billboard_label(xyz, text: str, color, size: int) -> vtk.vtkProp:
-    a = vtk.vtkBillboardTextActor3D()
-    a.SetInput(text)
-    a.SetPosition(*map(float, xyz))
+def _overlay_actor(poly: vtk.vtkPolyData, color, width: float) -> vtk.vtkActor2D:
+    """Lines / filled polygons given in world coordinates, drawn over the model (an
+    overlay: never hidden inside members, slabs or extruded solids)."""
+    coord = vtk.vtkCoordinate()
+    coord.SetCoordinateSystemToWorld()
+    mapper = vtk.vtkPolyDataMapper2D()
+    mapper.SetInputData(poly)
+    mapper.SetTransformCoordinate(coord)
+    mapper.ScalarVisibilityOff()
+    actor = vtk.vtkActor2D()
+    actor.SetMapper(mapper)
+    prop = actor.GetProperty()
+    prop.SetColor(*color)
+    prop.SetLineWidth(width)
+    prop.SetDisplayLocationToForeground()
+    return actor
+
+
+def _overlay_label(xyz, text: str, color, size: int) -> vtk.vtkTextActor:
+    """A bold letter at a world point, drawn over the model on a box in the window
+    colour framed in the letter's colour: readable over members, slabs and arrows."""
+    a = vtk.vtkTextActor()
+    a.SetInput(f" {text} ")
+    c = a.GetPositionCoordinate()
+    c.SetCoordinateSystemToWorld()
+    c.SetValue(*map(float, xyz))
     tp = a.GetTextProperty()
     tp.SetColor(*color)
     tp.SetFontSize(size)
     tp.SetBold(True)
     tp.SetJustificationToCentered()
     tp.SetVerticalJustificationToCentered()
+    tp.SetBackgroundColor(*COLORS.get("background_top", (1.0, 1.0, 1.0)))
+    tp.SetBackgroundOpacity(0.9)
+    tp.SetFrame(True)
+    tp.SetFrameColor(*color)
+    tp.SetFrameWidth(2)
+    a.GetProperty().SetDisplayLocationToForeground()
     return a
 
 
