@@ -1354,8 +1354,8 @@ def _frame_end_actors(model: Model, frames) -> List[vtk.vtkProp]:
     out: List[vtk.vtkProp] = []
     col = {"i": COLORS.get("frame_end_i", (0.10, 0.65, 0.20)),
            "j": COLORS.get("frame_end_j", COLORS.get("axis_1", (0.9, 0.2, 0.2)))}
-    # a little wider than the widest member line, so the arrow stands out from the member
-    width = max(gsize("frame_width"), gsize("column_width"), gsize("local_axes_width")) + 3
+    # one pixel wider than the widest member line: it stands out without hiding the member
+    width = max(gsize("frame_width"), gsize("column_width"), gsize("local_axes_width")) + 1
     for t in ("i", "j"):
         if not shaft[t] and not (t == "j" and heads):
             continue
