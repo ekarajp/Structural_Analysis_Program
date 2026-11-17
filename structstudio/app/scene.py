@@ -1310,17 +1310,17 @@ FRAME_END_LABELS_EACH = 600  # up to this many i / j labels: one actor each (all
 
 def _frame_end_actors(model: Model, frames) -> List[vtk.vtkProp]:
     """End "i" (green) and end "j" (red) of each frame, just inside each end, and an
-    arrow at mid length pointing from i to j in the colour of local axis 1.
-    Size follows the local-axes graphics sizes."""
+    arrow at mid length pointing from i to j: its tail half in the colour of "i", its
+    head half (with the arrow head) in the colour of "j". Size follows the local-axes
+    graphics sizes."""
     L = model_extent(model) * 0.03
     typ = typical_member_length(model)
     if typ > 0:
         L = min(L, typ * 0.15)
     L *= gsize("local_axes_length")
     color = COLORS.get("axis_1", (0.9, 0.2, 0.2))
-    spots, texts, coords = [], [], []
-    lines = vtk.vtkCellArray()
-    n = 0
+    spots, texts = [], []
+    segs = {"i": [], "j": []}  # arrow segments drawn in the colour of each end
     for f in frames:
         a = np.array(model.points[f.point_i].xyz, float)
         b = np.array(model.points[f.point_j].xyz, float)
@@ -1343,22 +1343,26 @@ def _frame_end_actors(model: Model, frames) -> List[vtk.vtkProp]:
         mid = 0.5 * (a + b)
         tail, tip = mid - u * 0.5 * h, mid + u * 0.5 * h
         back = tip - u * 0.45 * h
-        for q0, q1 in ((tail, tip), (tip, back + side * 0.3 * h), (tip, back - side * 0.3 * h)):
+        segs["i"].append((tail, mid))
+        segs["j"] += [(mid, tip), (tip, back + side * 0.3 * h), (tip, back - side * 0.3 * h)]
+    out: List[vtk.vtkProp] = []
+    # i (start) green, j (end) red; the arrow carries both, so the two ends read apart at a glance
+    col = {"i": COLORS.get("frame_end_i", (0.10, 0.65, 0.20)), "j": COLORS.get("frame_end_j", color)}
+    for t in ("i", "j"):
+        if not segs[t]:
+            continue
+        coords, lines = [], vtk.vtkCellArray()
+        for k, (q0, q1) in enumerate(segs[t]):
             coords += [q0, q1]
             lines.InsertNextCell(2)
-            lines.InsertCellPoint(2 * n)
-            lines.InsertCellPoint(2 * n + 1)
-            n += 1
-    out: List[vtk.vtkProp] = []
-    if coords:
+            lines.InsertCellPoint(2 * k)
+            lines.InsertCellPoint(2 * k + 1)
         poly = vtk.vtkPolyData()
         poly.SetPoints(_points_of(coords))
         poly.SetLines(lines)
-        out.append(_actor_from_polydata(poly, color, gsize("local_axes_width") + 1, lighting=False))
+        out.append(_actor_from_polydata(poly, col[t], gsize("local_axes_width") + 1, lighting=False))
     if spots:
         size = max(9, int(round(gsize("local_axes_text")))) + 2
-        # i (start) green, j (end) red, as the arrow pointing to j: the two ends read apart at a glance
-        col = {"i": COLORS.get("frame_end_i", (0.10, 0.65, 0.20)), "j": COLORS.get("frame_end_j", color)}
         if len(spots) <= FRAME_END_LABELS_EACH:  # every end labelled (not thinned out like name labels)
             out += [_billboard_label(q, t, col[t], size) for q, t in zip(spots, texts)]
         else:  # a large model: one label actor per end, crowded labels dropped until zoomed in

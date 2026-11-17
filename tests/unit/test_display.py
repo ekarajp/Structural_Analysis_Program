@@ -280,8 +280,8 @@ def test_steel_members_have_their_own_default_colour():
 
 
 def test_frame_ends_display_option_and_actors():
-    """Display option 'Frame ends i / j': off by default, saved, and drawn as one arrow
-    actor plus a label per end (Reverse Frame Connectivity turns it on)."""
+    """Display option 'Frame ends i / j': off by default, saved, and drawn as a two-colour
+    arrow (tail in the colour of i, head in the colour of j) plus a label per end (Reverse Frame Connectivity turns it on)."""
     from structstudio.app.display import LABELS, DisplayOptions
     from structstudio.app.scene import _frame_end_actors
     from structstudio import Model
@@ -295,4 +295,11 @@ def test_frame_ends_display_option_and_actors():
     m.add_frame_section(FrameSection.general("B", "C", A=.1, I33=1e-3, I22=1e-3, J=1e-3))
     f = m.add_frame(m.add_point(0, 0, 0), m.add_point(6, 0, 0), "B")
     acts = _frame_end_actors(m, [f])
-    assert len(acts) == 3  # arrow lines + label i + label j
+    assert len(acts) == 4  # arrow tail (i colour) + arrow head (j colour) + label i + label j
+    from structstudio.app.scene import COLORS
+    ci, cj = COLORS["frame_end_i"], COLORS["frame_end_j"]
+    assert ci != cj
+    assert tuple(acts[0].GetProperty().GetColor()) == pytest.approx(ci)
+    assert tuple(acts[1].GetProperty().GetColor()) == pytest.approx(cj)
+    assert tuple(acts[2].GetTextProperty().GetColor()) == pytest.approx(ci)
+    assert tuple(acts[3].GetTextProperty().GetColor()) == pytest.approx(cj)
