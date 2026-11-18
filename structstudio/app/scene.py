@@ -816,7 +816,11 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
         for k, a in enumerate(_local_axes_actors(model, vis_frames)):
             out.actors[f"local_axes_{k}"] = a
     if base_on and getattr(opts, "frame_ends", False) and vis_frames:
-        for k, a in enumerate(_frame_end_actors(model, vis_frames)):
+        ends_of = vis_frames
+        in_plan = (story is not None and plane is None) or (plane is not None and plane[0] == "z")
+        if in_plan:  # a plan (of a story or at a free Z): a column is seen end-on - no i / j for it
+            ends_of = [f for f in vis_frames if not _is_vertical(model, f)]
+        for k, a in enumerate(_frame_end_actors(model, ends_of)):
             out.actors[f"frame_ends_{k}"] = a
     # ---- grids ----------------------------------------------------------------
     # the grid names (bubbles) belong to the grid lines: hiding the lines hides them too
@@ -1305,22 +1309,26 @@ def _local_axes_actors(model: Model, frames) -> List[vtk.vtkActor]:
     return out
 
 
-FRAME_END_LABELS_EACH = 600  # up to this many i / j labels: one actor each (all shown)
+def _is_vertical(model: Model, f) -> bool:
+    """A frame running (nearly) up and down: seen end-on in a plan."""
+    d = np.subtract(model.points[f.point_j].xyz, model.points[f.point_i].xyz)
+    n = float(np.linalg.norm(d))
+    return n > 0 and abs(d[2]) >= 0.99 * n
 
 
 def _frame_end_actors(model: Model, frames) -> List[vtk.vtkProp]:
-    """End "i" (green) and end "j" (red) of each frame, just inside each end, and an
-    arrow at mid length pointing from i to j: the half of its shaft on the i side in
+    """An arrow at mid length of each frame pointing from end i to end j, with "i"
+    (green) beside its tail and "j" (red) beside its head: the half of its shaft on the i side in
     the colour of "i", the half on the j side and the head in the colour of "j".
     Everything is an overlay drawn over the model, so no member or slab hides it; the
-    arrow is a little wider than the member lines and each letter sits on a box framed
-    in its colour. Size follows the local-axes graphics sizes."""
+    arrow is a little wider than the member lines and the letters sit on boxes; where
+    letters crowd, some are left out until the view is zoomed in. Size follows the local-axes graphics sizes."""
     L = model_extent(model) * 0.03
     typ = typical_member_length(model)
     if typ > 0:
         L = min(L, typ * 0.15)
     L *= gsize("local_axes_length")
-    spots, texts = [], []
+    spots, texts, prio = [], [], []
     shaft = {"i": [], "j": []}  # line segments drawn in the colour of each end
     heads = []  # arrow heads (filled triangles), colour of j
     for f in frames:
@@ -1336,14 +1344,17 @@ def _frame_end_actors(model: Model, frames) -> List[vtk.vtkProp]:
             side = np.array([1.0, 0.0, 0.0])
         side = side / np.linalg.norm(side)
         lift = np.cross(side, u)  # beams: up; columns: sideways
-        inset = min(0.15 * Lf, 1.5 * L)
-        off = 0.5 * L * (lift if f.type != "Column" else side)  # beside the member, clear of the arrow
-        spots += [a + u * inset + off, b - u * inset + off]
-        texts += ["i", "j"]
-        # arrow at mid length, i -> j: long enough to read, short of the end letters
+        # arrow at mid length, i -> j: long enough to read
         h = min(3.0 * L, 0.5 * Lf)
         mid = 0.5 * (a + b)
         tail, tip = mid - u * 0.5 * h, mid + u * 0.5 * h
+        # "i" beside the tail and "j" beside the head of the same arrow: in a large building
+        # every letter stays next to its own member's arrow, not out at a joint shared
+        # with other members
+        off = 0.6 * L * (lift if f.type != "Column" else side)
+        spots += [tail - u * 0.2 * L + off, tip + u * 0.2 * L + off]
+        texts += ["i", "j"]
+        prio += [len(prio) // 2 * 7919 % 1009] * 2  # spread over the model, same for both ends
         hl = min(0.3 * h, 0.9 * L)  # head length
         back = tip - u * hl
         shaft["i"].append((tail, mid))
@@ -1378,14 +1389,18 @@ def _frame_end_actors(model: Model, frames) -> List[vtk.vtkProp]:
             poly.SetPolys(polys)
         out.append(_overlay_actor(poly, col[t], width))
     if spots:
-        size = max(9, int(round(gsize("local_axes_text")))) + 3
-        if len(spots) <= FRAME_END_LABELS_EACH:  # every end labelled (not thinned out like name labels)
-            out += [_overlay_label(q, t, col[t], size) for q, t in zip(spots, texts)]
-        else:  # a large model: one label actor per end, crowded labels dropped until zoomed in
-            for t in ("i", "j"):
-                qs = [q for q, x in zip(spots, texts) if x == t]
-                out.append(_text_labels(_points_of(qs), _strings([t] * len(qs)), col[t], size,
-                                        background=True, bold=True))
+        # the letters thin out where they crowd (a large building seen whole: the arrows,
+        # green tail to red head, still give every direction) and all come back on zooming
+        # in; an i and a j of the same member share a priority, so they stay or go together
+        size = max(9, int(round(gsize("local_axes_text")))) + 1
+        for t in ("i", "j"):
+            sel = [k for k, x in enumerate(texts) if x == t]
+            pri = vtk.vtkFloatArray()
+            pri.SetName("priority")
+            for k in sel:
+                pri.InsertNextValue(float(prio[k]))
+            out.append(_text_labels(_points_of([spots[k] for k in sel]), _strings([t] * len(sel)),
+                                    col[t], size, background=True, bold=True, priority=pri))
     return out
 
 
@@ -1405,29 +1420,6 @@ def _overlay_actor(poly: vtk.vtkPolyData, color, width: float) -> vtk.vtkActor2D
     prop.SetLineWidth(width)
     prop.SetDisplayLocationToForeground()
     return actor
-
-
-def _overlay_label(xyz, text: str, color, size: int) -> vtk.vtkTextActor:
-    """A bold letter at a world point, drawn over the model on a box in the window
-    colour framed in the letter's colour: readable over members, slabs and arrows."""
-    a = vtk.vtkTextActor()
-    a.SetInput(f" {text} ")
-    c = a.GetPositionCoordinate()
-    c.SetCoordinateSystemToWorld()
-    c.SetValue(*map(float, xyz))
-    tp = a.GetTextProperty()
-    tp.SetColor(*color)
-    tp.SetFontSize(size)
-    tp.SetBold(True)
-    tp.SetJustificationToCentered()
-    tp.SetVerticalJustificationToCentered()
-    tp.SetBackgroundColor(*COLORS.get("background_top", (1.0, 1.0, 1.0)))
-    tp.SetBackgroundOpacity(0.9)
-    tp.SetFrame(True)
-    tp.SetFrameColor(*color)
-    tp.SetFrameWidth(2)
-    a.GetProperty().SetDisplayLocationToForeground()
-    return a
 
 
 def _frame_lines_actor(model: Model, names: Sequence[str], color, width: float,

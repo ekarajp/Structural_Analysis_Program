@@ -303,5 +303,57 @@ def test_frame_ends_display_option_and_actors():
     assert ci != cj
     assert tuple(acts[0].GetProperty().GetColor()) == pytest.approx(ci)
     assert tuple(acts[1].GetProperty().GetColor()) == pytest.approx(cj)
-    assert tuple(acts[2].GetTextProperty().GetColor()) == pytest.approx(ci)
-    assert tuple(acts[3].GetTextProperty().GetColor()) == pytest.approx(cj)
+    def letter_colour(a):  # a label hierarchy: the text property of its points
+        return tuple(a.GetMapper().GetInputAlgorithm().GetTextProperty().GetColor())
+    assert letter_colour(acts[2]) == pytest.approx(ci)
+    assert letter_colour(acts[3]) == pytest.approx(cj)
+
+
+def _hier_points(a):
+    alg = a.GetMapper().GetInputAlgorithm()
+    alg.Update()
+    return alg.GetInputDataObject(0, 0).GetPoints()
+
+
+def test_frame_end_letters_sit_at_their_arrow():
+    """In a large building the letters sit beside their own arrow (i at its tail, j at
+    its head), not out at the joints where other members meet."""
+    from structstudio.app.scene import _frame_end_actors
+    from structstudio import Model
+    from structstudio.model import FrameSection
+    import numpy as np
+    m = Model("e", "kN m")
+    m.add_material("C", E=25e6, nu=.2)
+    m.add_frame_section(FrameSection.general("B", "C", A=.1, I33=1e-3, I22=1e-3, J=1e-3))
+    f = m.add_frame(m.add_point(0, 0, 0), m.add_point(40, 0, 0), "B")
+    acts = _frame_end_actors(m, [f])
+    xi = _hier_points(acts[2]).GetPoint(0)[0]
+    xj = _hier_points(acts[3]).GetPoint(0)[0]
+    assert xi < 20 < xj  # i on the i side of the arrow, j on the j side
+    assert 10 < xi and xj < 30  # next to the arrow at mid length, not at the ends (0 / 40)
+
+
+def test_frame_ends_left_out_for_columns_in_plan():
+    """A plan sees a column end-on: no i / j arrow for it; elevations and 3D keep it."""
+    from structstudio.app.display import DisplayOptions
+    from structstudio.app.scene import build_model_actors
+    from structstudio import Model
+    from structstudio.model import FrameSection, FIXED
+    m = Model("e", "kN m")
+    m.add_material("C", E=25e6, nu=.2)
+    m.add_frame_section(FrameSection.general("B", "C", A=.1, I33=1e-3, I22=1e-3, J=1e-3))
+    m.add_story("S1", 3.0)
+    a, b = m.add_point(0, 0, 0, restraints=FIXED), m.add_point(0, 0, 3)
+    m.add_frame(a, b, "B", type="Column")
+    m.add_frame(b, m.add_point(6, 0, 3), "B", type="Beam")
+    o = DisplayOptions()
+    o.frame_ends = True
+
+    def n_letters(**kw):
+        acts = build_model_actors(m, options=o, **kw).actors
+        letters = [v for k, v in acts.items() if k.startswith("frame_ends_")][2:]
+        return sum(_hier_points(v).GetNumberOfPoints() for v in letters)
+    assert n_letters() == 4  # 3D: column and beam
+    assert n_letters(story="S1") == 2  # plan: the beam only
+    assert n_letters(plane=("z", 3.0)) == 2  # a free plan at a Z: the beam only
+    assert n_letters(plane=("y", 0.0)) == 4  # elevation: both
