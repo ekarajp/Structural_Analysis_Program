@@ -1048,7 +1048,7 @@ def set_insertion_point(doc: Document, frames: Sequence[str], fields: dict, move
 
 def move_beams_to_axis(doc: Document, frames: Sequence[str], distance: Optional[float] = None,
                        assign: Optional[dict] = None):
-    """*Edit > Edit Frames > Move Beams to Real Axis*: each beam is moved to the line where
+    """*Move Beams to Real Axis* (Assign > Frame > Insertion Point): each beam is moved to the line where
     it really is - in plan by ``distance`` (+ to the left of I -> J), or by its own insertion
     offsets (see beam_axis_moves: up / down too).  The beam keeps its section, loads
     (relative positions), releases, local axes and the vertical part of its cardinal point;

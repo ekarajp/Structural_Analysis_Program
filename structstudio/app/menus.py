@@ -154,9 +154,8 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
         ("Merge Joints...", "edit.merge_joints"),
         "-",
         ("Edit Frames", [("Divide Frames...", "edit.divide_frames"), ("Join Frames", "edit.join_frames"),
-                         ("Reverse Frame Connectivity", "edit.reverse_frames"),
-                         ("Move Beams to Real Axis (Rigid Links)...", "edit.beam_axis"),
-                         ("Modify/Show Frame Type...", "edit.frame_type")]),
+                         ("Reverse Frame Connectivity", "edit.reverse_frames")]),
+        # Move Beams to Real Axis: in Assign > Frame > Insertion Point; frame type: Object Properties
         ("Edit Shells", [("Divide Shells...", "edit.divide_shells"), ("Merge Shells", "edit.merge_shells"),
                          ("Expand/Shrink Shells...", "edit.expand_shells"), ("Split Shell Edge...", "edit.split_edge"),
                          ("Remove Joints From Shells", "edit.remove_shell_joints"),

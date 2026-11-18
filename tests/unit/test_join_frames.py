@@ -79,3 +79,14 @@ def test_join_beams_along_a_slab_edge_same_results():
     assert C.join_frames(doc, [f, g]) == [g] and mid in doc.model.points
     got = analyze(doc.model, kernel=SciPyKernel()).joint_displacement(mid, "P")
     assert np.allclose(got, ref, rtol=1e-6, atol=1e-12)
+
+
+def test_edit_frames_menu_has_no_beam_axis_or_frame_type():
+    """Move Beams to Real Axis is in Assign > Frame > Insertion Point and the frame type
+    in Object Properties: Edit > Edit Frames does not repeat them."""
+    from structstudio.app.menus import iter_commands
+    cmds = {c: (path, label) for path, label, c, _ in iter_commands()}
+    assert "edit.beam_axis" not in cmds and "edit.frame_type" not in cmds
+    assert cmds["assign.insertion_point"][0] == ("Assign", "Frame")
+    edit_frames = [label for path, label, c, _ in iter_commands() if path == ("Edit", "Edit Frames")]
+    assert edit_frames == ["Divide Frames...", "Join Frames", "Reverse Frame Connectivity"]

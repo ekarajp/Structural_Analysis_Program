@@ -865,8 +865,8 @@ class Mesher:
                 am.warnings.append(
                     f"Beam {f.name}: {(abs(vz) - 0.5 * props['t3']) / U.factor('length'):.3f} {'above' if vz > 0 else 'below'} "
                     f"its joints' level, outside its depth - joined to the joints (and the slab there) by "
-                    f"rigid arms that are not in the real building: use Edit > Edit Frames > Move Beams to "
-                    f"Real Axis (the same as drawing the beam there)")
+                    f"rigid arms that are not in the real building: use Assign > Frame > Insertion Point > Move "
+                    f"Beams to Real Axis (the same as drawing the beam there)")
         if shift is not None:  # meshed on the true axis: only the rest (vertical) is an element arm
             off_i = off_i - shift[0]
             off_j = off_j - shift[1]
@@ -984,7 +984,7 @@ class Mesher:
                             f"Beam {f.name}: its axis is {hn / U.factor('length'):.3f} off joint {end_point}, outside "
                             f"column {other.name} ({half / U.factor('length'):.3f} to its face) - joined to the joint by a "
                             f"rigid link, no rigid end zone at that end - a rigid arm that is not in the real "
-                            f"building: use Edit > Edit Frames > Move Beams to Real Axis (the same as drawing "
+                            f"building: use Assign > Frame > Insertion Point > Move Beams to Real Axis (the same as drawing "
                             f"the beam there)")
         if shift is not None:  # a joint whose cut merged with a nearby one: the nearest axis node
             used = {round(t, 12) for t in params}
