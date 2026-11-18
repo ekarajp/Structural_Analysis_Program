@@ -357,3 +357,35 @@ def test_frame_ends_left_out_for_columns_in_plan():
     assert n_letters(story="S1") == 2  # plan: the beam only
     assert n_letters(plane=("z", 3.0)) == 2  # a free plan at a Z: the beam only
     assert n_letters(plane=("y", 0.0)) == 4  # elevation: both
+
+
+def test_frame_end_letters_beside_the_member_in_plan_and_elevation():
+    """In a plan or an elevation each letter is placed off its member, across the view:
+    above a horizontal member, to the right of a vertical one - never on the member line."""
+    from structstudio.app.scene import _frame_end_actors
+    from structstudio import Model
+    from structstudio.model import FrameSection
+    m = Model("e", "kN m")
+    m.add_material("C", E=25e6, nu=.2)
+    m.add_frame_section(FrameSection.general("B", "C", A=.1, I33=1e-3, I22=1e-3, J=1e-3))
+    col = m.add_frame(m.add_point(0, 0, 0), m.add_point(0, 0, 3), "B", type="Column")
+    bx = m.add_frame(m.add_point(0, 0, 3), m.add_point(6, 0, 3), "B", type="Beam")
+    by = m.add_frame(m.add_point(0, 0, 3), m.add_point(0, 6, 3), "B", type="Beam")
+
+    def placement(frames, view):
+        out = []
+        for a in _frame_end_actors(m, frames, view)[2:]:
+            tp = a.GetMapper().GetInputAlgorithm().GetTextProperty()
+            p = _hier_points(a).GetPoint(0)
+            out.append((tp.GetJustificationAsString(), tp.GetVerticalJustificationAsString(), p))
+        return out
+    # elevation (looking along y): the beam's letters above it, the column's to its right
+    (h, v, p), _ = placement([bx], "y")
+    assert (h, v) == ("Centered", "Bottom") and p[2] > 3
+    (h, v, p), _ = placement([col], "y")
+    assert (h, v) == ("Left", "Centered") and p[0] > 0
+    # plan: a beam along x - letters above it (+y); a beam along y - to its right (+x)
+    (h, v, p), _ = placement([bx], "z")
+    assert (h, v) == ("Centered", "Bottom") and p[1] > 0
+    (h, v, p), _ = placement([by], "z")
+    assert (h, v) == ("Left", "Centered") and p[0] > 0

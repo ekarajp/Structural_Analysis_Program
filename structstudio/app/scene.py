@@ -820,7 +820,8 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
         in_plan = (story is not None and plane is None) or (plane is not None and plane[0] == "z")
         if in_plan:  # a plan (of a story or at a free Z): a column is seen end-on - no i / j for it
             ends_of = [f for f in vis_frames if not _is_vertical(model, f)]
-        for k, a in enumerate(_frame_end_actors(model, ends_of)):
+        view = "z" if in_plan else (plane[0] if plane is not None and plane[0] in ("x", "y") else None)
+        for k, a in enumerate(_frame_end_actors(model, ends_of, view)):
             out.actors[f"frame_ends_{k}"] = a
     # ---- grids ----------------------------------------------------------------
     # the grid names (bubbles) belong to the grid lines: hiding the lines hides them too
@@ -1316,10 +1317,13 @@ def _is_vertical(model: Model, f) -> bool:
     return n > 0 and abs(d[2]) >= 0.99 * n
 
 
-def _frame_end_actors(model: Model, frames) -> List[vtk.vtkProp]:
+def _frame_end_actors(model: Model, frames, view: Optional[str] = None) -> List[vtk.vtkProp]:
     """An arrow at mid length of each frame pointing from end i to end j, with "i"
     (green) beside its tail and "j" (red) beside its head: the half of its shaft on the i side in
     the colour of "i", the half on the j side and the head in the colour of "j".
+    ``view``: the axis a plan ("z") or an elevation ("x" / "y") looks along - each letter
+    then sits off its member across that view (above a horizontal member, to the right of
+    a vertical one), never on the member line; None: a 3D view.
     Everything is an overlay drawn over the model, so no member or slab hides it; the
     arrow is a little wider than the member lines and the letters sit on boxes; where
     letters crowd, some are left out until the view is zoomed in. Size follows the local-axes graphics sizes."""
@@ -1328,7 +1332,9 @@ def _frame_end_actors(model: Model, frames) -> List[vtk.vtkProp]:
     if typ > 0:
         L = min(L, typ * 0.15)
     L *= gsize("local_axes_length")
-    spots, texts, prio = [], [], []
+    spots, texts, prio, gravs = [], [], [], []
+    axis = {"x": 0, "y": 1, "z": 2}
+    screen = {"z": (0, 1), "y": (0, 2), "x": (1, 2)}  # the world axes that run across / up the view
     shaft = {"i": [], "j": []}  # line segments drawn in the colour of each end
     heads = []  # arrow heads (filled triangles), colour of j
     for f in frames:
@@ -1351,9 +1357,27 @@ def _frame_end_actors(model: Model, frames) -> List[vtk.vtkProp]:
         # "i" beside the tail and "j" beside the head of the same arrow: in a large building
         # every letter stays next to its own member's arrow, not out at a joint shared
         # with other members
-        off = 0.6 * L * (lift if f.type != "Column" else side)
-        spots += [tail - u * 0.2 * L + off, tip + u * 0.2 * L + off]
+        if view in screen:  # a plan / elevation: across the member, in the plane of the view
+            nrm = np.zeros(3)
+            nrm[axis[view]] = 1.0
+            perp = np.cross(nrm, u)
+            if np.linalg.norm(perp) < 1e-6:  # seen end-on
+                perp = side
+            perp = perp / np.linalg.norm(perp)
+            sx, sy = perp[screen[view][0]], perp[screen[view][1]]
+            grav = "above" if abs(sy) >= abs(sx) else "right"
+            if (sy if grav == "above" else sx) < 0:
+                perp = -perp
+        elif f.type != "Column" and not _is_vertical(model, f):
+            perp, grav = (lift if lift[2] >= 0 else -lift), "above"
+        else:
+            perp, grav = side, "right"
+        # anchored just off the member; the letter itself is placed beyond the anchor
+        # (above it / to its right), so it never covers the member line
+        off = 0.3 * L * perp
+        spots += [tail + off, tip + off]
         texts += ["i", "j"]
+        gravs += [grav, grav]
         prio += [len(prio) // 2 * 7919 % 1009] * 2  # spread over the model, same for both ends
         hl = min(0.3 * h, 0.9 * L)  # head length
         back = tip - u * hl
@@ -1393,14 +1417,19 @@ def _frame_end_actors(model: Model, frames) -> List[vtk.vtkProp]:
         # green tail to red head, still give every direction) and all come back on zooming
         # in; an i and a j of the same member share a priority, so they stay or go together
         size = max(9, int(round(gsize("local_axes_text")))) + 1
+        justify = {"above": ("center", "bottom"), "right": ("left", "center")}
         for t in ("i", "j"):
-            sel = [k for k, x in enumerate(texts) if x == t]
-            pri = vtk.vtkFloatArray()
-            pri.SetName("priority")
-            for k in sel:
-                pri.InsertNextValue(float(prio[k]))
-            out.append(_text_labels(_points_of([spots[k] for k in sel]), _strings([t] * len(sel)),
-                                    col[t], size, background=True, bold=True, priority=pri))
+            for g in ("above", "right"):
+                sel = [k for k, x in enumerate(texts) if x == t and gravs[k] == g]
+                if not sel:
+                    continue
+                pri = vtk.vtkFloatArray()
+                pri.SetName("priority")
+                for k in sel:
+                    pri.InsertNextValue(float(prio[k]))
+                out.append(_text_labels(_points_of([spots[k] for k in sel]), _strings([t] * len(sel)),
+                                        col[t], size, background=True, bold=True, priority=pri,
+                                        justify=justify[g]))
     return out
 
 
@@ -2842,7 +2871,8 @@ def build_reaction_actors(model: Model, results, case: str, labels: bool = True,
 
 
 def _text_labels(pts: vtk.vtkPoints, texts: vtk.vtkStringArray, color, size: int = 11,
-                 background: bool = False, bold: bool = False, priority=None) -> vtk.vtkProp:
+                 background: bool = False, bold: bool = False, priority=None,
+                 justify: Optional[Tuple[str, str]] = None) -> vtk.vtkProp:
     """Screen-aligned labels that never overlap (a crowded label is dropped
     until there is room).  ``background`` puts each label on a filled
     rounded box in the window colour, so numbers stay readable over lines,
@@ -2860,6 +2890,12 @@ def _text_labels(pts: vtk.vtkPoints, texts: vtk.vtkStringArray, color, size: int
     tp.SetColor(*color)
     tp.SetFontSize(size)
     tp.SetBold(bold or background)
+    if justify is not None:  # where the label sits from its point: ("center", "bottom") = above it
+        h, v = justify
+        {"left": tp.SetJustificationToLeft, "center": tp.SetJustificationToCentered,
+         "right": tp.SetJustificationToRight}[h]()
+        {"bottom": tp.SetVerticalJustificationToBottom, "center": tp.SetVerticalJustificationToCentered,
+         "top": tp.SetVerticalJustificationToTop}[v]()
     mapper = vtk.vtkLabelPlacementMapper()
     mapper.SetInputConnection(hier.GetOutputPort())
     # every label that fits is placed, whatever the zoom: the default level-of-detail
