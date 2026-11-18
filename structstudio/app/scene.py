@@ -821,7 +821,8 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
         if in_plan:  # a plan (of a story or at a free Z): a column is seen end-on - no i / j for it
             ends_of = [f for f in vis_frames if not _is_vertical(model, f)]
         view = "z" if in_plan else (plane[0] if plane is not None and plane[0] in ("x", "y") else None)
-        for k, a in enumerate(_frame_end_actors(model, ends_of, view)):
+        letters = getattr(opts, "frame_end_letters", True)
+        for k, a in enumerate(_frame_end_actors(model, ends_of, view, letters=letters)):
             out.actors[f"frame_ends_{k}"] = a
     # ---- grids ----------------------------------------------------------------
     # the grid names (bubbles) belong to the grid lines: hiding the lines hides them too
@@ -1317,13 +1318,15 @@ def _is_vertical(model: Model, f) -> bool:
     return n > 0 and abs(d[2]) >= 0.99 * n
 
 
-def _frame_end_actors(model: Model, frames, view: Optional[str] = None) -> List[vtk.vtkProp]:
+def _frame_end_actors(model: Model, frames, view: Optional[str] = None,
+                      letters: bool = True) -> List[vtk.vtkProp]:
     """An arrow at mid length of each frame pointing from end i to end j, with "i"
     (green) beside its tail and "j" (red) beside its head: the half of its shaft on the i side in
     the colour of "i", the half on the j side and the head in the colour of "j".
     ``view``: the axis a plan ("z") or an elevation ("x" / "y") looks along - each letter
     then sits off its member across that view (above a horizontal member, to the right of
-    a vertical one), never on the member line; None: a 3D view.
+    a vertical one), never on the member line; None: a 3D view.  ``letters`` False: the
+    arrows only (no "i" / "j").
     Everything is an overlay drawn over the model, so no member or slab hides it; the
     arrow is a little wider than the member lines and the letters sit on boxes; where
     letters crowd, some are left out until the view is zoomed in. Size follows the local-axes graphics sizes."""
@@ -1412,7 +1415,7 @@ def _frame_end_actors(model: Model, frames, view: Optional[str] = None) -> List[
         if t == "j":
             poly.SetPolys(polys)
         out.append(_overlay_actor(poly, col[t], width))
-    if spots:
+    if spots and letters:
         # the letters thin out where they crowd (a large building seen whole: the arrows,
         # green tail to red head, still give every direction) and all come back on zooming
         # in; an i and a j of the same member share a priority, so they stay or go together

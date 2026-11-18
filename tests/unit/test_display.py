@@ -389,3 +389,28 @@ def test_frame_end_letters_beside_the_member_in_plan_and_elevation():
     assert (h, v) == ("Centered", "Bottom") and p[1] > 0
     (h, v, p), _ = placement([by], "z")
     assert (h, v) == ("Left", "Centered") and p[0] > 0
+
+
+def test_frame_ends_arrows_only():
+    """'Frame ends: letters i / j' (on by default, saved; an old file without it keeps
+    the letters) - off: the arrows only."""
+    from structstudio.app.display import LABELS, DisplayOptions
+    from structstudio.app.scene import build_model_actors
+    from structstudio import Model
+    from structstudio.model import FrameSection
+    assert DisplayOptions().frame_end_letters is True and "frame_end_letters" in LABELS
+    d = DisplayOptions().to_dict()
+    d.pop("frame_end_letters")
+    assert DisplayOptions.from_dict(d).frame_end_letters is True
+    m = Model("e", "kN m")
+    m.add_material("C", E=25e6, nu=.2)
+    m.add_frame_section(FrameSection.general("B", "C", A=.1, I33=1e-3, I22=1e-3, J=1e-3))
+    m.add_frame(m.add_point(0, 0, 0), m.add_point(6, 0, 0), "B")
+    o = DisplayOptions()
+    o.frame_ends = True
+    keys = [k for k in build_model_actors(m, options=o).actors if k.startswith("frame_ends_")]
+    assert len(keys) == 4  # two arrow halves + i + j
+    o.frame_end_letters = False
+    assert DisplayOptions.from_dict(o.to_dict()).frame_end_letters is False
+    keys = [k for k in build_model_actors(m, options=o).actors if k.startswith("frame_ends_")]
+    assert len(keys) == 2  # the arrow halves only
