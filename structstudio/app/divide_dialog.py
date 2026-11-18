@@ -1,4 +1,4 @@
-"""Compact dialog of Edit > Edit Frames > Divide Frames.
+"""Compact dialogs of Edit > Edit Frames > Divide Frames and Edit > Edit Shells > Divide Shells.
 
 One "Divide by" choice; only the few fields of that choice are shown (the dialog
 shrinks to them).  ``result()`` returns (kind, values) with lengths in model units,
@@ -139,3 +139,111 @@ class DivideFramesDialog(QtWidgets.QDialog):
             "stories": self.stories.isChecked(), "edges": self.edges.isChecked(), "tol": self.tol.value() / k,
         }
         return key, v
+
+
+SHELL_KINDS = (("equal", "Equal pieces"), ("size", "Maximum size"), ("cross", "Intersections"))
+
+
+class DivideShellsDialog(QtWidgets.QDialog):
+    """Compact dialog of Edit > Edit Shells > Divide Shells, like Divide Frames: equal
+    pieces n1 x n2, a largest piece size, or along frames drawn on the shell / grid
+    lines / story levels."""
+
+    def __init__(self, tol0: float, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Divide Shells")
+        du = display_units()
+        self._k = du.factor("coordinates") if du is not None else 1.0
+        unit = du.label("coordinates") if du is not None else ""
+
+        def length(value: float) -> QtWidgets.QDoubleSpinBox:
+            w = QtWidgets.QDoubleSpinBox()
+            w.setDecimals(4)
+            w.setRange(0.0, 1e9)
+            w.setValue(value * self._k)
+            if unit:
+                w.setSuffix(f" {unit}")
+            return w
+
+        def row(*widgets) -> QtWidgets.QWidget:
+            box = QtWidgets.QWidget()
+            h = QtWidgets.QHBoxLayout(box)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.setSpacing(6)
+            for w in widgets:
+                if isinstance(w, str):
+                    w = QtWidgets.QLabel(w)
+                h.addWidget(w)
+            h.addStretch(1)
+            return box
+
+        lay = QtWidgets.QVBoxLayout(self)
+        lay.setContentsMargins(10, 10, 10, 8)
+        lay.setSpacing(6)
+        self.kind = QtWidgets.QComboBox()
+        for _, label in SHELL_KINDS:
+            self.kind.addItem(label)
+        lay.addWidget(row("Divide by", self.kind))
+
+        self.stack = QtWidgets.QStackedWidget()
+        # equal pieces
+        self.n1, self.n2 = QtWidgets.QSpinBox(), QtWidgets.QSpinBox()
+        for w in (self.n1, self.n2):
+            w.setRange(1, 1000)
+            w.setValue(2)
+        self.stack.addWidget(row("Along edge 1-2 (axis 1)", self.n1, "x  along 1-4 (axis 2)", self.n2))
+        # maximum size
+        self.size = length(1.0)
+        self.stack.addWidget(row("Largest piece side", self.size))
+        # intersections
+        page = QtWidgets.QWidget()
+        g = QtWidgets.QGridLayout(page)
+        g.setContentsMargins(0, 0, 0, 0)
+        g.setHorizontalSpacing(12)
+        g.setVerticalSpacing(3)
+        self.frames = QtWidgets.QCheckBox("Frames drawn on the shell")
+        self.scope = QtWidgets.QComboBox()
+        self.scope.addItems(["all frames", "selected frames only"])
+        self.grids = QtWidgets.QCheckBox("Grid lines")
+        self.stories = QtWidgets.QCheckBox("Story levels")
+        self.frames.setChecked(True)
+        self.tol = length(tol0)
+        g.addWidget(self.frames, 0, 0)
+        g.addWidget(self.scope, 0, 1, QtCore.Qt.AlignLeft)
+        g.addWidget(self.grids, 1, 0)
+        g.addWidget(self.stories, 1, 1)
+        g.addWidget(row("Tolerance", self.tol), 2, 0, 1, 2)
+        self.frames.toggled.connect(self.scope.setEnabled)
+        self.stack.addWidget(page)
+        lay.addWidget(self.stack)
+        note = QtWidgets.QLabel("A frame cuts the shell where it runs right across it; a quadrilateral is "
+                                "divided along its own edges, other shapes along their local axes.")
+        note.setWordWrap(True)
+        note.setStyleSheet("color: gray;")
+        lay.addWidget(note)
+
+        bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+        self.kind.currentIndexChanged.connect(self._show)
+        self._show(0)
+
+    def _show(self, i: int):
+        self.stack.setCurrentIndex(i)
+        for k in range(self.stack.count()):  # only the shown page takes room
+            pol = QtWidgets.QSizePolicy.Preferred if k == i else QtWidgets.QSizePolicy.Ignored
+            self.stack.widget(k).setSizePolicy(pol, pol)
+        self.stack.adjustSize()
+        self.adjustSize()
+
+    def set_kind(self, key: str):
+        self.kind.setCurrentIndex([k for k, _ in SHELL_KINDS].index(key))
+
+    def choice(self) -> Tuple[str, Dict[str, Any]]:
+        key = SHELL_KINDS[self.kind.currentIndex()][0]
+        k = self._k or 1.0
+        return key, {"n1": self.n1.value(), "n2": self.n2.value(), "size": self.size.value() / k,
+                     "frames": self.frames.isChecked(), "selected_frames": self.scope.currentIndex() == 1,
+                     "grids": self.grids.isChecked(), "stories": self.stories.isChecked(),
+                     "tol": self.tol.value() / k}

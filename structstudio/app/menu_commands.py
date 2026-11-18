@@ -489,14 +489,44 @@ class MenuCommandsMixin:
         self._info(f"Reversed {n} frame(s) - ends i / j shown (View > Set Display Options > Frame ends)")
 
     def edit_divide_shells(self):
+        """Edit > Edit Shells > Divide Shells: equal pieces n1 x n2, a largest piece size,
+        or along frames drawn on the shell, grid lines and story levels (like Divide Frames)."""
         if not self._need("area"):
             return
-        v = ask(self, "Divide Shells", [("n1", "Divide along edge 1-2 into", 2, {"min": 1, "max": 100}),
-                                        ("n2", "Divide along edge 1-3 into", 2, {"min": 1, "max": 100})],
-                note="Quadrilateral shells are divided into n1 x n2 objects.")
-        if v:
-            made = C.divide_shells(self.doc, list(self.state.areas), v["n1"], v["n2"])
-            self.state.set_selection(areas=made)
+        from . import shell_divide as SD
+        from .divide_dialog import DivideShellsDialog
+        m = self.doc.model
+        d = DivideShellsDialog(10 * m.options.merge_tolerance, self)
+        if not d.exec():
+            return
+        kind, v = d.choice()
+        areas = [n for n in self.state.areas if n in m.areas and m.areas[n].type != "Opening"]
+        pieces = {}
+        for n in areas:
+            a = m.areas[n]
+            if kind == "equal":
+                pieces[n] = SD.pieces_equal(m, a, v["n1"], v["n2"])
+            elif kind == "size":
+                pieces[n] = SD.pieces_max_size(m, a, v["size"])
+            else:
+                planes = []
+                if v["frames"]:
+                    pool = [f for f in self.state.frames if f in m.frames] if v["selected_frames"] else None
+                    planes += SD.planes_at_frames(m, a, pool, v["tol"])
+                if v["grids"]:
+                    planes += SD.planes_at_grids(m, a, v["tol"])
+                if v["stories"]:
+                    planes += SD.planes_at_stories(m, a)
+                pieces[n] = SD.cut(SD._xyz(m, a), planes, m.options.merge_tolerance)
+        n_div = sum(1 for ps in pieces.values() if len(ps) > 1)
+        if not n_div:
+            return QtWidgets.QMessageBox.information(
+                self, "Divide Shells", "Nothing to divide: no cut runs right across the selected shells"
+                + (" (a frame cuts a shell only where it lies on the shell and runs across it)."
+                   if kind == "cross" and v["frames"] else "."))
+        made = self._try("Divide Shells", lambda: SD.divide(self.doc, pieces)) or []
+        self.state.set_selection(areas=[n for n in made if n in self.doc.model.areas])
+        self._info(f"Divide Shells: {n_div} shell(s) divided into {len(made)} piece(s)")
 
     def _shell_edit_done(self, title: str, done: list, notes: list, what: str):
         if done:
