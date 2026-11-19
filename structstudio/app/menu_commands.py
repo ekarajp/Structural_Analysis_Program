@@ -496,10 +496,12 @@ class MenuCommandsMixin:
         from . import shell_divide as SD
         from .divide_dialog import DivideShellsDialog
         m = self.doc.model
-        d = DivideShellsDialog(10 * m.options.merge_tolerance, self)
+        d = DivideShellsDialog(10 * m.options.merge_tolerance, self, model=m)
         if not d.exec():
             return
         kind, v = d.choice()
+        if kind == "cross" and v["grids"] and v["grid_which"] not in ("shown", "all") and not v["grid_which"]:
+            return QtWidgets.QMessageBox.information(self, "Divide Shells", "No grid line was chosen.")
         areas = [n for n in self.state.areas if n in m.areas and m.areas[n].type != "Opening"]
         pieces = {}
         for n in areas:
@@ -514,7 +516,7 @@ class MenuCommandsMixin:
                     pool = [f for f in self.state.frames if f in m.frames] if v["selected_frames"] else None
                     planes += SD.planes_at_frames(m, a, pool, v["tol"])
                 if v["grids"]:
-                    planes += SD.planes_at_grids(m, a, v["tol"])
+                    planes += SD.planes_at_grids(m, a, v["tol"], grids=v["grid_which"])
                 if v["stories"]:
                     planes += SD.planes_at_stories(m, a)
                 pieces[n] = SD.cut(SD._xyz(m, a), planes, m.options.merge_tolerance)

@@ -7,7 +7,9 @@ it in two, and every piece is cut by the next plane.  The finders give the plane
   own edges, any other shape along its local axes 1 and 2)
 * frames drawn on the shell (beams over a slab, a frame across a wall) - the shell is
   cut along the frame where the frame runs right across it
-* grid lines (in plan: a floor is cut along them, a wall where they cross it)
+* grid lines and arcs (in plan: a floor is cut along them - along an arc in short
+  straight pieces -, a wall where they cross it); the grids shown, every grid or
+  chosen grids
 * story levels (walls and ramps through several stories)
 
 A cut along a chord that would leave a sliver, or that crosses a concave outline more
@@ -23,6 +25,14 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 Plane = Tuple[np.ndarray, np.ndarray]  # (a point on it, its unit normal)
+ARC_STEP_DEG = 5.0  # an arc grid cuts a floor in straight pieces of at most this angle
+
+
+class Path:
+    """A cut along a polyline lying on the shell (an arc grid line on a floor)."""
+
+    def __init__(self, points: np.ndarray):
+        self.points = np.asarray(points, float)
 
 
 # ------------------------------------------------------------- geometry
@@ -155,10 +165,66 @@ def cut(P: np.ndarray, planes: Sequence[Plane], tol: float) -> List[np.ndarray]:
     for pl in planes:
         nxt = []
         for q in pieces:
-            s = split(q, pl, tol, min_area)
+            s = split_path(q, pl.points, tol, min_area) if isinstance(pl, Path) else split(q, pl, tol, min_area)
             nxt += s if s else [q]
         pieces = nxt
     return pieces
+
+
+def _seg_hits(a, b, c, d, eps=1e-12):
+    """(s on a-b, r on c-d) where two 2-D segments cross, or None."""
+    u, v, w = b - a, d - c, c - a
+    den = u[0] * v[1] - u[1] * v[0]
+    if abs(den) <= eps * (np.linalg.norm(u) * np.linalg.norm(v) or 1.0):
+        return None
+    s = (w[0] * v[1] - w[1] * v[0]) / den
+    r = (w[0] * u[1] - w[1] * u[0]) / den
+    if -1e-9 <= s <= 1 + 1e-9 and -1e-9 <= r <= 1 + 1e-9:
+        return min(max(s, 0.0), 1.0), min(max(r, 0.0), 1.0)
+    return None
+
+
+def split_path(P: np.ndarray, path: np.ndarray, tol: float, min_area: float) -> Optional[List[np.ndarray]]:
+    """The two pieces a polyline on the shell cuts it into, when it runs right across
+    (in at one edge, out at another, once); None otherwise."""
+    e1, e2, _ = _axes(P)
+    O = P[0]
+    P2 = np.c_[(P - O) @ e1, (P - O) @ e2]
+    Q2 = np.c_[(path - O) @ e1, (path - O) @ e2]
+    k, m = len(P2), len(Q2)
+    hits = []  # (position along the path, edge, position on the edge, the 3-D point)
+    for j in range(m - 1):
+        for i in range(k):
+            h = _seg_hits(Q2[j], Q2[j + 1], P2[i], P2[(i + 1) % k])
+            if h is None:
+                continue
+            x = P[i] + h[1] * (P[(i + 1) % k] - P[i])
+            if any(np.linalg.norm(x - y[3]) <= tol for y in hits):  # through a corner: once
+                continue
+            hits.append((j + h[0], i, h[1], x))
+    if len(hits) != 2:
+        return None
+    (t1, i1, r1, X), (t2, i2, r2, Y) = sorted(hits, key=lambda z: z[0])
+    inner = [path[j] for j in range(m) if t1 < j < t2]
+
+    def along(i, r, x, i_to, r_to, y):  # the outline from x (on edge i) forward to y
+        pts, n = [x], 0
+        if not (i == i_to and r < r_to):
+            n = 1
+            while True:
+                pts.append(P[(i + n) % k])
+                if (i + n) % k == i_to:
+                    break
+                n += 1
+        return pts + [y]
+    A = along(i1, r1, X, i2, r2, Y) + inner[::-1]
+    B = along(i2, r2, Y, i1, r1, X) + inner
+    out = [_tidy(q, tol) for q in (A, B)]
+    if any(len(q) < 3 or _poly_area(q) <= min_area for q in out):
+        return None
+    if abs(sum(_poly_area(q) for q in out) - _poly_area(P)) > 1e-6 * _poly_area(P) + min_area:
+        return None
+    return out
 
 
 def _quad_grid(P: np.ndarray, n1: int, n2: int) -> List[np.ndarray]:
@@ -241,13 +307,16 @@ def planes_at_frames(model, area, frames: Optional[Sequence[str]] = None,
     return out
 
 
-def planes_at_grids(model, area, tol: Optional[float] = None) -> List[Plane]:
-    """Vertical planes through the grid lines (straight ones) that reach the shell."""
-    from ..model.grids import grid_geometry
+def planes_at_grids(model, area, tol: Optional[float] = None, grids="shown") -> list:
+    """The cuts along grid lines that reach the shell: vertical planes through the
+    straight ones; an arc cuts a floor along short straight pieces (a :class:`Path`) and
+    a wall where it crosses it.  ``grids``: "shown", "all" or a list of (system, name)."""
+    from .frame_divide import grid_set
     tol = max(float(tol or 0.0), model.options.merge_tolerance)
     P = _xyz(model, area)
-    out: List[Plane] = []
-    for p, q, _, _ in grid_geometry(model).lines:
+    gg = grid_set(model, grids)
+    out: list = []
+    for p, q, _, _ in gg.lines:
         p, q = np.asarray(p, float), np.asarray(q, float)
         d = q - p
         L = float(np.linalg.norm(d))
@@ -261,6 +330,29 @@ def planes_at_grids(model, area, tol: Optional[float] = None) -> List[Plane]:
         s = sorted(float((c[:2] - p) @ u) for c in ch)
         if s[1] >= -tol and s[0] <= L + tol:  # the chord is where the grid line is drawn
             out.append(pl)
+    n = _normal(P)
+    for c, r, a0, a1, _, _ in gg.arcs:
+        c = np.asarray(c, float)
+        lo, hi = min(a0, a1), max(a0, a1)
+        if abs(n[2]) > 1e-3:  # a floor (or a ramp): the arc on the shell's plane
+            k = max(2, int(math.ceil((hi - lo) / ARC_STEP_DEG)))
+            ang = np.radians(np.linspace(lo, hi, k + 1))
+            xy = np.c_[c[0] + r * np.cos(ang), c[1] + r * np.sin(ang)]
+            z = P[0][2] - ((xy[:, 0] - P[0][0]) * n[0] + (xy[:, 1] - P[0][1]) * n[1]) / n[2]
+            out.append(Path(np.c_[xy, z]))
+        else:  # a wall: vertical cuts where the arc crosses the wall's line in plan
+            h = np.cross(n, [0.0, 0.0, 1.0])
+            h2 = h[:2] / (np.linalg.norm(h[:2]) or 1.0)
+            w = P[0][:2] - c
+            B, C = 2 * float(w @ h2), float(w @ w) - r * r
+            disc = B * B - 4 * C
+            if disc < 0:
+                continue
+            for t in ((-B - math.sqrt(disc)) / 2, (-B + math.sqrt(disc)) / 2):
+                x = P[0][:2] + t * h2
+                ang = math.degrees(math.atan2(x[1] - c[1], x[0] - c[0]))
+                if any(lo - 1e-6 <= ang + kk * 360 <= hi + 1e-6 for kk in (-1, 0, 1)):
+                    out.append((np.r_[x, 0.0], np.r_[h2, 0.0]))
     return out
 
 

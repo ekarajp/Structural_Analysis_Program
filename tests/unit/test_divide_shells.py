@@ -130,3 +130,76 @@ def test_dialog_choices():
     d.grids.setChecked(True)
     k, v = d.choice()
     assert k == "cross" and v["frames"] and v["grids"] and not v["stories"] and not v["selected_frames"]
+
+
+def _cyl(m, rs=(6.0,), ts=(0.0, 90.0)):
+    from structstudio.model.objects import GridSystem
+    m.grid_systems["C1"] = GridSystem(name="C1", type="Cylindrical")
+    for k, r in enumerate(rs):
+        m.grid_lines.append(GridLine("C1", f"R{k + 1}", "R", r))
+    for k, t in enumerate(ts):
+        m.grid_lines.append(GridLine("C1", f"T{k + 1}", "T", t))
+
+
+def test_arc_grid_cuts_a_floor_and_a_wall():
+    """A cylindrical grid's arc cuts a floor along short straight pieces (the curved edge
+    is a polyline) and a wall straight up where the arc crosses it."""
+    doc = _doc()
+    m = doc.model
+    _cyl(m, rs=(6.0,), ts=(0.0, 90.0))
+    s = _slab(doc, [(0, 0), (10, 0), (10, 10), (0, 10)])
+    cuts = SD.planes_at_grids(m, m.areas[s])
+    paths = [c for c in cuts if isinstance(c, SD.Path)]
+    assert len(paths) == 1  # the arc; the radial lines T1 / T2 lie along the edges
+    made = _divide(doc, s, cuts)
+    areas = sorted(_area(doc, [n]) for n in made)
+    assert len(made) == 2 and areas[0] == pytest.approx(np.pi * 36 / 4, rel=2e-3)
+    assert sum(areas) == pytest.approx(100.0)
+    # a wall along y = 2 from x = 0 to 10: the arc (r = 6) crosses it at x = sqrt(32)
+    w = m.add_area([m.add_point(*p) for p in ((0, 2, 0), (10, 2, 0), (10, 2, 3), (0, 2, 3))], None,
+                   type="Wall").name
+    made = _divide(doc, w, SD.planes_at_grids(m, m.areas[w]))
+    xs = sorted({round(m.points[p].x, 6) for n in made for p in m.areas[n].points})
+    assert len(made) == 2 and xs == [0, pytest.approx(np.sqrt(32), abs=1e-6), 10]
+
+
+def test_which_grids_shown_all_or_chosen():
+    """Divide at the grids shown, every grid (hidden ones too) or chosen grid lines -
+    for shells and frames alike."""
+    from structstudio.app import frame_divide as FD
+    doc = _doc()
+    m = doc.model
+    sy = next(iter(m.grid_systems), "G1")
+    for nm, d, o in (("A", "X", 0.0), ("B", "X", 2.0), ("C", "X", 4.0), ("D", "X", 8.0),
+                     ("1", "Y", 0.0), ("2", "Y", 6.0)):
+        m.grid_lines.append(GridLine(sy, nm, d, o))
+    next(g for g in m.grid_lines if g.name == "C").visible = False  # hidden in the grid form
+    s = _slab(doc, RECT)
+    a = m.areas[s]
+    xs = lambda cuts: sorted(round(float(c[0][0]), 6) for c in cuts)
+    assert xs(SD.planes_at_grids(m, a)) == [2.0]  # shown: B (C hidden)
+    assert xs(SD.planes_at_grids(m, a, grids="all")) == [2.0, 4.0]
+    assert xs(SD.planes_at_grids(m, a, grids=[(sy, "C")])) == [4.0]
+    assert SD.planes_at_grids(m, a, grids=[]) == []
+    f = _beam(doc, (0, 3, 3), (8, 3, 3))
+    assert FD.at_grid_lines(m, [f])[f] == pytest.approx([.25])
+    assert FD.at_grid_lines(m, [f], grids="all")[f] == pytest.approx([.25, .5])
+    assert FD.at_grid_lines(m, [f], grids=[(sy, "C")])[f] == pytest.approx([.5])
+    rows = FD.grid_lines_list(m)
+    assert (sy, "C", "X", False) in rows and (sy, "B", "X", True) in rows
+
+
+def test_grid_pick_widget():
+    from PySide6 import QtWidgets
+    from structstudio.app.divide_dialog import DivideFramesDialog, DivideShellsDialog
+    _app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    doc = _doc()
+    for D in (DivideFramesDialog, DivideShellsDialog):
+        d = D(0.01, model=doc.model)
+        d.set_kind("cross")
+        d.grids.setChecked(True)
+        assert d.choice()[1]["grid_which"] == "shown"
+        d.grid_pick.set_value("all")
+        assert d.choice()[1]["grid_which"] == "all"
+        d.grid_pick.set_value([("G1", "B")])
+        assert d.choice()[1]["grid_which"] == [("G1", "B")]

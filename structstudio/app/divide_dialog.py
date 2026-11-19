@@ -12,12 +12,93 @@ from PySide6 import QtCore, QtWidgets
 
 from .forms import display_units
 
+
+class GridPick(QtWidgets.QWidget):
+    """Which grid lines to divide at: the grids shown, every grid (hidden ones too) or
+    chosen grids (a checklist of the grid lines of the model)."""
+
+    def __init__(self, model=None, parent=None):
+        super().__init__(parent)
+        self._model = model
+        self.chosen: list = []  # (system, name) when "chosen grids"
+        h = QtWidgets.QHBoxLayout(self)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(4)
+        self.combo = QtWidgets.QComboBox()
+        self.combo.addItems(["shown grids", "all grids (hidden too)", "chosen grids..."])
+        self.pick = QtWidgets.QToolButton()
+        self.pick.setText("...")
+        self.pick.setToolTip("Choose the grid lines")
+        self.pick.setVisible(False)
+        h.addWidget(self.combo)
+        h.addWidget(self.pick)
+        self.combo.activated.connect(self._activated)
+        self.pick.clicked.connect(self.choose)
+
+    def _activated(self, i: int):
+        self.pick.setVisible(i == 2)
+        if i == 2 and not self.choose() and not self.chosen:
+            self.combo.setCurrentIndex(0)
+            self.pick.setVisible(False)
+
+    def choose(self) -> bool:
+        from .frame_divide import grid_lines_list
+        rows = grid_lines_list(self._model) if self._model is not None else []
+        d = QtWidgets.QDialog(self)
+        d.setWindowTitle("Grid lines to divide at")
+        lay = QtWidgets.QVBoxLayout(d)
+        lst = QtWidgets.QListWidget()
+        systems = {r[0] for r in rows}
+        for sy, nm, dr, shown in rows:
+            text = (f"{sy}: " if len(systems) > 1 else "") + f"{nm}  ({dr})" + ("" if shown else "  - hidden")
+            it = QtWidgets.QListWidgetItem(text)
+            it.setData(QtCore.Qt.UserRole, (sy, nm))
+            it.setFlags(it.flags() | QtCore.Qt.ItemIsUserCheckable)
+            it.setCheckState(QtCore.Qt.Checked if (sy, nm) in self.chosen else QtCore.Qt.Unchecked)
+            lst.addItem(it)
+        lst.setMinimumHeight(min(360, 22 * max(4, len(rows)) + 8))
+        lay.addWidget(lst)
+        allb = QtWidgets.QPushButton("All")
+        noneb = QtWidgets.QPushButton("None")
+
+        def set_all(state):
+            for k in range(lst.count()):
+                lst.item(k).setCheckState(state)
+        allb.clicked.connect(lambda: set_all(QtCore.Qt.Checked))
+        noneb.clicked.connect(lambda: set_all(QtCore.Qt.Unchecked))
+        bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        bb.addButton(allb, QtWidgets.QDialogButtonBox.ResetRole)
+        bb.addButton(noneb, QtWidgets.QDialogButtonBox.ResetRole)
+        bb.accepted.connect(d.accept)
+        bb.rejected.connect(d.reject)
+        lay.addWidget(bb)
+        if not d.exec():
+            return False
+        self.chosen = [lst.item(k).data(QtCore.Qt.UserRole) for k in range(lst.count())
+                       if lst.item(k).checkState() == QtCore.Qt.Checked]
+        self.pick.setToolTip(", ".join(nm for _, nm in self.chosen) or "no grid line chosen")
+        return True
+
+    def value(self):
+        i = self.combo.currentIndex()
+        return "shown" if i == 0 else "all" if i == 1 else list(self.chosen)
+
+    def set_value(self, v):
+        if v in (None, "shown"):
+            self.combo.setCurrentIndex(0)
+        elif v == "all":
+            self.combo.setCurrentIndex(1)
+        else:
+            self.chosen = [tuple(x) for x in v]
+            self.combo.setCurrentIndex(2)
+        self.pick.setVisible(self.combo.currentIndex() == 2)
+
 KINDS = (("equal", "Equal pieces"), ("length", "Maximum length"), ("dist", "Distances"),
          ("cross", "Intersections"))
 
 
 class DivideFramesDialog(QtWidgets.QDialog):
-    def __init__(self, tol0: float, parent=None):
+    def __init__(self, tol0: float, parent=None, model=None):
         super().__init__(parent)
         self.setWindowTitle("Divide Frames")
         du = display_units()
@@ -79,6 +160,7 @@ class DivideFramesDialog(QtWidgets.QDialog):
         self.joints = QtWidgets.QCheckBox("Joints on the frame")
         self.frames = QtWidgets.QCheckBox("Crossing frames")
         self.grids = QtWidgets.QCheckBox("Grid lines")
+        self.grid_pick = GridPick(model)
         self.ref = QtWidgets.QCheckBox("Reference lines")
         self.stories = QtWidgets.QCheckBox("Story levels")
         self.edges = QtWidgets.QCheckBox("Floor / wall edges")
@@ -91,18 +173,21 @@ class DivideFramesDialog(QtWidgets.QDialog):
         self.ref_axes.addItems(["X, Y", "X, Y, Z", "X", "Y", "Z"])
         self.tol = length(tol0)
         g.addWidget(self.joints, 0, 0)
-        g.addWidget(self.grids, 0, 1)
+        g.addWidget(self.stories, 0, 1)
         g.addWidget(self.frames, 1, 0)
         g.addWidget(row(self.scope, self.cut_others), 1, 1)
-        g.addWidget(self.ref, 2, 0)
-        g.addWidget(self.ref_axes, 2, 1, QtCore.Qt.AlignLeft)
-        g.addWidget(self.stories, 3, 0)
-        g.addWidget(self.edges, 3, 1)
-        g.addWidget(row("Tolerance", self.tol), 4, 0, 1, 2)
+        g.addWidget(self.grids, 2, 0)
+        g.addWidget(self.grid_pick, 2, 1, QtCore.Qt.AlignLeft)
+        g.addWidget(self.ref, 3, 0)
+        g.addWidget(self.ref_axes, 3, 1, QtCore.Qt.AlignLeft)
+        g.addWidget(self.edges, 4, 0)
+        g.addWidget(row("Tolerance", self.tol), 5, 0, 1, 2)
         self.frames.toggled.connect(self.scope.setEnabled)
         self.frames.toggled.connect(self.cut_others.setEnabled)
         self.ref.toggled.connect(self.ref_axes.setEnabled)
         self.ref_axes.setEnabled(False)
+        self.grids.toggled.connect(self.grid_pick.setEnabled)
+        self.grid_pick.setEnabled(False)
         self.stack.addWidget(page)
         lay.addWidget(self.stack)
 
@@ -134,6 +219,7 @@ class DivideFramesDialog(QtWidgets.QDialog):
             "joints": self.joints.isChecked(), "frames": self.frames.isChecked(),
             "frames_scope": "Selected frames only" if self.scope.currentIndex() == 1 else "All frames",
             "cut_others": self.cut_others.isChecked(), "grids": self.grids.isChecked(),
+            "grid_which": self.grid_pick.value(),
             "ref": self.ref.isChecked(),
             "ref_axes": {0: "X and Y", 1: "X, Y and Z"}.get(self.ref_axes.currentIndex(), self.ref_axes.currentText()),
             "stories": self.stories.isChecked(), "edges": self.edges.isChecked(), "tol": self.tol.value() / k,
@@ -149,7 +235,7 @@ class DivideShellsDialog(QtWidgets.QDialog):
     pieces n1 x n2, a largest piece size, or along frames drawn on the shell / grid
     lines / story levels."""
 
-    def __init__(self, tol0: float, parent=None):
+    def __init__(self, tol0: float, parent=None, model=None):
         super().__init__(parent)
         self.setWindowTitle("Divide Shells")
         du = display_units()
@@ -205,19 +291,24 @@ class DivideShellsDialog(QtWidgets.QDialog):
         self.scope = QtWidgets.QComboBox()
         self.scope.addItems(["all frames", "selected frames only"])
         self.grids = QtWidgets.QCheckBox("Grid lines")
+        self.grid_pick = GridPick(model)
         self.stories = QtWidgets.QCheckBox("Story levels")
         self.frames.setChecked(True)
         self.tol = length(tol0)
         g.addWidget(self.frames, 0, 0)
         g.addWidget(self.scope, 0, 1, QtCore.Qt.AlignLeft)
         g.addWidget(self.grids, 1, 0)
-        g.addWidget(self.stories, 1, 1)
-        g.addWidget(row("Tolerance", self.tol), 2, 0, 1, 2)
+        g.addWidget(self.grid_pick, 1, 1, QtCore.Qt.AlignLeft)
+        g.addWidget(self.stories, 2, 0)
+        g.addWidget(row("Tolerance", self.tol), 3, 0, 1, 2)
         self.frames.toggled.connect(self.scope.setEnabled)
+        self.grids.toggled.connect(self.grid_pick.setEnabled)
+        self.grid_pick.setEnabled(False)
         self.stack.addWidget(page)
         lay.addWidget(self.stack)
-        note = QtWidgets.QLabel("A frame cuts the shell where it runs right across it; a quadrilateral is "
-                                "divided along its own edges, other shapes along their local axes.")
+        note = QtWidgets.QLabel("A frame cuts the shell where it runs right across it; an arc grid cuts a "
+                                "floor in short straight pieces. A quadrilateral is divided along its own "
+                                "edges, other shapes along their local axes.")
         note.setWordWrap(True)
         note.setStyleSheet("color: gray;")
         lay.addWidget(note)
@@ -245,5 +336,6 @@ class DivideShellsDialog(QtWidgets.QDialog):
         k = self._k or 1.0
         return key, {"n1": self.n1.value(), "n2": self.n2.value(), "size": self.size.value() / k,
                      "frames": self.frames.isChecked(), "selected_frames": self.scope.currentIndex() == 1,
-                     "grids": self.grids.isChecked(), "stories": self.stories.isChecked(),
+                     "grids": self.grids.isChecked(), "grid_which": self.grid_pick.value(),
+                     "stories": self.stories.isChecked(),
                      "tol": self.tol.value() / k}

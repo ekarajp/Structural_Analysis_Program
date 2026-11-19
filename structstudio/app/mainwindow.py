@@ -1945,7 +1945,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         from .tools import divide_frames_at
         m = self.doc.model
         L = "coordinates"
-        d = DivideFramesDialog(10 * m.options.merge_tolerance, self)
+        d = DivideFramesDialog(10 * m.options.merge_tolerance, self, model=m)
         if not d.exec():
             return
         kind, v = d.choice()
@@ -1976,7 +1976,9 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
                 others = frames if v["frames_scope"].startswith("Selected") else None
                 parts.append(FD.at_crossing_frames(m, frames, others, tol, cut_others=v["cut_others"]))
             if v["grids"]:
-                parts.append(FD.at_grid_lines(m, frames, tol))
+                if v["grid_which"] not in ("shown", "all") and not v["grid_which"]:
+                    return QtWidgets.QMessageBox.information(self, "Divide Frames", "No grid line was chosen.")
+                parts.append(FD.at_grid_lines(m, frames, tol, grids=v["grid_which"]))
             if v["ref"]:
                 axes = {"X and Y": "XY", "X, Y and Z": "XYZ"}.get(v["ref_axes"], v["ref_axes"])
                 parts.append(FD.at_reference_lines(m, frames, axes, tol))

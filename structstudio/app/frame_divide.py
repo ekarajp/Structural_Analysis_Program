@@ -7,7 +7,8 @@ cutting (loads, releases, hinges and groups follow).  Lengths are in model units
 * equal pieces / maximum piece length / given distances from an end
 * existing joints that lie on the frame (a frame drawn over a joint is not connected to it)
 * other frames that cross it (in 3-D, within a tolerance; the crossing frames can be cut too)
-* grid lines and arcs (in plan; vertical frames do not cross them)
+* grid lines and arcs (in plan; vertical frames do not cross them) - the grids shown,
+  every grid (hidden ones too) or chosen grids (:func:`grid_set`)
 * reference lines through joints (lines parallel to X, Y, Z through every joint, CYPE 3D style)
 * story levels (columns and braces that run through several stories)
 * shell edges (floor and wall edges that the frame crosses)
@@ -178,12 +179,40 @@ def at_crossing_frames(model, frames: Sequence[str], others: Optional[Sequence[s
             for f, ss in found.items()}
 
 
-def at_grid_lines(model, frames: Sequence[str], tol: Optional[float] = None) -> Stations:
-    """Where the frame crosses grid lines and arcs, in plan (vertical frames and frames
-    lying along a grid line are not cut by it)."""
+GridChoice = object  # "shown" | "all" | a list of (system, name)
+
+
+def grid_lines_list(model) -> List[Tuple[str, str, str, bool]]:
+    """Every grid line in plan: (system, name, direction, shown)."""
+    from ..model.grids import PLAN_DIRECTIONS
+    return [(g.system or "G1", g.name, g.direction, bool(getattr(g, "visible", True)))
+            for g in model.grid_lines if g.direction in PLAN_DIRECTIONS]
+
+
+def grid_set(model, which: GridChoice = "shown"):
+    """The grid lines and arcs to divide at: ``"shown"`` the grid lines shown (not
+    hidden in the grid form), ``"all"`` every one (hidden ones too), or a list of
+    (system, name) - those only.  Lines keep the lengths they have in the whole grid."""
+    import dataclasses
+    from types import SimpleNamespace
     from ..model.grids import grid_geometry
+    if which in (None, "shown"):
+        return grid_geometry(model)
+    lines = [dataclasses.replace(g, visible=True) for g in model.grid_lines]
+    gg = grid_geometry(SimpleNamespace(grid_systems=model.grid_systems, grid_lines=lines))
+    if which != "all":
+        keep = {(str(sy or "G1"), str(nm)) for sy, nm in which}
+        gg.lines = [x for x in gg.lines if (x[3], x[2]) in keep]
+        gg.arcs = [x for x in gg.arcs if (x[5], x[4]) in keep]
+    return gg
+
+
+def at_grid_lines(model, frames: Sequence[str], tol: Optional[float] = None,
+                  grids: GridChoice = "shown") -> Stations:
+    """Where the frame crosses grid lines and arcs, in plan (vertical frames and frames
+    lying along a grid line are not cut by it).  ``grids``: see :func:`grid_set`."""
     tol = _tol(model, tol)
-    gg = grid_geometry(model)
+    gg = grid_set(model, grids)
     out: Stations = {}
     for f in frames:
         if f not in model.frames:
