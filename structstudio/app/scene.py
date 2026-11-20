@@ -1325,7 +1325,8 @@ def _local_axes_actors(model: Model, frames, areas=()) -> List[vtk.vtkActor]:
         poly.SetPoints(_points_of(coords))
         poly.SetLines(lines)
         out.append(_actor_from_polydata(poly, color, width, lighting=False))
-        spots = [p + d * label_at * g for p, d, _, g in segs]
+        # the number just past the tip: the gap stays the frames' gap on a big shell's long arrow
+        spots = [p + d * (L * g + (label_at - L)) for p, d, _, g in segs]
         out.append(_text_labels(_points_of(spots), _strings([str(k + 1)] * len(spots)), color,
                                 max(6, int(round(gsize("local_axes_text")))), bold=True))
     return out
