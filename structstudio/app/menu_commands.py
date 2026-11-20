@@ -56,6 +56,8 @@ class MenuCommandsMixin:
             "edit.merge_shells": self.edit_merge_shells,
             "edit.expand_shells": self.edit_expand_shells,
             "edit.divide_wall_openings": self.edit_divide_for_openings,
+            "edit.split_edge": self.edit_split_edge,
+            "edit.remove_shell_joints": self.edit_remove_shell_joints,
             "edit.reverse_wall": self.edit_reverse_wall,
             "edit.relabel": self.edit_relabel,
             # View
@@ -541,6 +543,45 @@ class MenuCommandsMixin:
         from . import shell_edit as SE
         done, notes = SE.expand_shells(self.doc, list(self.state.areas), v["offset"])
         self._shell_edit_done("Expand/Shrink Shells", done, notes, f"{len(done)} shell(s) changed")
+
+    def edit_split_edge(self):
+        """Edit > Edit Shells > Split Shell Edge: joints added on the edges of the selected
+        shells (the shape stays) - at the selected joints / every joint on an edge, or
+        each edge into equal parts / parts no longer than a length."""
+        if not self._need("area"):
+            return
+        sel_j = [p for p in self.state.points if p in self.doc.model.points]
+        modes = ["At the selected joints on the edges" if sel_j else "At every joint lying on an edge",
+                 "Each edge into equal parts", "Each edge into parts no longer than"]
+        v = ask(self, "Split Shell Edge", [
+            ("mode", "Add joints", modes[0], {"choices": modes}),
+            ("parts", "Equal parts", 2),
+            ("length", "Largest part", 1.0, {"item": "coordinates"})],
+            note="The shells keep their shape: the new joints are corners on straight edges "
+                 "(to connect a beam or a neighbouring shell at mid-edge).")
+        if not v:
+            return
+        from . import shell_edit as SE
+        k = modes.index(v["mode"])
+        mode = SE.SPLIT_MODES[k]
+        value = v["parts"] if k == 1 else v["length"]
+        done, notes = SE.split_edges(self.doc, list(self.state.areas), mode, value, sel_j)
+        self._shell_edit_done("Split Shell Edge", done, notes, f"{len(done)} shell(s) changed")
+
+    def edit_remove_shell_joints(self):
+        """Edit > Edit Shells > Remove Joints From Shells: the selected joints taken out of
+        the selected shells (none selected: every shell using them)."""
+        m = self.doc.model
+        joints = [p for p in self.state.points if p in m.points]
+        if not joints:
+            return QtWidgets.QMessageBox.information(
+                self, "Remove Joints From Shells", "Select the joints to take out (and the shells, "
+                "or none for every shell using them).")
+        from . import shell_edit as SE
+        done, notes = SE.remove_joints(self.doc, list(self.state.areas), joints)
+        if not done and notes:
+            return QtWidgets.QMessageBox.information(self, "Remove Joints From Shells", "\n".join(notes[:12]))
+        self._shell_edit_done("Remove Joints From Shells", done, notes, f"{len(done)} shell(s) changed")
 
     def edit_divide_for_openings(self):
         if not self._need("area"):

@@ -1,4 +1,5 @@
-"""*Edit > Edit Shells*: Merge Shells, Expand/Shrink Shells, Divide Walls for Openings.
+"""*Edit > Edit Shells*: Merge Shells, Expand/Shrink Shells, Split Shell Edge, Remove
+Joints From Shells, Divide Walls for Openings.
 
 Like :mod:`.commands`, every function is one undoable :class:`~.document.Document`
 edit with no Qt dependency.  Each returns the affected area names and a list of
@@ -359,3 +360,130 @@ def divide_for_openings(doc: Document, areas: Sequence[str]) -> Result:
 
     doc.edit(mutate)
     return created, notes
+
+
+# ------------------------------------------------------------- Split Shell Edge
+SPLIT_MODES = ("joints", "equal", "max_length")
+
+
+def _edge_points(m: Model, P: np.ndarray, names: Sequence[str], cand: Sequence[str],
+                 tol: float) -> Dict[int, List[Tuple[float, str]]]:
+    """Of the joints ``cand``, those strictly inside an edge of the outline: per edge
+    index, (position 0..1, joint)."""
+    out: Dict[int, List[Tuple[float, str]]] = {}
+    k = len(P)
+    own = set(names)
+    lo, hi = P.min(axis=0) - tol, P.max(axis=0) + tol
+    for j in cand:
+        if j in own or j not in m.points:
+            continue
+        q = np.asarray(m.points[j].xyz, float)
+        if np.any(q < lo) or np.any(q > hi):
+            continue
+        for i in range(k):
+            t = point_on_segment(q, P[i], P[(i + 1) % k], tol)
+            if t is not None:
+                out.setdefault(i, []).append((t, j))
+                break
+    return out
+
+
+def split_edges(doc: Document, areas: Sequence[str], mode: str = "joints", value: float = 2,
+                joints: Sequence[str] = (), tol: float = 0.0) -> Result:
+    """ETABS *Split Shell Edge*: add joints on the edges of the selected shells - the
+    shape does not change, the shell gets more corners (to connect a beam or a
+    neighbouring shell at mid-edge, or to mesh compatibly with it).
+
+    ``mode``: ``"joints"`` the given joints that lie on an edge (none given: every joint
+    of the model lying on an edge - beam ends, the corners of neighbouring shells);
+    ``"equal"`` every edge into ``value`` equal parts; ``"max_length"`` every edge into
+    the fewest equal parts no longer than ``value``.
+    """
+    m = doc.model
+    tol = max(float(tol or 0.0), _tol(m))
+    notes: List[str] = []
+    plan: Dict[str, List[Tuple[int, float, object]]] = {}  # area -> (edge, t, joint name or xyz)
+    for n in areas:
+        a = m.areas.get(n)
+        if a is None:
+            continue
+        P = _xyz(m, a.points)
+        k = len(P)
+        adds: List[Tuple[int, float, object]] = []
+        if mode == "joints":
+            cand = list(joints) if joints else list(m.points)
+            for i, hits in _edge_points(m, P, a.points, cand, tol).items():
+                adds += [(i, t, j) for t, j in hits]
+        else:
+            for i in range(k):
+                L = float(np.linalg.norm(P[(i + 1) % k] - P[i]))
+                if mode == "equal":
+                    parts = max(1, int(round(value)))
+                else:
+                    parts = int(np.ceil(L / value - 1e-9)) if value and value > 0 else 1
+                adds += [(i, s / parts, P[i] + s / parts * (P[(i + 1) % k] - P[i])) for s in range(1, parts)]
+        if adds:
+            plan[n] = adds
+        else:
+            notes.append(f"{n}: no joint to add on its edges")
+    if not plan:
+        return [], notes
+
+    def mutate(model: Model):
+        for n, adds in plan.items():
+            a = model.areas[n]
+            per_edge: Dict[int, List[Tuple[float, str]]] = {}
+            for i, t, j in adds:
+                name = j if isinstance(j, str) else model.add_point(*map(float, j)).name
+                per_edge.setdefault(i, []).append((t, name))
+            pts: List[str] = []
+            for i, p in enumerate(a.points):
+                pts.append(p)
+                for _, name in sorted(per_edge.get(i, [])):
+                    if name not in pts and name not in a.points:
+                        pts.append(name)
+            a.points = pts
+
+    doc.edit(mutate)
+    return list(plan), notes
+
+
+# ------------------------------------------------------------- Remove Joints From Shells
+def remove_joints(doc: Document, areas: Sequence[str], joints: Sequence[str]) -> Result:
+    """ETABS *Remove Joints From Shells*: take the selected joints out of the outline
+    of the selected shells (none selected: of every shell using them).  A joint in the
+    middle of a straight edge leaves the shape as it is; a corner taken out cuts the
+    corner off.  A shell is left alone when fewer than three corners (or no area)
+    would remain; a joint no longer used by anything is deleted."""
+    m = doc.model
+    tol = _tol(m)
+    js = {j for j in joints if j in m.points}
+    names = [n for n in areas if n in m.areas] or [a.name for a in m.areas.values() if js & set(a.points)]
+    notes: List[str] = []
+    new_pts: Dict[str, List[str]] = {}
+    for n in names:
+        a = m.areas[n]
+        keep = [p for p in a.points if p not in js]
+        if len(keep) == len(a.points):
+            continue
+        if len(keep) < 3:
+            notes.append(f"{n}: would keep fewer than three corners")
+            continue
+        P = _xyz(m, keep)
+        twice = np.zeros(3)
+        for i in range(len(P)):
+            twice += np.cross(P[i], P[(i + 1) % len(P)])
+        if 0.5 * float(np.linalg.norm(twice)) <= tol * tol:
+            notes.append(f"{n}: no area would remain")
+            continue
+        new_pts[n] = keep
+    if not new_pts:
+        return [], notes or ["none of the selected joints is a joint of the selected shells"]
+
+    def mutate(model: Model):
+        for n, keep in new_pts.items():
+            model.areas[n].points = list(keep)
+        _drop_points(model, js)
+
+    doc.edit(mutate)
+    return list(new_pts), notes

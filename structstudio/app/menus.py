@@ -158,12 +158,10 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
         # Move Beams to Real Axis: in Assign > Frame > Insertion Point; frame type: Object Properties
         ("Edit Shells", [("Divide Shells...", "edit.divide_shells"), ("Merge Shells", "edit.merge_shells"),
                          ("Expand/Shrink Shells...", "edit.expand_shells"), ("Split Shell Edge...", "edit.split_edge"),
-                         ("Remove Joints From Shells", "edit.remove_shell_joints"),
-                         ("Chamfer Slab Corners...", "edit.chamfer"), "-",
+                         ("Remove Joints From Shells", "edit.remove_shell_joints"), "-",
                          ("Reverse Wall Local 3 Axis", "edit.reverse_wall"),
-                         ("Divide Walls for Openings", "edit.divide_wall_openings"),
-                         ("Modify/Show Slab Edge Type...", "edit.slab_edge_type"),
-                         ("Modify/Show Wall Curve Type...", "edit.wall_curve_type")]),
+                         ("Divide Walls for Openings", "edit.divide_wall_openings")]),
+        # Chamfer / curved slab edges / curved walls: draw the outline as a polygon instead
         ("Edit Links", [("Reverse Link Connectivity", "edit.reverse_links")]),
         ("Add/Edit Tendons", [("Add Tendons in Strips...", "edit.tendons_strips"),
                               ("Edit Plan Layout (Horizontal)...", "edit.tendon_plan"),
