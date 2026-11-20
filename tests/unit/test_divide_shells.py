@@ -203,3 +203,29 @@ def test_grid_pick_widget():
         assert d.choice()[1]["grid_which"] == "all"
         d.grid_pick.set_value([("G1", "B")])
         assert d.choice()[1]["grid_which"] == [("G1", "B")]
+
+
+def test_dialog_preview_follows_the_choices():
+    """The Divide Shells dialog shows the shells as they will be divided, redrawn as
+    the choices change; the picture and the edit use the same pieces."""
+    from PySide6 import QtWidgets
+    from structstudio.app.divide_dialog import DivideShellsDialog
+    _app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    doc = _doc()
+    m = doc.model
+    s = _slab(doc, RECT)
+    _beam(doc, (4, 0, 3), (4, 6, 3))
+    d = DivideShellsDialog(0.01, model=m)
+    d.set_preview(lambda k, v: SD.preview_2d(m, SD.pieces_for(m, [s], k, v)))
+    assert len(d.preview.outlines) == 1 and len(d.preview.pieces) == 4  # equal 2 x 2
+    d.n1.setValue(3)
+    d._refresh()
+    assert len(d.preview.pieces) == 6
+    d.set_kind("cross")
+    d._refresh()
+    assert len(d.preview.pieces) == 2 and len(d.preview.frames) == 1  # the beam, dashed
+    assert "2 piece" in d.preview.message
+    d.frames.setChecked(False)
+    d._refresh()
+    assert len(d.preview.pieces) == 1 and "nothing to divide" in d.preview.message
+    d.preview.grab()  # draws

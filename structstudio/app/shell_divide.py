@@ -361,6 +361,74 @@ def planes_at_stories(model, area) -> List[Plane]:
     return [(np.array([0.0, 0.0, z]), np.array([0.0, 0.0, 1.0])) for z in elev]
 
 
+def pieces_for(model, areas: Sequence[str], kind: str, v: dict,
+               selected_frames: Sequence[str] = ()) -> Dict[str, List[np.ndarray]]:
+    """The pieces of each shell for a choice of the Divide Shells dialog (``kind``
+    "equal" / "size" / "cross", ``v`` its values) - the edit and its preview alike."""
+    out: Dict[str, List[np.ndarray]] = {}
+    for n in areas:
+        a = model.areas.get(n)
+        if a is None or a.type == "Opening":
+            continue
+        if kind == "equal":
+            out[n] = pieces_equal(model, a, v["n1"], v["n2"])
+        elif kind == "size":
+            out[n] = pieces_max_size(model, a, v["size"])
+        else:
+            planes: list = []
+            if v.get("frames"):
+                pool = [f for f in selected_frames if f in model.frames] if v.get("selected_frames") else None
+                planes += planes_at_frames(model, a, pool, v.get("tol"))
+            if v.get("grids"):
+                which = v.get("grid_which", "shown")
+                if which in ("shown", "all") or which:
+                    planes += planes_at_grids(model, a, v.get("tol"), grids=which)
+            if v.get("stories"):
+                planes += planes_at_stories(model, a)
+            out[n] = cut(_xyz(model, a), planes, model.options.merge_tolerance)
+    return out
+
+
+def preview_2d(model, pieces: Dict[str, List[np.ndarray]]):
+    """The shells and their pieces flattened for a picture: (outlines, pieces, frames),
+    each a list of N x 2 arrays.  All in plan when every shell is (nearly) level, else
+    in the plane of the first shell (seen from the side its axis 3 points to); the
+    frames lying on the shells are drawn too."""
+    names = [n for n in pieces if n in model.areas]
+    if not names:
+        return [], [], []
+    Ps = {n: _xyz(model, model.areas[n]) for n in names}
+    if all(abs(_normal(P)[2]) > 0.99 for P in Ps.values()):
+        O, e1, e2 = np.zeros(3), np.array([1.0, 0, 0]), np.array([0, 1.0, 0])
+    else:
+        first = Ps[names[0]]
+        n3 = _normal(first)
+        e1 = np.cross([0.0, 0.0, 1.0], n3)
+        if np.linalg.norm(e1) < 1e-6:
+            e1 = np.array([1.0, 0, 0])
+        e1 = e1 / np.linalg.norm(e1)
+        e2 = np.cross(n3, e1)
+        O = first[0]
+    flat = lambda Q: np.c_[(np.asarray(Q) - O) @ e1, (np.asarray(Q) - O) @ e2]
+    outlines = [flat(P) for P in Ps.values()]
+    parts = [flat(q) for n in names for q in pieces[n]]
+    frames = []
+    tol = model.options.merge_tolerance
+    for f in model.frames.values():
+        try:
+            ab = np.array([model.points[f.point_i].xyz, model.points[f.point_j].xyz], float)
+        except KeyError:
+            continue
+        for P in Ps.values():
+            n3 = _normal(P)
+            if np.all(np.abs((ab - P[0]) @ n3) <= max(tol, 1e-6)):
+                lo, hi = P.min(axis=0) - tol, P.max(axis=0) + tol
+                if np.all(ab.max(axis=0) >= lo) and np.all(ab.min(axis=0) <= hi):
+                    frames.append(flat(ab))
+                    break
+    return outlines, parts, frames
+
+
 # ------------------------------------------------------------- the edit
 def divide(doc, pieces_of: Dict[str, List[np.ndarray]]) -> List[str]:
     """Replace each shell by its pieces (one Undo).  Returns the new shells."""

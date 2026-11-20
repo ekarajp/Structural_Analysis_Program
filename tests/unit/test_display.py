@@ -1,4 +1,5 @@
 """Display options of a model window (ETABS "Set Display Options")."""
+import numpy as np
 import pytest
 
 pytest.importorskip("vtk")
@@ -414,3 +415,27 @@ def test_frame_ends_arrows_only():
     assert DisplayOptions.from_dict(o.to_dict()).frame_end_letters is False
     keys = [k for k in build_model_actors(m, options=o).actors if k.startswith("frame_ends_")]
     assert len(keys) == 2  # the arrow halves only
+
+
+def test_shell_local_axes_option():
+    """'Shell local axes': arrows 1, 2, 3 at the centroid of floors and walls, the axes
+    the analysis uses (axis 3 follows the point order: reversing a wall flips it)."""
+    from structstudio.app.display import LABELS, DisplayOptions
+    from structstudio.app.scene import build_model_actors, _local_axes_actors
+    from structstudio import Model
+    assert DisplayOptions().area_local_axes is False and "area_local_axes" in LABELS
+    m = Model("e", "kN m")
+    wall = m.add_area([m.add_point(*p) for p in ((0, 0, 0), (4, 0, 0), (4, 0, 3), (0, 0, 3))], None, type="Wall")
+    o = DisplayOptions()
+    assert not [k for k in build_model_actors(m, options=o).actors if k.startswith("local_axes_")]
+    o.area_local_axes = True
+    acts = [k for k in build_model_actors(m, options=o).actors if k.startswith("local_axes_")]
+    assert len(acts) == 6  # 3 axes x (arrows + numbers)
+
+    def axis3_tip():
+        a = _local_axes_actors(m, [], [m.areas[wall.name]])[4]  # axis 3 arrows
+        pts = a.GetMapper().GetInput().GetPoints()
+        return np.array(pts.GetPoint(1))  # the tip of the shaft
+    y0 = axis3_tip()[1]
+    m.areas[wall.name].points.reverse()
+    assert np.sign(axis3_tip()[1]) == -np.sign(y0) != 0

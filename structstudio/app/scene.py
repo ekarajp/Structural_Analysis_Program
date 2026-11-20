@@ -812,8 +812,12 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
         a = _release_dots(model, vis_frames)
         if a is not None:
             out.actors["releases"] = a
-    if base_on and opts.local_axes and vis_frames:
-        for k, a in enumerate(_local_axes_actors(model, vis_frames)):
+    ax_frames = vis_frames if opts.local_axes else []
+    ax_areas = ([a for a in model.areas.values() if (vis_a is None or a.name in vis_a)
+                 and a.type not in ("Opening", "Null") and opts.shows_area_type(a.type)]
+                if getattr(opts, "area_local_axes", False) else [])
+    if base_on and (ax_frames or ax_areas):
+        for k, a in enumerate(_local_axes_actors(model, ax_frames, ax_areas)):
             out.actors[f"local_axes_{k}"] = a
     if base_on and getattr(opts, "frame_ends", False) and vis_frames:
         ends_of = vis_frames
@@ -1259,12 +1263,12 @@ def _release_dots(model: Model, frames) -> Optional[vtk.vtkPropAssembly]:
     return _release_rings(pts)
 
 
-def _local_axes_actors(model: Model, frames) -> List[vtk.vtkActor]:
-    """Local axes 1, 2, 3 (Options > Graphics Colors axis_1..3) at member mid-points:
-    an arrow per axis and its number placed past the arrow head, so the number
-    never sits on the arrow.  Length, line, text size and the number's distance are
-    Options > Graphics Sizes (local_axes_*)."""
-    from ..mesh.geometry import frame_axes
+def _local_axes_actors(model: Model, frames, areas=()) -> List[vtk.vtkActor]:
+    """Local axes 1, 2, 3 (Options > Graphics Colors axis_1..3) at member mid-points
+    and at the centroid of shells: an arrow per axis and its number placed past the
+    arrow head, so the number never sits on the arrow.  Length, line, text size and the
+    number's distance are Options > Graphics Sizes (local_axes_*)."""
+    from ..mesh.geometry import frame_axes, shell_axes
 
     L = model_extent(model) * 0.03
     typ = typical_member_length(model)
@@ -1283,7 +1287,23 @@ def _local_axes_actors(model: Model, frames) -> List[vtk.vtkActor]:
         mid = 0.5 * (a + b)
         for k in range(3):
             side = ax[(k + 1) % 3]  # the arrow head opens in a plane through the axis
-            sets[k].append((mid, ax[k], side))
+            sets[k].append((mid, ax[k], side, 1.0))
+    for ar in areas:  # shells: the axes the analysis uses (point order, angle)
+        try:
+            P = np.array([model.points[p].xyz for p in ar.points], float)
+            ax = shell_axes(P, getattr(ar, "angle", 0.0) or 0.0)
+        except (KeyError, ValueError):
+            continue
+        if len(P) < 3 or not np.all(np.isfinite(ax)):
+            continue
+        mid = P.mean(axis=0)
+        # a shell's arrows grow with the shell (a fifth of its size), up to 4 x a frame's
+        n = np.zeros(3)
+        for i in range(len(P)):
+            n += np.cross(P[i], P[(i + 1) % len(P)])
+        grow = min(max(0.2 * math.sqrt(0.5 * float(np.linalg.norm(n))) / L, 1.0), 4.0) if L > 0 else 1.0
+        for k in range(3):
+            sets[k].append((mid, ax[k], ax[(k + 1) % 3], grow))
     out = []
     width = gsize("local_axes_width")
     for k, segs in enumerate(sets):
@@ -1292,10 +1312,10 @@ def _local_axes_actors(model: Model, frames) -> List[vtk.vtkActor]:
         color = COLORS.get(f"axis_{k + 1}", ((0.9, 0.2, 0.2), (0.2, 0.75, 0.3), (0.25, 0.45, 0.95))[k])
         coords, lines = [], vtk.vtkCellArray()
         n = 0
-        for p, d, side in segs:
-            tip = p + d * L
-            back = tip - d * head
-            for q0, q1 in ((p, tip), (tip, back + side * 0.4 * head), (tip, back - side * 0.4 * head)):
+        for p, d, side, g in segs:
+            tip = p + d * L * g
+            back = tip - d * head * g
+            for q0, q1 in ((p, tip), (tip, back + side * 0.4 * head * g), (tip, back - side * 0.4 * head * g)):
                 coords += [q0, q1]
                 lines.InsertNextCell(2)
                 lines.InsertCellPoint(2 * n)
@@ -1305,7 +1325,7 @@ def _local_axes_actors(model: Model, frames) -> List[vtk.vtkActor]:
         poly.SetPoints(_points_of(coords))
         poly.SetLines(lines)
         out.append(_actor_from_polydata(poly, color, width, lighting=False))
-        spots = [p + d * label_at for p, d, _ in segs]
+        spots = [p + d * label_at * g for p, d, _, g in segs]
         out.append(_text_labels(_points_of(spots), _strings([str(k + 1)] * len(spots)), color,
                                 max(6, int(round(gsize("local_axes_text")))), bold=True))
     return out

@@ -227,6 +227,64 @@ class DivideFramesDialog(QtWidgets.QDialog):
         return key, v
 
 
+class DividePreview(QtWidgets.QWidget):
+    """A picture of the selected shells as they will be divided: the pieces filled,
+    the cuts drawn, the frames lying on the shells dashed and the outline bold."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(300, 190)
+        self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        self.outlines, self.pieces, self.frames = [], [], []
+        self.message = ""
+
+    def show_result(self, outlines, pieces, frames, message: str = ""):
+        self.outlines, self.pieces, self.frames, self.message = outlines, pieces, frames, message
+        self.update()
+
+    def paintEvent(self, ev):
+        from PySide6 import QtGui
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        pal = self.palette()
+        p.fillRect(self.rect(), pal.color(QtGui.QPalette.Base))
+        p.setPen(QtGui.QPen(pal.color(QtGui.QPalette.Mid), 1))
+        p.drawRect(self.rect().adjusted(0, 0, -1, -1))
+        allpts = [q for arr in self.outlines for q in arr]
+        if not allpts:
+            p.setPen(pal.color(QtGui.QPalette.Text))
+            p.drawText(self.rect(), QtCore.Qt.AlignCenter, self.message or "No shell selected")
+            return
+        xs, ys = [q[0] for q in allpts], [q[1] for q in allpts]
+        x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+        top = 18  # room for the count
+        W, H = self.width() - 16, self.height() - 16 - top
+        k = min(W / max(x1 - x0, 1e-9), H / max(y1 - y0, 1e-9))
+        ox = 8 + (W - k * (x1 - x0)) / 2
+        oy = 8 + top + (H - k * (y1 - y0)) / 2
+
+        def poly(arr):
+            return QtGui.QPolygonF([QtCore.QPointF(ox + k * (u - x0), oy + k * (y1 - v)) for u, v in arr])
+        fills = [QtGui.QColor(120, 170, 230, 90), QtGui.QColor(150, 210, 150, 90)]
+        cut_pen = QtGui.QPen(QtGui.QColor(220, 60, 40), 1.4)
+        for i, arr in enumerate(self.pieces):
+            p.setBrush(fills[i % 2])
+            p.setPen(cut_pen)
+            p.drawPolygon(poly(arr))
+        dash = QtGui.QPen(QtGui.QColor(90, 90, 90), 1.2, QtCore.Qt.DashLine)
+        p.setBrush(QtCore.Qt.NoBrush)
+        p.setPen(dash)
+        for arr in self.frames:
+            p.drawPolyline(poly(arr))
+        p.setPen(QtGui.QPen(pal.color(QtGui.QPalette.Text), 2.0))
+        for arr in self.outlines:
+            p.drawPolygon(poly(arr))
+        p.setPen(pal.color(QtGui.QPalette.Text))
+        p.drawText(QtCore.QRect(8, 2, self.width() - 16, top), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter,
+                   self.message)
+        p.end()
+
+
 SHELL_KINDS = (("equal", "Equal pieces"), ("size", "Maximum size"), ("cross", "Intersections"))
 
 
@@ -306,6 +364,23 @@ class DivideShellsDialog(QtWidgets.QDialog):
         self.grid_pick.setEnabled(False)
         self.stack.addWidget(page)
         lay.addWidget(self.stack)
+        self.preview = DividePreview()
+        self.preview.setVisible(False)
+        lay.addWidget(self.preview, 1)
+        self._preview_fn = None
+        self._timer = QtCore.QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(120)
+        self._timer.timeout.connect(self._refresh)
+        for w in (self.n1, self.n2):
+            w.valueChanged.connect(self._later)
+        for w in (self.size, self.tol):
+            w.valueChanged.connect(self._later)
+        for w in (self.frames, self.grids, self.stories):
+            w.toggled.connect(self._later)
+        self.scope.currentIndexChanged.connect(self._later)
+        self.grid_pick.combo.currentIndexChanged.connect(self._later)
+        self.grid_pick.pick.clicked.connect(self._later)
         note = QtWidgets.QLabel("A frame cuts the shell where it runs right across it; an arc grid cuts a "
                                 "floor in short straight pieces. A quadrilateral is divided along its own "
                                 "edges, other shapes along their local axes.")
@@ -327,9 +402,37 @@ class DivideShellsDialog(QtWidgets.QDialog):
             self.stack.widget(k).setSizePolicy(pol, pol)
         self.stack.adjustSize()
         self.adjustSize()
+        if getattr(self, "_preview_fn", None) is not None:
+            self._later()
 
     def set_kind(self, key: str):
         self.kind.setCurrentIndex([k for k, _ in SHELL_KINDS].index(key))
+
+    def set_preview(self, fn):
+        """``fn(kind, values) -> (outlines, pieces, frames)``: the picture of the result,
+        redrawn as the choices change."""
+        self._preview_fn = fn
+        self.preview.setVisible(fn is not None)
+        self._refresh()
+        self.adjustSize()
+
+    def _later(self, *_):
+        if self._preview_fn is not None:
+            self._timer.start()
+
+    def _refresh(self):
+        if self._preview_fn is None:
+            return
+        kind, v = self.choice()
+        try:
+            outlines, pieces, frames = self._preview_fn(kind, v)
+        except Exception as e:  # a picture must never stop the edit
+            self.preview.show_result([], [], [], f"No preview ({e})")
+            return
+        n_sh = len(outlines)
+        msg = (f"{n_sh} shell(s) -> {len(pieces)} piece(s)" if len(pieces) > n_sh
+               else f"{n_sh} shell(s): nothing to divide with these choices")
+        self.preview.show_result(outlines, pieces, frames, msg)
 
     def choice(self) -> Tuple[str, Dict[str, Any]]:
         key = SHELL_KINDS[self.kind.currentIndex()][0]

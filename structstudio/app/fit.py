@@ -101,11 +101,16 @@ class FitToScreen(QtCore.QObject):
     def __init__(self, dialog: QtWidgets.QWidget):
         super().__init__(dialog)
         self.dialog = dialog
+        # keep the Python object alive with the dialog: dropped, Qt would call eventFilter on
+        # a bare wrapper without these attributes ("'FitToScreen' object has no attribute 'dialog'")
+        dialog._fit_to_screen = self
         dialog.installEventFilter(self)
         self._screen = None
         self._shown = False
 
     def eventFilter(self, obj, ev):
+        if getattr(self, "dialog", None) is None:  # (never expected; an event must not raise)
+            return False
         if obj is self.dialog:
             t = ev.type()
             if t == QtCore.QEvent.Show:

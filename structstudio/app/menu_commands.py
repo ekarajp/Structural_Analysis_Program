@@ -496,30 +496,16 @@ class MenuCommandsMixin:
         from . import shell_divide as SD
         from .divide_dialog import DivideShellsDialog
         m = self.doc.model
+        areas = [n for n in self.state.areas if n in m.areas and m.areas[n].type != "Opening"]
+        sel_frames = list(self.state.frames)
         d = DivideShellsDialog(10 * m.options.merge_tolerance, self, model=m)
+        d.set_preview(lambda kind, v: SD.preview_2d(m, SD.pieces_for(m, areas[:200], kind, v, sel_frames)))
         if not d.exec():
             return
         kind, v = d.choice()
         if kind == "cross" and v["grids"] and v["grid_which"] not in ("shown", "all") and not v["grid_which"]:
             return QtWidgets.QMessageBox.information(self, "Divide Shells", "No grid line was chosen.")
-        areas = [n for n in self.state.areas if n in m.areas and m.areas[n].type != "Opening"]
-        pieces = {}
-        for n in areas:
-            a = m.areas[n]
-            if kind == "equal":
-                pieces[n] = SD.pieces_equal(m, a, v["n1"], v["n2"])
-            elif kind == "size":
-                pieces[n] = SD.pieces_max_size(m, a, v["size"])
-            else:
-                planes = []
-                if v["frames"]:
-                    pool = [f for f in self.state.frames if f in m.frames] if v["selected_frames"] else None
-                    planes += SD.planes_at_frames(m, a, pool, v["tol"])
-                if v["grids"]:
-                    planes += SD.planes_at_grids(m, a, v["tol"], grids=v["grid_which"])
-                if v["stories"]:
-                    planes += SD.planes_at_stories(m, a)
-                pieces[n] = SD.cut(SD._xyz(m, a), planes, m.options.merge_tolerance)
+        pieces = SD.pieces_for(m, areas, kind, v, sel_frames)
         n_div = sum(1 for ps in pieces.values() if len(ps) > 1)
         if not n_div:
             return QtWidgets.QMessageBox.information(
@@ -566,6 +552,11 @@ class MenuCommandsMixin:
     def edit_reverse_wall(self):
         if self._need("area"):
             C.reverse_area_axis(self.doc, list(self.state.areas))
+            views = getattr(self, "views", None)
+            if views is not None and hasattr(views, "set_option_all"):
+                views.set_option_all("area_local_axes", True)
+            self._info("Reversed the local axis 3 - shell local axes shown "
+                       "(View > Set Display Options > Shell local axes)")
 
     def edit_relabel(self):
         if QtWidgets.QMessageBox.question(self, "Auto Relabel All",
