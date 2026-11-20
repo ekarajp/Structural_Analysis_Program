@@ -78,6 +78,7 @@ TOOL_ITEMS = [(k, l, s) for k, l, s, _ in SELECT_TOOLS + DRAW_TOOLS + MODIFY_TOO
 # several tools becomes a fly-out button that remembers the last tool used
 DRAW_PALETTE = [
     ("Select", ["select", "select_line"]),
+    ("Reshape", ["reshape"]),  # drag joints: right under Select (the selection's own grips)
     ("Draw Joints", ["point"]),
     ("Draw Beams", ["beam", "quick_beam", "secondary_beams", "rigid_link"]),
     ("Draw Columns", ["column", "quick_column"]),
@@ -86,7 +87,7 @@ DRAW_PALETTE = [
     ("Draw Floors", ["slab", "rect_slab", "quick_slab"]),
     ("Draw Walls", ["wall", "quick_wall"]),
     ("Draw Openings", ["opening"]),
-    ("Modify", ["move", "copy", "reshape", "rotate", "mirror", "offset", "trim", "extend"]),
+    ("Modify", ["move", "copy", "rotate", "mirror", "offset", "trim", "extend"]),
 ]
 # the load tools are on the top Loads toolbar (the left palette: select, draw, modify only)
 LOAD_PALETTE = ["area_load", "frame_load", "joint_load", "panel_load"]

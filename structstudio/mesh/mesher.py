@@ -1385,6 +1385,12 @@ class Mesher:
             a_points = list(reversed(a.points))
         else:
             a_points = list(a.points)
+        # a corner in the middle of a straight edge (Split Shell Edge, a joint added on an
+        # edge) is not a corner of the mesh outline: meshed as one, the outline's patches
+        # leave it a hanging node (one element on it, the next element's edge running past
+        # it).  It is meshed like any joint lying on the edge (a node of the mesh shared by
+        # the elements on both sides) - the same mesh as without it
+        pts, a_points = self._outline_corners(pts, a_points)
         sec: ShellSection = m.shell_sections[a.section]
         mat = m.materials[sec.material]
         mods: ShellModifiers = sec.modifiers.combined(a.modifiers)
@@ -2542,6 +2548,17 @@ class Mesher:
             if cache[nm] is not None:
                 out.append(cache[nm])
         return min(out) if out else None
+
+    def _outline_corners(self, pts: np.ndarray, names: List[str]):
+        """The outline without the corners that lie on a straight edge (between their two
+        neighbours); at least three corners stay."""
+        k = len(pts)
+        if k <= 3:
+            return pts, names
+        keep = [point_on_segment(pts[i], pts[i - 1], pts[(i + 1) % k], self.tol) is None for i in range(k)]
+        if all(keep) or sum(keep) < 3:
+            return pts, names
+        return pts[np.array(keep)], [n for n, kk in zip(names, keep) if kk]
 
     def _area_features(self, a: Area, pts: np.ndarray, fr, Q2) -> "am_.Features":
         """Joints and lines in the plane of this shell and inside it: nodes that
