@@ -173,7 +173,14 @@ class DefineDialog(QtWidgets.QDialog):
             target.clear()
             target.update(table)
 
-        self.doc.edit(mutate)
+        # a value that breaks the model (E = 0, no thickness, a deleted definition that is
+        # still used ...) is refused here, with the reason - not found at the analysis
+        from .commands import checked_edit
+        try:
+            checked_edit(self.doc, mutate)
+        except ModelError as exc:
+            QtWidgets.QMessageBox.warning(self, "Cannot apply", f"{exc.message}\n\nNothing was changed.")
+            return
         super().accept()
 
 

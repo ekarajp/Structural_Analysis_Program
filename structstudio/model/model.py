@@ -195,10 +195,14 @@ def nonfinite_values(data, path: str = ""):
             yield from nonfinite_values(v, f"{path}.{i}" if path else str(i))
 
 
+COORDINATE_LIMIT = 1e9  # (in any length unit: 1e9 mm = 1000 km)
+
+
 def nonfinite_points(model) -> List[str]:
-    """Names of points with an infinite or NaN coordinate."""
-    fin = math.isfinite
-    return [n for n, p in model.points.items() if not (fin(p.x) and fin(p.y) and fin(p.z))]
+    """Names of points with an infinite or NaN coordinate, or one so large that the
+    geometry loses its precision (an array of a thousand copies 1e12 apart)."""
+    lim = COORDINATE_LIMIT
+    return [n for n, p in model.points.items() if not (abs(p.x) <= lim and abs(p.y) <= lim and abs(p.z) <= lim)]
 
 class Model:
     """Object-based structural model.
@@ -1088,6 +1092,18 @@ class Model:
         panel = self.add_panel_load(pts, distribution, span_dir, name=name, story=a.story, loads=list(loads))
         panel.area = area
         return panel
+
+    def prune_groups(self):
+        """After editing objects: groups keep only the objects that still exist (a member
+        deleted, joined, merged or divided away must not come back into its group when a
+        new object gets its name)."""
+        for g in self.groups.values():
+            if any(n not in self.frames for n in g.frames):
+                g.frames = [n for n in g.frames if n in self.frames]
+            if any(n not in self.areas for n in g.areas):
+                g.areas = [n for n in g.areas if n in self.areas]
+            if any(n not in self.points for n in g.points):
+                g.points = [n for n in g.points if n in self.points]
 
     def sync_panels(self):
         """After editing objects: area-load panels follow their areas (model/area_panels.py)."""

@@ -432,7 +432,7 @@ def preview_2d(model, pieces: Dict[str, List[np.ndarray]]):
 # ------------------------------------------------------------- the edit
 def divide(doc, pieces_of: Dict[str, List[np.ndarray]]) -> List[str]:
     """Replace each shell by its pieces (one Undo).  Returns the new shells."""
-    from .commands import _area_kwargs
+    from .commands import _area_kwargs, area_groups, regroup_areas
     created: List[str] = []
     todo = {n: ps for n, ps in pieces_of.items() if n in doc.model.areas and len(ps) > 1}
     if not todo:
@@ -443,7 +443,9 @@ def divide(doc, pieces_of: Dict[str, List[np.ndarray]]) -> List[str]:
             originals = [p for p in model.panel_loads.values() if p.area == n]
             for p in originals:
                 del model.panel_loads[p.name]
+            groups = area_groups(model, n)
             a = model.areas.pop(n)
+            mine: List[str] = []
             for q in ps:
                 pts = []
                 for xyz in q:
@@ -456,12 +458,14 @@ def divide(doc, pieces_of: Dict[str, List[np.ndarray]]) -> List[str]:
                     continue
                 b = model.add_area(pts, a.section, type=a.type, **_area_kwargs(a))
                 b.loads = copy.deepcopy(a.loads)
-                b.label = a.label
+                b.label, b.group = a.label, a.group
                 for p in originals:  # every piece keeps the floor's area loads
                     r = model.add_area_panel(b.name, copy.deepcopy(p.loads), distribution=p.distribution,
                                              span_dir=p.span_dir)
                     r.receivers, r.label = p.receivers, p.label
                 created.append(b.name)
+                mine.append(b.name)
+            regroup_areas(groups, n, mine)
 
     doc.edit(mutate)
     return created

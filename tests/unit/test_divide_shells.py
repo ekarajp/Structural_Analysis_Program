@@ -229,3 +229,21 @@ def test_dialog_preview_follows_the_choices():
     d._refresh()
     assert len(d.preview.pieces) == 1 and "nothing to divide" in d.preview.message
     d.preview.grab()  # draws
+
+
+def test_pieces_stay_in_the_groups_of_the_shell():
+    """A divided shell's pieces take its place in its groups; an object that is gone is
+    in no group (a new object given its name must not appear in the group)."""
+    from structstudio.app import commands as C
+    doc = _doc()
+    m = doc.model
+    s = _slab(doc, RECT)
+    other = _slab(doc, [(x + 20, y) for x, y in RECT])
+    b = _beam(doc, (4, 0, 3), (4, 6, 3))
+    C.assign_to_group(doc, "G1", [b], [s, other], [])
+    made = SD.divide(doc, {s: SD.pieces_equal(doc.model, doc.model.areas[s], 2, 1)})
+    assert sorted(C.objects_in_group(doc.model, "G1")[1]) == sorted(made + [other])
+    assert all(doc.model.areas[n].group == doc.model.areas[other].group for n in made)
+    # removed outside the delete command: pruned when the edit ends
+    doc.edit(lambda model: model.frames.pop(b))
+    assert doc.model.groups["G1"].frames == []

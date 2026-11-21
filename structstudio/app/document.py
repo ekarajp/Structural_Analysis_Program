@@ -142,6 +142,7 @@ class Document:
     def end_edit(self, what: str = "model"):
         self._find_duplicates()
         self.model.sync_panels()  # area-load panels follow the edited areas
+        self.model.prune_groups()  # groups keep no object that is gone
         self.dirty = True
         self.results = None  # model edits invalidate results
         if what not in ("model", "units", "replaced"):
@@ -152,7 +153,11 @@ class Document:
         """One command = one undo step.  If ``func`` fails half way the model is
         put back exactly as it was (no partial edit, no extra undo step)."""
         undo, redo = list(self._undo), list(self._redo)  # full history (begin_edit may drop the oldest)
-        self.begin_edit()
+        # a locked model (analysis results on screen): the command is worked out first and
+        # the "unlock? the results are deleted" question comes only when it changes something
+        # (OK in a form that was only looked at asked it, and threw the results away)
+        locked = self.locked and not self.busy
+        self.begin_edit(check=not locked)
         try:
             # several towers: new objects go to the tower of the window drawn in
             self.model.active_tower = getattr(self, "active_tower", None)
@@ -165,17 +170,43 @@ class Document:
                 p = self.model.points[bad[0]]
                 raise ModelError("NONFINITE_COORDINATE",
                                  f"The command would put point {bad[0]} at ({p.x!r}, {p.y!r}, {p.z!r}) - a coordinate "
-                                 f"is not a finite number; nothing was changed")
+                                 f"is not a finite number (or is beyond 1e9); nothing was changed")
+            if self._unchanged(self._undo[-1], thorough=locked):
+                # nothing changed: no undo step, the redo history, the results and the
+                # "saved" state stay as they were
+                self._undo, self._redo = undo, redo
+                self._geometry_before = None
+                return
+            if locked:
+                self.check_editable()  # asks; refused: MODEL_LOCKED, the model is put back
         except BaseException:
             self._rollback(undo, redo)
             raise
         self.end_edit(what)
 
+    def _unchanged(self, before, thorough: bool = False) -> bool:
+        """The model is as it was at the snapshot ``before``.  The pickles of an untouched
+        model are equal byte for byte; ``thorough`` also sees a model whose objects were
+        made again with the same values (a form that rebuilds what it shows)."""
+        if not isinstance(before, (bytes, bytearray)):
+            return False
+        try:
+            if self._snapshot(self.model) == bytes(before):
+                return True
+            return thorough and self._restore(before).to_dict() == self.model.to_dict()
+        except Exception:  # (a check must never break an edit)
+            return False
+
     def _rollback(self, undo: List[str], redo: List[str]):
         """Put the model back as it was before a failed command, with the undo / redo
         history exactly as it was (also when the history was full and begin_edit had
         dropped its oldest step - audit G05)."""
-        self.model = self._restore(self._undo[-1])
+        # put back INTO the same model object: whatever holds it (the analysis results of a
+        # locked model, a form that is still open) sees the model as it was, not the
+        # half-changed one
+        restored = self._restore(self._undo[-1])
+        self.model.__dict__.clear()
+        self.model.__dict__.update(restored.__dict__)
         self._undo, self._redo = undo, redo
 
     def edit_design(self, func: Callable[[Model], None]):

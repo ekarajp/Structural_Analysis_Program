@@ -248,7 +248,7 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
     ]),
     ("D&raw", [
         ("Select Object", "tool.select"),
-        ("Reshape Object", "draw.reshape"),
+        ("Reshape Object", "tool.reshape"),
         "-",
         ("Draw Joint Objects", "tool.point"),
         ("Draw Beam/Column/Brace Objects", [

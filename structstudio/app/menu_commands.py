@@ -377,7 +377,8 @@ class MenuCommandsMixin:
         from .project_info import edit_project_info, info_dict
         v = edit_project_info(info_dict(self.doc.model.info), self)
         if v:
-            self.doc.edit(lambda m: [setattr(m.info, k, val) for k, val in v.items()])
+            # (titles for reports: the analysis results do not depend on them - they are kept)
+            self.doc.edit_design(lambda m: [setattr(m.info, k, val) for k, val in v.items()])
 
     def show_log(self):
         self.dock_log.show()
@@ -523,7 +524,8 @@ class MenuCommandsMixin:
             self.state.set_selection(areas=[n for n in done if n in self.doc.model.areas])
         self._info(f"{title}: {what}" + (f" ({len(notes)} skipped)" if notes else ""))
         if notes:
-            QtWidgets.QMessageBox.information(self, title, "\n".join(notes[:20]))
+            more = f"\n... and {len(notes) - 20} more" if len(notes) > 20 else ""
+            QtWidgets.QMessageBox.information(self, title, "\n".join(notes[:20]) + more)
 
     def edit_merge_shells(self):
         if not self._need("area"):
@@ -1445,7 +1447,9 @@ class MenuCommandsMixin:
         o = self.doc.model.options
         v = ask(self, "Tolerances", [("tol", "Auto merge tolerance", float(o.merge_tolerance))])
         if v and v["tol"] > 0:
-            self.doc.edit(lambda m: setattr(m.options, "merge_tolerance", v["tol"]))
+            # (a tolerance larger than a member would make that member "zero length": refused)
+            self._try("Tolerances", lambda: C.checked_edit(
+                self.doc, lambda m: setattr(m.options, "merge_tolerance", v["tol"])))
 
     def edit_colors_tab(self, index: int):
         d = self.colors_dialog()

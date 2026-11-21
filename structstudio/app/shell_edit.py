@@ -17,7 +17,7 @@ import numpy as np
 from ..mesh.geometry import point_on_segment
 from ..mesh import polygon2d as pg
 from ..model import Model
-from .commands import _area_kwargs, _unused_points
+from .commands import _area_kwargs, _unused_points, area_groups, regroup_areas
 from .document import Document
 
 Result = Tuple[List[str], List[str]]
@@ -338,6 +338,8 @@ def divide_for_openings(doc: Document, areas: Sequence[str]) -> Result:
     def mutate(model: Model):
         old: Set[str] = set()
         for n, fr, U, V, cells in plans:
+            groups = area_groups(model, n)
+            n0 = len(created)
             a = model.areas.pop(n)
             old |= set(a.points)
             originals = [p for p in model.panel_loads.values() if p.area == n]
@@ -356,6 +358,7 @@ def divide_for_openings(doc: Document, areas: Sequence[str]) -> Result:
                                              span_dir=p.span_dir)
                     q.receivers, q.label = p.receivers, p.label
                 created.append(b.name)
+            regroup_areas(groups, n, created[n0:])
         _drop_points(model, old)
 
     doc.edit(mutate)

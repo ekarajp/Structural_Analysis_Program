@@ -172,6 +172,8 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
     def __init__(self, document: Optional[Document] = None, settings: Optional[QtCore.QSettings] = None):
         super().__init__()
         use_english_numbers()
+        from . import dialog_release
+        dialog_release.install()  # forms run with exec() are freed when they are done with
         self.doc = document or Document()
         self.qsettings = settings
         self.setWindowTitle(f"Structural Studio {__version__}{_build_tag()}")

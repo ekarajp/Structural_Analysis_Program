@@ -90,3 +90,78 @@ def test_edit_frames_menu_has_no_beam_axis_or_frame_type():
     assert cmds["assign.insertion_point"][0] == ("Assign", "Frame")
     edit_frames = [label for path, label, c, _ in iter_commands() if path == ("Edit", "Edit Frames")]
     assert edit_frames == ["Divide Frames...", "Join Frames", "Reverse Frame Connectivity"]
+
+
+def _doc():
+    m = Model("join2", "kN m")
+    m.add_material("C", E=25e6, nu=.2)
+    m.add_frame_section(FrameSection.general("B", "C", A=.12, I33=1.6e-3, I22=4e-4, J=1e-3))
+    return Document(m)
+
+
+def _building(kind="rc_frame"):
+    from structstudio.app import templates as T
+    return Document(T.build_model(x_ordinates=(0, 6, 12), y_ordinates=(0, 5, 10), structure=kind))
+
+
+def test_join_never_through_a_floor_joint_of_columns():
+    """Joining everything selected joined the columns through the floors (and then the
+    beams across them): the rigid end zones at the column ends were lost and the periods
+    changed by several per cent.  Columns are not joined through a joint that beams or
+    slabs use, and a beam never across a column - selected or not."""
+    doc = _building()
+    n_frames = len(doc.model.frames)
+    assert C.join_frames(doc, list(doc.model.frames)) == []
+    assert len(doc.model.frames) == n_frames
+    why = " ".join(C.join_frames.last_problems)
+    assert "column ends" in why and "is on a column" in why
+    cols = [n for n, f in doc.model.frames.items() if f.type == "Column"]
+    assert C.join_frames(doc, cols) == []
+
+
+def test_join_columns_through_a_free_joint():
+    doc = _doc()
+    m = doc.model
+    a, b, c = m.add_point(0, 0, 0), m.add_point(0, 0, 2), m.add_point(0, 0, 4)
+    m.add_frame(a, b, "B", type="Column")
+    m.add_frame(b, c, "B", type="Column")
+    assert len(C.join_frames(doc, list(doc.model.frames))) == 1
+    assert len(doc.model.frames) == 1 and b.name not in doc.model.points
+
+
+def test_join_beams_not_across_a_column_running_through():
+    """A column drawn through several stories has no end at the floor: the beams are not
+    joined across it either."""
+    doc = _doc()
+    m = doc.model
+    m.add_frame(m.add_point(4, 0, 0), m.add_point(4, 0, 6), "B", type="Column")
+    p = [m.add_point(x, 0, 3) for x in (0, 4, 8)]
+    m.add_frame(p[0], p[1], "B")
+    m.add_frame(p[1], p[2], "B")
+    assert C.join_frames(doc, [n for n, f in m.frames.items() if f.type == "Beam"]) == []
+    assert "is on a column" in " ".join(C.join_frames.last_problems)
+
+
+def test_check_model_warns_of_a_column_through_a_floor():
+    """Check Model: a column drawn through a floor where beams end has no rigid end zone
+    there; dividing it at the joints gives the story-by-story model back."""
+    from structstudio.app import frame_divide as FD
+    from structstudio.app import tools as TL
+    from structstudio.model.checks import geometry_issues
+    doc = _building()
+    assert not [i for i in geometry_issues(doc.model) if i.code == "COLUMN_THROUGH_FLOOR"]
+
+    def through(model):  # every column in one piece from the base to the roof
+        cols = [f for f in model.frames.values() if f.type == "Column"]
+        low = {f.point_j: f for f in cols}
+        for f in cols:
+            if f.point_i in low:
+                low[f.point_i].point_j = f.point_j
+                model.frames.pop(f.name)
+    doc.edit(through)
+    found = [i for i in geometry_issues(doc.model) if i.code == "COLUMN_THROUGH_FLOOR"]
+    cols = [n for n, f in doc.model.frames.items() if f.type == "Column"]
+    assert len(found) == 1 and found[0].severity == "warning" and found[0].points  # one line for all
+    assert sorted(found[0].frames) == sorted(cols) and len(cols) == 9
+    TL.divide_frames_at(doc, FD.at_joints(doc.model, cols))
+    assert not [i for i in geometry_issues(doc.model) if i.code == "COLUMN_THROUGH_FLOOR"]

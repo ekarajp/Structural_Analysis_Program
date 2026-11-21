@@ -74,6 +74,35 @@ def _area_kwargs(a: Area) -> dict:
     return kw
 
 
+def checked_edit(doc: Document, func, what: str = "model") -> None:
+    """``doc.edit(func)`` that refuses a change which breaks the model: when the change
+    brings a new error of :meth:`Model.validate` (a material with E = 0, a section
+    without thickness, a deleted material / pattern that is still used, a tolerance
+    larger than the members ...) nothing is changed and a ModelError says why.  The
+    errors the model already had do not stop the change."""
+    before = {(e.code, e.message) for e in doc.model.validate()}
+
+    def mutate(model: Model):
+        func(model)
+        new = [e for e in model.validate() if (e.code, e.message) not in before]
+        if new:
+            more = f" (and {len(new) - 5} more)" if len(new) > 5 else ""
+            raise ModelError(new[0].code, "; ".join(e.message for e in new[:5]) + more)
+
+    doc.edit(mutate, what)
+
+
+def area_groups(model: Model, name: str) -> list:
+    """The groups an area is listed in - taken before it is replaced by its pieces."""
+    return [g for g in model.groups.values() if name in g.areas]
+
+
+def regroup_areas(groups: list, old: str, new: Sequence[str]) -> None:
+    """The pieces of a divided area take its place in its groups."""
+    for g in groups:
+        g.areas = [n for n in g.areas if n != old] + [n for n in new if n not in g.areas or n == old]
+
+
 def _restory(model: Model) -> None:
     # (each object stays in its tower)
     for p in model.points.values():
@@ -1196,6 +1225,27 @@ def _join_problem(model: Model, f: Frame, g: Frame, mid: str, f_at_mid: str, g_a
     return None
 
 
+def _column_through(model: Model, joint: str, skip=()) -> Optional[str]:
+    """ "a column" when a column (or a rigid link) runs through ``joint`` without ending
+    there (a column drawn through several stories), else None."""
+    q = np.asarray(model.points[joint].xyz, float)
+    tol = model.options.merge_tolerance
+    names = {h.name for h in skip}
+    for c in model.frames.values():
+        if c.type not in ("Column", "Rigid") or c.name in names or joint in (c.point_i, c.point_j):
+            continue
+        a = np.asarray(model.points[c.point_i].xyz, float)
+        b = np.asarray(model.points[c.point_j].xyz, float)
+        d = b - a
+        L2 = float(d @ d)
+        if L2 <= 0:
+            continue
+        t = float((q - a) @ d) / L2
+        if 0.0 < t < 1.0 and float(np.linalg.norm(a + t * d - q)) <= tol:
+            return "a column" if c.type == "Column" else "a rigid link"
+    return None
+
+
 def join_frames(doc: Document, frames: Sequence[str]) -> List[str]:
     """*Edit > Edit Frames > Join Frames*: selected collinear frames with the same
     section that meet end to end are joined into one.  Every load of both frames is
@@ -1206,20 +1256,22 @@ def join_frames(doc: Document, frames: Sequence[str]) -> List[str]:
     The joint between them is removed when nothing else uses it.  When a slab, a
     wall, another beam, a support or a load uses it, it stays: the joined member still
     gets an analysis node there (the frame is meshed at the joints on it), so the
-    model is connected as before.  Not across a column or a rigid link: the beams'
-    automatic rigid end zones at that column (and the column's own) would be lost and
-    the results would change."""
+    model is connected as before.  Not across a column or a rigid link (one of the
+    selection too), and not two columns through a joint that beams, slabs or walls
+    use: the automatic rigid end zones at the column ends would be lost and the results
+    would change."""
     m = doc.model
     names = [n for n in frames if n in m.frames]
     if len(names) < 2:
         return []
     usage: Dict[str, int] = {}
     hard: Dict[str, str] = {}  # joint -> what makes it impossible to join through it
+    stiff: Dict[str, set] = {}  # joint -> the columns / rigid links ending there (selected or not)
     for f in m.frames.values():
         for p in (f.point_i, f.point_j):
             usage[p] = usage.get(p, 0) + 1
-            if f.type in ("Column", "Rigid") and f.name not in names:
-                hard.setdefault(p, "a column" if f.type == "Column" else "a rigid link")
+            if f.type in ("Column", "Rigid"):
+                stiff.setdefault(p, set()).add(f.name)
     for a in m.areas.values():
         for p in a.points:
             usage[p] = usage.get(p, 0) + 10
@@ -1269,9 +1321,22 @@ def join_frames(doc: Document, frames: Sequence[str]) -> List[str]:
                         problems.append(f"{f.name} + {g.name}: different section or type")
                         continue
                     keep_mid = usage.get(mid, 0) != 2 or has_assignments(model.points[mid])
-                    if mid in hard:
-                        problems.append(f"{f.name} + {g.name}: joint {mid} between them is on {hard[mid]} "
+                    # another column / rigid link at the joint (one of the selection too: joined
+                    # itself or not, the members framing into it take their rigid zones from it)
+                    others = {x for x in stiff.get(mid, ()) if x not in (f.name, g.name) and x in model.frames}
+                    on = hard.get(mid) or (("a rigid link" if all(model.frames[x].type == "Rigid" for x in others)
+                                            else "a column") if others else None) or _column_through(model, mid, (f, g))
+                    if on:
+                        problems.append(f"{f.name} + {g.name}: joint {mid} between them is on {on} "
                                         "(joining would remove the rigid end zones there and change the results)")
+                        continue
+                    if f.type in ("Column", "Rigid") and usage.get(mid, 0) != 2:
+                        # two columns through a floor joint: the beams and slabs there take their
+                        # rigid end zones from the ends of the columns - one column through the
+                        # joint has no end there (the periods changed by several per cent)
+                        problems.append(f"{f.name} + {g.name}: joint {mid} between them is used by beams, slabs or "
+                                        "walls (they take their rigid zones from the column ends there; joining "
+                                        "would change the results)")
                         continue
                     if keep_mid and not all(h.auto_mesh and h.mesh_at_intersections for h in (f, g)):
                         problems.append(f"{f.name} + {g.name}: joint {mid} is used by other objects and the frames "
@@ -1347,6 +1412,7 @@ def divide_shells(doc: Document, areas: Sequence[str], n1: int, n2: int) -> List
             originals = [p for p in model.panel_loads.values() if p.area == n]  # before names get reused
             for p in originals:
                 del model.panel_loads[p.name]
+            groups, n0 = area_groups(model, n), len(created)
             a = model.areas.pop(n)
             c = [np.array(model.points[p].xyz, float) for p in a.points]
             grid = [[None] * (n2 + 1) for _ in range(n1 + 1)]
@@ -1360,12 +1426,13 @@ def divide_shells(doc: Document, areas: Sequence[str], n1: int, n2: int) -> List
                     b = model.add_area([grid[i][j], grid[i + 1][j], grid[i + 1][j + 1], grid[i][j + 1]], a.section,
                                        type=a.type, **_area_kwargs(a))
                     b.loads = copy.deepcopy(a.loads)
-                    b.label = a.label
+                    b.label, b.group = a.label, a.group
                     for p in originals:  # every piece gets the floor's area loads
                         q = model.add_area_panel(b.name, copy.deepcopy(p.loads), distribution=p.distribution,
                                                  span_dir=p.span_dir)
                         q.receivers, q.label = p.receivers, p.label
                     created.append(b.name)
+            regroup_areas(groups, n, created[n0:])
 
     doc.edit(mutate)
     return created

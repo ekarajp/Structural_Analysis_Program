@@ -240,7 +240,7 @@ def geometry_issues(model) -> List[GeometryIssue]:
         out.append(GeometryIssue("info", "UNUSED_JOINTS",
                                  f"{len(lonely)} joint(s) are used by nothing and carry nothing "
                                  f"({', '.join(lonely[:8])}{'...' if len(lonely) > 8 else ''})", points=lonely))
-    for check in (_near_misses, _area_overlaps, _base_without_support, _far_away, _section_sizes,
+    for check in (_near_misses, _area_overlaps, _base_without_support, _columns_through_floors, _far_away, _section_sizes,
                   _material_moduli, _self_weight, _upward_gravity_loads, _membrane_cantilevers,
                   _membrane_without_beams, _stiffness_sets):
         try:
@@ -473,6 +473,52 @@ def _base_without_support(model, tol) -> List[GeometryIssue]:
                           + ", ".join(f"{q} ({bad[q]})" for q in pts[:6]) + ("..." if len(pts) > 6 else "")
                           + " - the member hangs from the rest of the structure. Assign > Joint > Restraints",
                           frames=[bad[q] for q in pts if bad[q] in model.frames][:1], points=pts)]
+
+
+def _columns_through_floors(model, tol) -> List[GeometryIssue]:
+    """A vertical column drawn through several stories: at a joint inside it where beams
+    or braces end it has no end, so the rigid end zone a column has inside the depth of
+    its beams is not taken there (a frame of 3.5 m stories: the first period 6% longer
+    than with one column per story).  Dividing it at those joints gives the usual model."""
+    ends: Dict[tuple, List[str]] = {}
+    q = max(tol, 1e-9) * 8.0
+    for f in model.frames.values():
+        if f.type not in ("Beam", "Brace"):
+            continue
+        for n in (f.point_i, f.point_j):
+            p = model.points.get(n)
+            if p is not None:
+                ends.setdefault((round(p.x / q), round(p.y / q)), []).append(n)
+    if not ends:
+        return []
+    found: List[Tuple[str, List[str]]] = []
+    for c in model.frames.values():
+        if c.type != "Column":
+            continue
+        a, b = model.points.get(c.point_i), model.points.get(c.point_j)
+        if a is None or b is None or abs(a.x - b.x) > tol or abs(a.y - b.y) > tol:
+            continue
+        z0, z1 = min(a.z, b.z), max(a.z, b.z)
+        kx, ky = round(a.x / q), round(a.y / q)
+        hit = []
+        for i in (-1, 0, 1):
+            for j in (-1, 0, 1):
+                for n in ends.get((kx + i, ky + j), ()):
+                    p = model.points[n]
+                    if n not in hit and z0 + tol < p.z < z1 - tol and abs(p.x - a.x) <= tol and abs(p.y - a.y) <= tol:
+                        hit.append(n)
+        if hit:
+            found.append((c.name, sorted(hit)))
+    if not found:
+        return []
+    names = [n for n, _ in found]
+    joints = sorted({q for _, hit in found for q in hit})
+    return [GeometryIssue(  # one line for the whole model, whatever the number of columns
+        "warning", "COLUMN_THROUGH_FLOOR",
+        f"{len(names)} column(s) run through a joint where beams end without ending there "
+        f"({', '.join(names[:6])}{'...' if len(names) > 6 else ''}): a column has no rigid end zone inside those "
+        "beams, the frame is softer than with one column per story - select them and use Edit > Edit Frames > "
+        "Divide Frames > Intersections (joints on the frame)", frames=names, points=joints)]
 
 
 def _far_away(model, tol) -> List[GeometryIssue]:

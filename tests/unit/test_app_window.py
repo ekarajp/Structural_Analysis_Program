@@ -1584,7 +1584,12 @@ def test_run_analysis_shows_progress_and_lists_problems_with_their_place(window,
     window.doc.ask_unlock = lambda: False
     from structstudio.model.base import ModelError
     with pytest.raises(ModelError):
-        window.doc.edit(lambda mm: None)
+        window.doc.edit(lambda mm: mm.add_point(99.0, 99.0, 99.0))
+    assert window.doc.locked and window.doc.results is not None
+    assert window.doc.model is m and window.doc.results.model is m  # the same object, as it was
+    assert not any(p.xyz == (99.0, 99.0, 99.0) for p in m.points.values())
+    window.doc.edit(lambda mm: None)  # a command that changes nothing does not ask (and keeps the results)
+    assert window.doc.locked and window.doc.results is not None
     window.doc.ask_unlock = lambda: True
     log = dlg.log.toPlainText()
     assert "Meshing" in log and "Solving load case" in log and "Analysis complete" in log
@@ -2067,3 +2072,25 @@ def test_wheel_zoom_hides_many_labels_and_shows_them_after_a_pause(window, app, 
     QtTest.QTest.qWait(150)
     assert actor.GetVisibility()
     vp.renderer.RemoveViewProp(actor)
+
+
+@gui
+def test_scratch_settings_never_bring_back_an_earlier_run(app):
+    """A window made without settings keeps its choices in a scratch file named by the
+    process id; ids are reused, so a file left by an earlier run is cleared (it brought
+    the compact palette back into a later run)."""
+    import tempfile
+    from structstudio.app.mainwindow import MainWindow
+    path = os.path.join(tempfile.gettempdir(), f"structstudio-session-{os.getpid()}.ini")
+    with open(path, "w") as fh:
+        fh.write("[ui]\npalette=compact\n")
+    w = MainWindow(Document(new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.5,))))
+    try:
+        assert w.palette_mode == "full"
+        assert w.settings_store().value("ui/palette", "full") == "full"
+    finally:
+        w.doc.dirty = False
+        w.views.finalize()
+        w.close()
+        w.deleteLater()
+        app.processEvents()

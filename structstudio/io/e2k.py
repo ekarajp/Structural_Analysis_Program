@@ -349,8 +349,25 @@ class E2KImporter:
                 sec = hit.to_frame_section(name, material, self.model.units)
                 self.model.frame_sections[name] = sec
             else:
-                self.warnings.append(f"Section {name!r}: database {d.get('FILE')!r} not found; "
-                                     f"properties computed from dimensions")
+                # the CSI property library is not installed here: the built-in catalog
+                # (AISC, JIS, EN ...) has the same tabulated shapes under the same labels
+                entry = None
+                try:
+                    from ..catalog import find_steel
+                    for label in (d.get("SECTINFILE"), d.get("SHAPE"), name):
+                        entry = find_steel(str(label)) if label else None
+                        if entry is not None:
+                            break
+                except Exception:  # (a broken catalog file must not stop the import)
+                    entry = None
+                if entry is not None:
+                    sec = entry.frame_section(material, self.model.units, name)
+                    self.model.frame_sections[name] = sec
+                    self.warnings.append(f"Section {name!r}: database {d.get('FILE')!r} not found; properties of "
+                                         f"{entry.name} taken from the built-in {entry.standard} catalog")
+                else:
+                    self.warnings.append(f"Section {name!r}: database {d.get('FILE')!r} not found; "
+                                         f"properties computed from dimensions")
         if sec is None:
             if "rectang" in shape_l and D and B:
                 sec = FrameSection.rectangular(name, material, float(D), float(B))

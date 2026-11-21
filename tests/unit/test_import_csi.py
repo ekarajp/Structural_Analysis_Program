@@ -426,3 +426,38 @@ def test_safe22_lost_zeros_and_stiff_areas_are_reported():
     sec = imp.model.shell_sections["SLAB"]
     assert sec.modifiers.m11 == pytest.approx(100.0) and sec.modifiers.f12 == pytest.approx(100.0)
     assert sec.modifiers.v13 == pytest.approx(1.0) and any("Stiff" in w for w in imp.warnings)
+
+
+def test_e2k_database_section_from_the_built_in_catalog(tmp_path):
+    """A section that names a shape of a CSI property library (SHAPE "W14x90" FILE
+    "Sections") gets its tabulated properties from the built-in catalog when the library
+    is not installed - it came in with no stiffness and the analysis refused to run."""
+    from structstudio.io import E2KImporter
+    text = """$ PROGRAM INFORMATION
+  PROGRAM  "ETABS"  VERSION "21.0.0"
+$ CONTROLS
+  UNITS  "KIP"  "IN"  "F"
+$ STORIES - IN SEQUENCE FROM TOP
+  STORY "S1"  HEIGHT 144
+  STORY "Base"  ELEV 0
+$ MATERIAL PROPERTIES
+  MATERIAL  "STL"    TYPE "Steel"  WEIGHTPERVOLUME 0.000283
+  MATERIAL  "STL"    SYMTYPE "Isotropic"  E 29000  U 0.3  A 0.0000065
+$ FRAME SECTIONS
+  FRAMESECTION  "W14x90-CP1"  MATERIAL "STL"  SHAPE "W14x90"  FILE "Sections"
+$ POINT COORDINATES
+  POINT "1"  0 0
+$ LINE CONNECTIVITIES
+  LINE  "C1"  COLUMN  "1"  "1"  1
+$ POINT ASSIGNS
+  POINTASSIGN  "1"  "Base"  RESTRAINT "UX UY UZ RX RY RZ"
+$ LINE ASSIGNS
+  LINEASSIGN  "C1"  "S1"  SECTION "W14x90-CP1"
+"""
+    path = tmp_path / "w.e2k"
+    path.write_text(text)
+    r = E2KImporter.read(str(path))
+    s = r.model.frame_sections["W14x90-CP1"]
+    assert s.A == pytest.approx(26.5, rel=2e-3) and s.I33 == pytest.approx(999.0, rel=2e-3)
+    assert s.I22 == pytest.approx(362.0, rel=2e-3)
+    assert any("built-in AISC catalog" in w for w in r.warnings)
