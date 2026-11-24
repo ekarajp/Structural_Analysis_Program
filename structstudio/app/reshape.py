@@ -367,19 +367,31 @@ def _notes(doc: Document, info: dict):
 
 
 # ------------------------------------------------------------------ the tool
+HOVER = "hover"  # grip keys of the object under the cursor: (HOVER, kind, name) + key
+
+
 class ReshapeTool(ModifyTool):
     """Drag a grip (press, drag, release) or click a grip, then the new place (or
-    type a distance + Enter).  Stays on for more drags; Esc = done."""
+    type a distance + Enter).  Stays on for more drags; Esc = done.
+
+    No selecting step: in Reshape a click on an object selects it (its grips appear;
+    Ctrl = add / remove), a window selects, a click in empty space clears, and the
+    object under the cursor shows its grips too - pressing one of those selects that
+    object and drags at once.  So one object after another is reshaped without
+    leaving the command."""
 
     name = "reshape"
     title = "Reshape"
     needs = "joints, frames or shells to reshape"
     hot: Optional[GripKey] = None
+    hover: Optional[Tuple[str, str]] = None  # (kind, name) under the cursor, not selected
     shift_lock = False
 
     def activate(self, state) -> None:
         super().activate(state)
+        self.selecting = False  # the selection is made inside the command
         self.hot = None
+        self.hover = None
 
     def done_selecting(self, state) -> bool:
         ok = super().done_selecting(state)
@@ -392,12 +404,65 @@ class ReshapeTool(ModifyTool):
         return reshape_set(self.model, list(st.frames), list(st.areas), list(st.points))
 
     def grips(self) -> List[Tuple[GripKey, XYZ]]:
+        """The grips of the selection, then those of the object under the cursor
+        (keys tagged HOVER; a joint already a grip of the selection is not repeated)."""
         if self.selecting or not hasattr(self, "state"):
             return []
         try:
-            return grips(self.model, self.rset())
+            out = grips(self.model, self.rset())
         except Exception:
-            return []
+            out = []
+        hv = self.hover_set()
+        if hv is not None:
+            have = {k for k, _ in out}
+            try:
+                out += [((HOVER,) + self.hover + k, xyz) for k, xyz in grips(self.model, hv) if k not in have]
+            except Exception:
+                pass
+        return out
+
+    def hover_set(self) -> Optional[ReshapeSet]:
+        h = self.hover
+        if h is None or not hasattr(self, "state"):
+            return None
+        kind, name = h
+        m = self.model
+        if kind == "frame" and name in m.frames:
+            return reshape_set(m, [name], [], [])
+        if kind == "area" and name in m.areas:
+            return reshape_set(m, [], [name], [])
+        if kind == "point" and name in m.points:
+            return reshape_set(m, [], [], [name])
+        return None
+
+    def set_hover(self, hit) -> bool:
+        """The object under the cursor (None: none); True when it changed.  An object
+        already selected shows its grips anyway: no hover for it."""
+        if hit is not None:
+            kind, name = hit
+            st = self.state
+            if name in {"frame": st.frames, "area": st.areas, "point": st.points}.get(kind, ()):
+                hit = None
+            elif kind not in ("frame", "area", "point"):
+                hit = None
+        hit = None if hit is None else (hit[0], hit[1])
+        if hit == self.hover:
+            return False
+        self.hover = hit
+        return True
+
+    def adopt(self, key: GripKey, add: bool = False) -> GripKey:
+        """A grip of the object under the cursor was pressed: that object becomes the
+        selection (Ctrl: is added to it) and the plain key of the grip is returned."""
+        if not key or key[0] != HOVER:
+            return key
+        kind, name, plain = key[1], key[2], tuple(key[3:])
+        st = self.state
+        sel = {"frame": [], "area": [], "point": []}
+        sel[kind] = [name]
+        st.set_selection(sel["frame"], sel["area"], sel["point"], add=add)
+        self.hover = None
+        return plain
 
     def grip_xyz(self, key: GripKey) -> Optional[XYZ]:
         return next((xyz for k, xyz in self.grips() if k == key), None)
@@ -418,7 +483,12 @@ class ReshapeTool(ModifyTool):
 
     def step_hint(self) -> str:
         if self.hot is None:
-            return next_step(self.title, "drag a grip (square) to its new place - or click it, then the new place",
+            st = getattr(self, "state", None)
+            if st is not None and not (st.frames or st.areas or st.points):
+                return next_step(self.title, "point at a member, shell or joint and drag one of its grips (squares)",
+                                 "click = select (Ctrl = add)", "Esc = done")
+            return next_step(self.title, "drag a grip (square) to its new place - or point at another object and "
+                             "drag its grip", "click = select another (Ctrl = add), empty space = clear",
                              "Shift while dragging = along X / Y / the member", "Esc = done")
         return next_step(self.title, "the new place (release / click), or type a distance + Enter",
                          "Shift = along X / Y / the member", "Esc = cancel this grip")

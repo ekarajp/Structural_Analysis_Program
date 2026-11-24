@@ -363,3 +363,51 @@ def test_gui_typed_distance_while_a_grip_is_hot(window):
     finally:
         vp.interactor = real
     assert window.doc.model.points[b].xyz == pytest.approx((7.25, 0, Z))
+
+
+@gui
+def test_gui_reshape_one_object_after_another_without_leaving(window):
+    """Reshape with nothing selected: pointing at a beam shows its grips, pressing one
+    selects the beam and drags at once; a click on another beam selects it instead;
+    a click in empty space clears - all without leaving the command."""
+    from structstudio.app.viewport import ModelViewport
+    from structstudio.app.reshape import HOVER
+    vp = _plan(window)
+    st = window.state
+    m = window.doc.model
+    a, b, c = _pt(m, 0, 0, Z), _pt(m, 6, 0, Z), _pt(m, 6, 5, Z)
+    b1, b2 = _beam(m, a, b), _beam(m, b, c)
+    st.set_selection()
+    st.set_tool("reshape")
+    assert not st.tool.selecting and st.tool.name == "reshape"
+    real = vp.interactor
+    try:
+        vp.activate = lambda: None
+        vp._cube_event = lambda *a: False
+        # point at the middle of b1: its end grips appear (hover)
+        _mouse(vp, _px(vp, (3, 0, Z)))
+        vp._hover_xy = _px(vp, (3, 0, Z))
+        vp._reshape_hover_now()
+        assert st.tool.hover == ("frame", b1)
+        keys = [k for k, _ in vp._reshape_grips()]
+        assert (HOVER, "frame", b1, "joint", a) in keys
+        # press the end grip of b1 at A and drag it: b1 selected and reshaped at once
+        _mouse(vp, _px(vp, (0, 0, Z)))
+        ModelViewport._on_left_press(vp, None, None)
+        assert st.tool.hot == ("joint", a) and list(st.frames) == [b1]
+        _mouse(vp, _px(vp, (-1.5, 0, Z)))
+        ModelViewport._on_mouse_move(vp, None, None)
+        ModelViewport._on_left_release(vp, None, None)
+        assert _len(window.doc.model, b1) == pytest.approx(7.5, abs=0.05)
+        # click b2: it becomes the selection (still in Reshape)
+        _mouse(vp, _px(vp, (6, 2.5, Z)))
+        ModelViewport._on_left_press(vp, None, None)
+        ModelViewport._on_left_release(vp, None, None)
+        assert list(st.frames) == [b2] and st.tool.name == "reshape" and st.tool.hot is None
+        # click in empty space: the selection is cleared, still in Reshape
+        _mouse(vp, _px(vp, (3, 4, Z)))
+        ModelViewport._on_left_press(vp, None, None)
+        ModelViewport._on_left_release(vp, None, None)
+        assert not st.frames and st.tool.name == "reshape"
+    finally:
+        vp.interactor = real

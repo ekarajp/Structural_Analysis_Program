@@ -1440,17 +1440,60 @@ class ModelViewport(QtWidgets.QWidget):
             pl = self.plane()
             tol = max(m.options.merge_tolerance, 1e-6) * 10
             nrm = plane_normal_of(self.config.kind)
+            from .reshape import HOVER
             keep = []
             for key, xyz in items:
                 if not pl.contains(xyz, tol):
                     continue
-                if key[0] == "edge":
-                    e = edge_normal(m, key[1], key[2])
+                k = key[3:] if key[0] == HOVER else key
+                if k[0] == "edge":
+                    e = edge_normal(m, k[1], k[2])
                     if e is None or abs(float(np.dot(e, nrm))) > 0.99:
                         continue
                 keep.append((key, xyz))
             items = keep
         return items
+
+    HOVER_LIMIT = 30000  # objects: beyond this the object under the cursor shows no grips
+    HOVER_MS = 40
+
+    def _reshape_hover_later(self, x: int, y: int):
+        """Reshape: the object under the resting cursor shows its grips (checked a
+        moment after the mouse stops, not at every move)."""
+        self._hover_xy = (x, y)
+        t = getattr(self, "_hover_timer", None)
+        if t is None:
+            t = self._hover_timer = QtCore.QTimer(self.vtk_widget)
+            t.setSingleShot(True)
+            t.setInterval(self.HOVER_MS)
+            t.timeout.connect(self._reshape_hover_now)
+        t.start()
+
+    def _reshape_hover_now(self):
+        st = self.state
+        tool = st.tool
+        if tool.name != "reshape" or tool.hot is not None or self._press is not None:
+            return
+        if self.config.kind not in tool.views:
+            return
+        x, y = self._hover_xy
+        m = self.doc.model
+        on_grip = self._reshape_grip_at(x, y)
+        hit = None
+        if on_grip is None and len(m.frames) + len(m.areas) <= self.HOVER_LIMIT:
+            hits = self.pick_all(x, y)
+            # a member / shell before its joints: pointing at a beam near its end shows the
+            # beam's grips (the end moves alone), a joint alone takes everything on it along
+            hit = next((h for h in hits if h[0] in ("frame", "area")), None) or \
+                next((h for h in hits if h[0] == "point"), None)
+        changed = False if on_grip is not None else tool.set_hover(hit)
+        if on_grip is not None:
+            self.vtk_widget.setCursor(QtCore.Qt.SizeAllCursor)
+        elif getattr(self.state, "nav_mode", None) is None:
+            self.vtk_widget.unsetCursor()
+        if changed:
+            self._draw_grips()
+            self.render()
 
     def _reshape_grip_at(self, x: int, y: int):
         best, best_d = None, self.GRIP_PIXELS * 1.5 * view_dpr(self)
@@ -1467,15 +1510,23 @@ class ModelViewport(QtWidgets.QWidget):
                 self.renderer.RemoveActor(a)
         self._grip_actor = self._grip_hot_actor = None
         m = self.doc.model
+        hover_xyz = []
         if self.state.tool.name == "reshape":
+            from .reshape import HOVER
             items = self._reshape_grips()
             hot = getattr(self.state.tool, "hot", None)
-            coords = [xyz for k, xyz in items if k != hot]
+            coords = [xyz for k, xyz in items if k != hot and k[0] != HOVER]
+            hover_xyz = [xyz for k, xyz in items if k[0] == HOVER]
             hot_xyz = [xyz for k, xyz in items if k == hot]
         else:
             coords = [m.points[n].xyz for n in self._grip_points()]
             hot_xyz = []
+        a = getattr(self, "_grip_hover_actor", None)
+        if a is not None:
+            self.renderer.RemoveActor(a)
+        self._grip_hover_actor = None
         for which, pts_xyz, color, size in (("_grip_actor", coords, scene.COLORS["select_box"], 9),
+                                            ("_grip_hover_actor", hover_xyz, (0.55, 0.62, 0.72), 8),
                                             ("_grip_hot_actor", hot_xyz, (0.92, 0.15, 0.15), 11)):
             if not pts_xyz:
                 continue
@@ -2506,13 +2557,18 @@ class ModelViewport(QtWidgets.QWidget):
                     self._dragging = False
                     return
         if st.tool.name == "reshape" and not getattr(st.tool, "selecting", False) and st.tool.hot is None:
-            # Reshape: press on a grip and drag it (or click it, then click the new place)
+            # Reshape: press on a grip and drag it (or click it, then click the new place);
+            # elsewhere a click / window selects, so the next object is picked in the command
             if self.config.kind not in st.tool.views:
                 return
             grip = self._reshape_grip_at(x, y)
             if grip is None:
-                st.status.emit("Reshape: press on a grip (a square on the selection) and drag it - Esc = done")
+                self._press = (x, y)  # released: click / window selection (Ctrl = add)
+                self._dragging = False
                 return
+            from .reshape import HOVER
+            if grip[0] == HOVER:  # the grip of the object under the cursor: select it and drag
+                grip = st.tool.adopt(grip, add=bool(self.interactor.GetControlKey()))
             st.tool.set_plane(self.plane())
             st.tool.tolerance = self._world_tolerance() * 2.0
             if st.tool.pick_grip(grip):
@@ -2794,6 +2850,8 @@ class ModelViewport(QtWidgets.QWidget):
                     self._rubber.show(self._press, (x, y), crossing=x < self._press[0])
                     self.render()
             return
+        if st.tool.name == "reshape" and st.tool.hot is None and not getattr(st.tool, "selecting", False):
+            self._reshape_hover_later(x, y)
         grid_sel_tool = bool(getattr(st.tool, "grid_selecting", False))
         on_bubble = grid_sel_tool and self.config.kind == "plan" and \
             (self.grid_bubble_under(x, y) is not None or
