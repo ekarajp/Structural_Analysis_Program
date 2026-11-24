@@ -212,6 +212,9 @@ def build_slab_model(model, story: str, beams: str = "flexible", columns: str = 
         ls = m.line_springs[n]
         if ls.point_i not in m.points or ls.point_j not in m.points:
             del m.line_springs[n]
+    # the design strips of this floor go with it (those of other levels do not)
+    m.design_strips = {n: ds for n, ds in m.design_strips.items()
+                       if ds.points and abs(float(ds.points[0][2]) - z) <= tol}
     if m.tendons:
         notes.append(f"{len(m.tendons)} tendon(s) left out (tendons act on frame objects)")
         m.tendons.clear()

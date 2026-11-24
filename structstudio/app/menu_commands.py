@@ -59,6 +59,8 @@ class MenuCommandsMixin:
             "edit.split_edge": self.edit_split_edge,
             "edit.remove_shell_joints": self.edit_remove_shell_joints,
             "edit.reverse_wall": self.edit_reverse_wall,
+            "edit.strips_auto": self.edit_auto_strips,
+            "edit.strip_widths": self.edit_auto_strip_widths,
             "edit.relabel": self.edit_relabel,
             # View
             "view.plan": self.view_set_plan,
@@ -600,6 +602,63 @@ class MenuCommandsMixin:
                 views.set_option_all("area_local_axes", True)
             self._info("Reversed the local axis 3 - shell local axes shown "
                        "(View > Set Display Options > Shell local axes)")
+
+    # ------------------------------------------------------- design strips
+    def _show_strips(self):
+        """The strip commands show the strips in every window (Display Options)."""
+        views = getattr(self, "views", None)
+        if views is not None and hasattr(views, "set_option_all"):
+            views.set_option_all("design_strips", True)
+
+    def _strip_report(self, title: str, rep, what: str):
+        lines = [what] + [f"- {n}" for n in rep.notes]
+        if rep.warnings:
+            lines += ["", "Check:"] + [f"- {w}" for w in rep.warnings]
+        text = "\n".join(lines)
+        for w in rep.warnings:
+            self.logger.log(f"{title}: {w}") if hasattr(self, "logger") else None
+        box = QtWidgets.QMessageBox.warning if rep.warnings else QtWidgets.QMessageBox.information
+        box(self, title, text)
+
+    def _plan_story(self) -> Optional[str]:
+        vp = getattr(self, "viewport", None)
+        c = getattr(vp, "config", None)
+        if c is not None and c.kind == "plan" and c.story in self.doc.model.stories:
+            return c.story
+        return None
+
+    def edit_auto_strips(self):
+        """Edit > Add/Edit Design Strips > Auto Design Strips: the strips of the chosen
+        stories laid out from their supports (design data: the results are kept)."""
+        from .strip_dialog import AutoStripsDialog
+        from .strip_commands import auto_strips
+        d = AutoStripsDialog(self.doc.model, self._plan_story(), self)
+        if not d.exec():
+            return
+        stories, opt = d.chosen_stories(), d.options()
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            rep = auto_strips(self.doc, stories, opt)
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+        self._show_strips()
+        made = sum(rep.made.values())
+        what = (f"{made} design strip(s) made on {len(rep.made)} story(ies)" if made else "No strip was made") + \
+            (f"; {rep.removed} earlier strip(s) replaced" if rep.removed else "")
+        self._strip_report("Auto Design Strips", rep, what)
+
+    def edit_auto_strip_widths(self):
+        """Edit > Add/Edit Design Strips > Auto Strip Widths."""
+        from .strip_dialog import AutoWidthsDialog
+        from .strip_commands import auto_widths
+        d = AutoWidthsDialog(self.doc.model, self._plan_story(), sorted(getattr(self.state, "strips", ())), self)
+        if not d.exec():
+            return
+        rep = auto_widths(self.doc, d.chosen_stories(), d.names(), d.middle.isChecked())
+        self._show_strips()
+        n = sum(rep.made.values())
+        self._strip_report("Auto Strip Widths", rep, f"Widths of {n} column strip(s) worked out again" +
+                           (f"; {rep.removed} middle strip(s) made again" if rep.removed else ""))
 
     def edit_relabel(self):
         if QtWidgets.QMessageBox.question(self, "Auto Relabel All",

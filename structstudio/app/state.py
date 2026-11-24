@@ -12,6 +12,7 @@ from .tools import TOOLS, DrawSettings, SelectTool, Tool, delete_objects, select
 from . import modify as _modify  # noqa: F401  (registers Move / Copy / Rotate / Mirror / Trim ... tools)
 from . import reshape as _reshape  # noqa: F401  (registers Reshape)
 from . import grid_tools as _grid_tools  # noqa: F401  (registers Draw / Offset Grid Line)
+from . import strip_tools as _strip_tools  # noqa: F401  (registers Draw Design Strips)
 
 
 class ViewState(QtCore.QObject):
@@ -58,6 +59,7 @@ class ViewState(QtCore.QObject):
         # (panel loads as the line loads they put on the members)
         self.load_kinds: Set[str] = {"joint", "frame", "area", "panel"}
         self.panels: Set[str] = set()  # selected load panels
+        self.strips: Set[str] = set()  # selected design strips
         self.clipboard = None  # Edit > Copy (commands.Clipboard); Ctrl+V pastes it at the cursor
         # selection (shared by every window)
         self.frames: Set[str] = set()
@@ -112,6 +114,7 @@ class ViewState(QtCore.QObject):
             self.tool.doc = self.doc
             self.tool.cancel()
             self.frames, self.areas, self.points, self.panels = set(), set(), set(), set()
+            self.strips = set()
             self._previous = (set(), set(), set())
             self.selection_changed.emit()
             self.update_hint()
@@ -133,8 +136,14 @@ class ViewState(QtCore.QObject):
             self.areas &= set(m.areas)
             self.points &= set(m.points)
             self.panels &= set(getattr(m, "panel_loads", {}))
+            self.strips &= set(getattr(m, "design_strips", {}))
             # the tool may hold a stale model reference after undo/open
             self.tool.doc = self.doc
+        if what == "design":
+            gone = self.strips - set(getattr(self.doc.model, "design_strips", {}))
+            if gone:
+                self.strips -= gone
+                self.selection_changed.emit()
 
     # -------------------------------------------------------------- tools
     NAV_PROMPTS = {
@@ -256,12 +265,14 @@ class ViewState(QtCore.QObject):
         k = r("length")
 
         def scale(values: dict):
-            for key in ("offset_x", "offset_y", "offset_z", "fixed_length", "offset_distance", "arc_radius"):
+            for key in ("offset_x", "offset_y", "offset_z", "fixed_length", "offset_distance", "arc_radius",
+                        "strip_width_left", "strip_width_right"):
                 if key in values and isinstance(values[key], (int, float)):
                     values[key] = values[key] * k
         s = self.settings
         cur = {key: getattr(s, key) for key in ("offset_x", "offset_y", "offset_z", "fixed_length",
-                                                 "offset_distance", "arc_radius") if hasattr(s, key)}
+                                                 "offset_distance", "arc_radius", "strip_width_left",
+                                                 "strip_width_right") if hasattr(s, key)}
         scale(cur)
         for key, v in cur.items():
             setattr(s, key, v)
@@ -309,9 +320,10 @@ class ViewState(QtCore.QObject):
 
     def keep_only(self, *kinds: str):
         """Drop every selected object that is not of ``kinds`` (point | frame | area)."""
-        keep = {{"point": "points", "frame": "frames", "area": "areas", "panel": "panels"}[k] for k in kinds}
+        keep = {{"point": "points", "frame": "frames", "area": "areas", "panel": "panels", "strip": "strips"}[k]
+                for k in kinds}
         changed = False
-        for attr in ("points", "frames", "areas", "panels"):
+        for attr in ("points", "frames", "areas", "panels", "strips"):
             if attr not in keep and getattr(self, attr):
                 setattr(self, attr, set())
                 changed = True
@@ -405,10 +417,10 @@ class ViewState(QtCore.QObject):
 
     @property
     def count(self) -> int:
-        return len(self.frames) + len(self.areas) + len(self.points) + len(self.panels)
+        return len(self.frames) + len(self.areas) + len(self.points) + len(self.panels) + len(self.strips)
 
     def set_selection(self, frames=(), areas=(), points=(), add: bool = False):
-        before = (set(self.frames), set(self.areas), set(self.points), set(self.panels))
+        before = (set(self.frames), set(self.areas), set(self.points), set(self.panels), set(self.strips))
         if self.count:
             self._previous = before[:3]
         if add:
@@ -418,15 +430,25 @@ class ViewState(QtCore.QObject):
         else:
             self.frames, self.areas, self.points = set(frames), set(areas), set(points)
             self.panels = set()
-        if (self.frames, self.areas, self.points, self.panels) != before:  # no signal for the same selection
+            self.strips = set()
+        if (self.frames, self.areas, self.points, self.panels, self.strips) != before:  # no signal for the same selection
+            self.selection_changed.emit()
+
+    def add_strips(self, names, add: bool = True):
+        """Design strips into the selection (a window selection / Select by name)."""
+        names = set(names) & set(getattr(self.doc.model, "design_strips", {}))
+        new = (self.strips | names) if add else names
+        if new != self.strips:
+            self.strips = new
             self.selection_changed.emit()
 
     def toggle(self, kind: str, name: str, add: bool):
-        target = {"frame": self.frames, "area": self.areas, "point": self.points, "panel": self.panels}[kind]
+        target = {"frame": self.frames, "area": self.areas, "point": self.points, "panel": self.panels,
+                  "strip": self.strips}[kind]
         if not add:
-            if kind == "panel":
+            if kind in ("panel", "strip"):
                 self.set_selection()
-                self.panels = {name}
+                setattr(self, kind + "s", {name})
                 self.selection_changed.emit()
                 return
             self.set_selection(**{kind + "s": [name]})
@@ -473,7 +495,12 @@ class ViewState(QtCore.QObject):
             names = set(self.panels)
             self.doc.edit(lambda m: [m.panel_loads.pop(p, None) for p in names])
             n += len(names)
+        if self.strips:  # design data: the analysis results stay
+            names = set(self.strips)
+            self.doc.edit_design(lambda m: [m.design_strips.pop(p, None) for p in names])
+            n += len(names)
         self.frames, self.areas, self.points, self.panels = set(), set(), set(), set()
+        self.strips = set()
         self.status.emit(f"Deleted {n} object(s)")
         self.selection_changed.emit()
         return n

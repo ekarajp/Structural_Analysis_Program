@@ -126,6 +126,23 @@ def edge_normal(model: Model, area: str, k: int) -> Optional[np.ndarray]:
     return e / L if L > 1e-12 else None
 
 
+STRIP_KEYS = ("svert", "smid")  # a design strip's centre-line point k / the middle of its segment k
+
+
+def strip_grips(model: Model, names) -> List[Tuple[GripKey, XYZ]]:
+    """The handles of design strips: every point of the centre line (drag: move it) and
+    the middle of every segment (drag: a new point there - the strip turns)."""
+    out: List[Tuple[GripKey, XYZ]] = []
+    for n in sorted(names):
+        ds = model.design_strips.get(n)
+        if ds is None:
+            continue
+        pts = [tuple(float(c) for c in p) for p in ds.points]
+        out += [(("svert", n, k), p) for k, p in enumerate(pts)]
+        out += [(("smid", n, k), tuple((np.add(a, b) / 2).tolist())) for k, (a, b) in enumerate(zip(pts[:-1], pts[1:]))]
+    return out
+
+
 def grip_joints(model: Model, rs: ReshapeSet, key: GripKey) -> List[str]:
     """The joints a drag of the grip moves: that joint only (an edge grip: its two)."""
     if key[0] == "edge":
@@ -140,6 +157,23 @@ def constrain(model: Model, rs: ReshapeSet, key: GripKey, delta, view: str, lock
     d = np.asarray(delta, float).copy()
     nrm = plane_normal_of(view)
     d = d - nrm * float(np.dot(d, nrm))
+    if key[0] in STRIP_KEYS:  # a strip stays at its level: X / Y only
+        d[2] = 0.0
+        if lock and float(np.linalg.norm(d)) > 0:
+            dirs = [np.array((1.0, 0, 0)), np.array((0, 1.0, 0))]
+            ds = model.design_strips.get(key[1])
+            if ds is not None:
+                k = key[2]
+                for a, b in ((k - 1, k), (k, k + 1)):
+                    if 0 <= a and b < len(ds.points):
+                        v = np.subtract(ds.points[b], ds.points[a])
+                        v[2] = 0.0
+                        L = float(np.linalg.norm(v))
+                        if L > 1e-9:
+                            dirs.append(v / L)
+            best = max(dirs, key=lambda u: abs(float(np.dot(d, u))))
+            d = best * float(np.dot(d, best))
+        return d
     if key[0] == "edge":
         e = edge_normal(model, key[1], key[2])
         if e is None:
@@ -412,6 +446,10 @@ class ReshapeTool(ModifyTool):
             out = grips(self.model, self.rset())
         except Exception:
             out = []
+        st = self.state
+        out += strip_grips(self.model, getattr(st, "strips", ()))
+        if self.hover is not None and self.hover[0] == "strip" and self.hover[1] not in getattr(st, "strips", ()):
+            out += [((HOVER, "strip", self.hover[1]) + k, xyz) for k, xyz in strip_grips(self.model, [self.hover[1]])]
         hv = self.hover_set()
         if hv is not None:
             have = {k for k, _ in out}
@@ -441,9 +479,10 @@ class ReshapeTool(ModifyTool):
         if hit is not None:
             kind, name = hit
             st = self.state
-            if name in {"frame": st.frames, "area": st.areas, "point": st.points}.get(kind, ()):
+            if name in {"frame": st.frames, "area": st.areas, "point": st.points,
+                        "strip": getattr(st, "strips", set())}.get(kind, ()):
                 hit = None
-            elif kind not in ("frame", "area", "point"):
+            elif kind not in ("frame", "area", "point", "strip"):
                 hit = None
         hit = None if hit is None else (hit[0], hit[1])
         if hit == self.hover:
@@ -458,6 +497,12 @@ class ReshapeTool(ModifyTool):
             return key
         kind, name, plain = key[1], key[2], tuple(key[3:])
         st = self.state
+        if kind == "strip":
+            if not add:
+                st.set_selection()
+            st.add_strips([name])
+            self.hover = None
+            return plain
         sel = {"frame": [], "area": [], "point": []}
         sel[kind] = [name]
         st.set_selection(sel["frame"], sel["area"], sel["point"], add=add)
@@ -484,8 +529,9 @@ class ReshapeTool(ModifyTool):
     def step_hint(self) -> str:
         if self.hot is None:
             st = getattr(self, "state", None)
-            if st is not None and not (st.frames or st.areas or st.points):
-                return next_step(self.title, "point at a member, shell or joint and drag one of its grips (squares)",
+            if st is not None and not (st.frames or st.areas or st.points or getattr(st, "strips", None)):
+                return next_step(self.title, "point at a member, shell, joint or design strip and drag one of its "
+                                 "grips (squares)",
                                  "click = select (Ctrl = add)", "Esc = done")
             return next_step(self.title, "drag a grip (square) to its new place - or point at another object and "
                              "drag its grip", "click = select another (Ctrl = add), empty space = clear",
@@ -500,6 +546,8 @@ class ReshapeTool(ModifyTool):
         return constrain(self.model, rs, self.hot, np.subtract(c, self.points[0]), self.plane.kind, self.shift_lock)
 
     def moves(self, delta) -> Dict[str, XYZ]:
+        if self.hot is not None and self.hot[0] in STRIP_KEYS:
+            return {}
         m = self.model
         rs = self.rset()
         return {n: tuple((np.array(m.points[n].xyz, float) + delta).tolist()) for n in grip_joints(m, rs, self.hot)}
@@ -518,7 +566,13 @@ class ReshapeTool(ModifyTool):
             self.cancel()
             return False
         try:
-            reshape(self.doc, self.rset(), self.moves(d))
+            if self.hot[0] in STRIP_KEYS:
+                from .strip_commands import reshape_strip
+                base = np.array(self.points[0], float) + d
+                reshape_strip(self.doc, self.hot[1], self.hot[2], (float(base[0]), float(base[1])),
+                              insert=self.hot[0] == "smid")
+            else:
+                reshape(self.doc, self.rset(), self.moves(d))
         finally:
             self.cancel()
         self.state.update_hint()
@@ -530,6 +584,20 @@ class ReshapeTool(ModifyTool):
         m = self.model
         rs = self.rset()
         d = self._delta(cursor)
+        if self.hot[0] in STRIP_KEYS:  # the strip's centre line with the point moved / added
+            ds = m.design_strips.get(self.hot[1])
+            base = self.points[0]
+            to = tuple((np.array(base) + d).tolist())
+            if ds is None:
+                return Preview(marker=to)
+            pts = [tuple(p) for p in ds.points]
+            k = self.hot[2]
+            if self.hot[0] == "smid":
+                pts.insert(k + 1, to)
+            elif 0 <= k < len(pts):
+                pts[k] = to
+            return Preview(lines=list(zip(pts[:-1], pts[1:])), marker=to, text=self._measure(base, to),
+                           guides=[(base, to)])
         mv = self.moves(d)
         fr_stay, ar_stay = detached(m, rs, list(mv))
         stay = set(fr_stay) | set(ar_stay)

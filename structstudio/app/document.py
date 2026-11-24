@@ -220,12 +220,36 @@ class Document:
         self.begin_edit(check=False)
         try:
             func(self.model)
+            bad = nonfinite_points(self.model)
+            if bad:
+                raise ModelError("NONFINITE_COORDINATE", "A coordinate is not a finite number; nothing was changed")
+            if self._unchanged(self._undo[-1], thorough=True):
+                self._undo, self._redo = undo, redo  # nothing changed: no undo step
+                self._geometry_before = None
+                return
         except BaseException:
             self._rollback(undo, redo)
             raise
+        self._geometry_before = None
         self.dirty = True
         self.results = res
         self._emit("design")
+
+    # what the analysis does not depend on: design preferences, design strips, the
+    # project information - undoing / redoing a change of these keeps the results
+    DESIGN_KEYS = ("design", "design_strips", "info")
+
+    def _analysis_part(self, model) -> dict:
+        return {k: v for k, v in model.to_dict().items() if k not in self.DESIGN_KEYS}
+
+    def _design_only(self, other) -> bool:
+        """``other`` (a model) differs from the current model in design data only."""
+        if self.results is None and not self.locked:
+            return False
+        try:
+            return self._analysis_part(other) == self._analysis_part(self.model)
+        except Exception:  # (a check must never break undo)
+            return False
 
     def replace_model(self, model: Model, what: str = "model"):
         """Swap in a new model (e.g. converted units) as one undoable edit."""
@@ -263,21 +287,32 @@ class Document:
     def undo(self) -> bool:
         if not self._undo:
             return False
-        self.check_editable()
-        self._redo.append(self._snapshot(self.model))
-        self.model = self._restore(self._undo.pop())
-        self.results = None
-        self.dirty = True
-        self._emit("model")
-        return True
+        return self._step(self._undo, self._redo)
 
     def redo(self) -> bool:
         if not self._redo:
             return False
-        self.check_editable()
-        self._undo.append(self._snapshot(self.model))
-        self.model = self._restore(self._redo.pop())
-        self.results = None
+        return self._step(self._redo, self._undo)
+
+    def _step(self, source: list, target: list) -> bool:
+        """Undo (source = the undo stack) or redo: a step that changed design data only
+        (design strips, design preferences) keeps the analysis results and the lock."""
+        if self.busy:
+            raise ModelError("ANALYSIS_RUNNING", "The analysis is running - wait for it to finish or press Cancel")
+        other = self._restore(source[-1])
+        keep = self._design_only(other)
+        if not keep:
+            self.check_editable()
+        res = self.results
+        target.append(self._snapshot(self.model))
+        source.pop()
+        self.model = other
+        self.results = res if keep else None
+        if keep and res is not None:
+            try:
+                res.model = other  # (the results read the model they belong to)
+            except Exception:
+                pass
         self.dirty = True
         self._emit("model")
         return True

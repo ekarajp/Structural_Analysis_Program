@@ -326,6 +326,12 @@ class DrawSettings:
     mirror_copy: bool = True  # Mirror: keep the original (Revit / AutoCAD default)
     offset_distance: float = 1.0
     grid_offset_distance: float = 1.0  # Draw > Offset Grid Line
+    # Draw > Draw Design Strips
+    strip_layer: str = "A"
+    strip_kind: str = "Column"
+    strip_widths: str = "Auto"  # Auto (ACI 318 8.4.1.5 from the supports / the column strips) | Specified
+    strip_width_left: float = 1.0
+    strip_width_right: float = 1.0
 
     def offsets(self):
         return (self.offset_x, self.offset_y, self.offset_z)
@@ -411,6 +417,11 @@ TOOL_PROPERTIES: Dict[str, List[tuple]] = {
     "frame_section": [("frame_section", "Section", "section_list", "")],
     "opening": [("opening_shape", "Shape", "choice", ["Rectangle", "Polygon"]),
                 ("all_stories", "All stories (plan)", "bool", "")],
+    "strip": [("strip_layer", "Strip layer", "choice", ["A", "B", "Other"]),
+              ("strip_kind", "Strip type", "choice", ["Column", "Middle"]),
+              ("strip_widths", "Widths", "choice", ["Auto", "Specified"]),
+              ("strip_width_left", "Width left", "float", "Specified: left of the line, looking from the first point"),
+              ("strip_width_right", "Width right", "float", "Specified: right of the line")],
 }
 
 

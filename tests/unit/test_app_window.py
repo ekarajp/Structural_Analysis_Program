@@ -100,9 +100,10 @@ def test_default_two_windows_plan_and_3d(window):
     assert len([a for a in window.draw_toolbar.actions() if not a.isSeparator()]) >= 16
     from structstudio.app.mainwindow import DRAW_PALETTE, DRAW_TOOLS, LOAD_PALETTE, MODIFY_TOOLS, SELECT_TOOLS
     # every tool has a palette button except Draw Braces (braces: the line tool; the
-    # tool stays as a command / shortcut) and the load tools (top Loads toolbar)
+    # tool stays as a command / shortcut), Draw Design Strips (design data, not structure:
+    # Draw menu / D S) and the load tools (top Loads toolbar)
     assert {k for _, keys in DRAW_PALETTE for k in keys} | set(LOAD_PALETTE) == \
-        {k for k, *_ in SELECT_TOOLS + DRAW_TOOLS + MODIFY_TOOLS} - {"brace"}
+        {k for k, *_ in SELECT_TOOLS + DRAW_TOOLS + MODIFY_TOOLS} - {"brace", "strip"}
     loads_bar = window.findChild(QtWidgets.QToolBar, "loads")
     assert all(window.tool_actions[k] in loads_bar.actions() for k in LOAD_PALETTE)
     beams = window.palette_buttons["Draw Beams"]

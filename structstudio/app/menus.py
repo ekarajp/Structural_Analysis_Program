@@ -162,11 +162,10 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
                          ("Divide Walls for Openings", "edit.divide_wall_openings")]),
         # Chamfer / curved slab edges / curved walls: draw the outline as a polygon instead
         # links (isolators, dampers, gaps) and post-tensioning tendons: not in this version
-        ("Add/Edit Slab Panels...", "edit.slab_panels"),
-        ("Add/Edit Support Lines...", "edit.support_lines"),
-        ("Add/Edit Design Strips", [("Add Design Strips Using Grids...", "edit.strips_grids"),
-                                    ("Add Design Strips Using Support Lines...", "edit.strips_support"),
-                                    ("Edit Strip Widths...", "edit.strip_widths")]),
+        # slab design strips (drawn in Draw > Draw Design Strips); no slab panels / support
+        # lines: the column strips lie on the lines of supports themselves
+        ("Add/Edit Design Strips", [("Auto Design Strips...", "edit.strips_auto"),
+                                    ("Auto Strip Widths...", "edit.strip_widths")]),
         "-",
         ("Auto Relabel All", "edit.relabel"),
         ("Change Labels...", "edit.change_labels"),
@@ -262,7 +261,7 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
             ("Draw Wall Openings (Elev)", "draw.wall_openings")]),
         ("Draw Rigid Links", "tool.rigid_link"),
         ("Draw Slab Rebar", "draw.slab_rebar"),
-        ("Draw Design Strips", "draw.strips"),
+        ("Draw Design Strips", "tool.strip"),
         "-",
         ("Draw Dimension Lines", "draw.dimensions"),
         ("Draw Reference Points", "draw.ref_points"),

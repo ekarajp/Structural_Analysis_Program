@@ -3016,6 +3016,96 @@ def build_panel_actors(model: Model, selected: Optional[set] = None,
     return out
 
 
+def build_strip_actors(model: Model, strips, selected: Optional[set] = None,
+                       labels: bool = False) -> List[vtk.vtkProp]:
+    """Slab design strips: a light band over the slab (column strips a little stronger
+    than middle strips), its outline, and the centre line dashed; layer A and layer B
+    in their own colours; selected strips with a thick highlight on the outline."""
+    from ..design.strips import strip_outline
+    strips = list(strips)
+    if not strips:
+        return []
+    ext = max(model_extent(model), 1.0)
+    lift = 2e-4 * ext  # just above the slab fill (no z-fighting in plan)
+    out: List[vtk.vtkProp] = []
+    groups: Dict[Tuple[str, str], list] = {}
+    for ds in strips:
+        if len(ds.points) < 2:
+            continue
+        groups.setdefault((ds.layer, ds.kind), []).append(ds)
+    for (layer, kind), items in groups.items():
+        color = COLORS["strip_a"] if layer == "A" else COLORS["strip_b"] if layer == "B" else COLORS["text"]
+        coords, polys = [], vtk.vtkCellArray()
+        edge, centre = [], []
+        for ds in items:
+            z = float(ds.points[0][2]) + lift
+            ring = strip_outline(ds)
+            pts = [(float(ds.points[k][0]), float(ds.points[k][1])) for k in range(len(ds.points))]
+            # fill: one quadrilateral per segment (a polygon of the whole outline can
+            # cross itself at a sharp turn)
+            from ..design.strips import strip_quads
+            for q in strip_quads(ds):
+                start = len(coords)
+                coords += [(x, y, z) for x, y in q]
+                polys.InsertNextCell(4)
+                for k in range(4):
+                    polys.InsertCellPoint(start + k)
+            for k in range(len(ring)):
+                a, b = ring[k], ring[(k + 1) % len(ring)]
+                edge += [(a[0], a[1], z), (b[0], b[1], z)]
+            for a, b in zip(pts[:-1], pts[1:]):
+                centre += [(a[0], a[1], z), (b[0], b[1], z)]
+        if coords and kind == "Column":  # (middle strips: outline only - the two layers stay readable)
+            poly = vtk.vtkPolyData()
+            poly.SetPoints(_points(np.array(coords, float)))
+            poly.SetPolys(polys)
+            out.append(_actor_from_polydata(poly, color, opacity=0.18, lighting=False))
+        if edge:
+            poly = vtk.vtkPolyData()
+            C = np.array(edge, float)
+            poly.SetPoints(_points(C))
+            poly.SetLines(_cells(np.arange(0, len(C) + 1, 2), np.arange(len(C))))
+            out.append(_actor_from_polydata(poly, color, 1.0 if kind == "Middle" else 1.5, lighting=False))
+        if centre:
+            out.append(_dashed_lines_actor(model, centre, color, 1.5 if kind == "Column" else 1.0))
+    if selected:
+        sel = []
+        for ds in strips:
+            if ds.name in selected and len(ds.points) >= 2:
+                z = float(ds.points[0][2]) + 2 * lift
+                ring = strip_outline(ds)
+                for k in range(len(ring)):
+                    a, b = ring[k], ring[(k + 1) % len(ring)]
+                    sel += [(a[0], a[1], z), (b[0], b[1], z)]
+        if sel:
+            out.append(_dashed_lines_actor(model, sel, COLORS["selection"], 4.0))
+    if labels:
+        pts = vtk.vtkPoints()
+        names = vtk.vtkStringArray()
+        names.SetName("labels")
+        for ds in strips:
+            if len(ds.points) < 2:
+                continue
+            k = (len(ds.points) - 1) // 2
+            a, b = ds.points[k], ds.points[k + 1]
+            pts.InsertNextPoint((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, float(a[2]) + 2 * lift)
+            names.InsertNextValue(ds.label or ds.name)
+        poly = vtk.vtkPolyData()
+        poly.SetPoints(pts)
+        poly.GetPointData().AddArray(names)
+        hier = vtk.vtkPointSetToLabelHierarchy()
+        hier.SetInputData(poly)
+        hier.SetLabelArrayName("labels")
+        hier.GetTextProperty().SetColor(*COLORS["text"])
+        hier.GetTextProperty().SetFontSize(_text_pt(1))
+        mapper = vtk.vtkLabelPlacementMapper()
+        mapper.SetInputConnection(hier.GetOutputPort())
+        actor = vtk.vtkActor2D()
+        actor.SetMapper(mapper)
+        out.append(actor)
+    return out
+
+
 VIEW_NORMALS = {"plan": (0.0, 0.0, 1.0), "xz": (0.0, 1.0, 0.0), "yz": (1.0, 0.0, 0.0)}
 
 

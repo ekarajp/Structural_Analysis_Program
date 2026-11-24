@@ -259,6 +259,21 @@ def _draw(name: str, p: QtGui.QPainter):
         p.setBrush(SLAB)
         p.drawRect(QtCore.QRectF(6, 6, 20, 20))
         _bolt(p)
+    elif name == "strip":
+        # a slab with a design strip across it: a band with its dashed centre line
+        p.setPen(_pen(INK, 1.2))
+        p.setBrush(SLAB)
+        p.drawRect(QtCore.QRectF(4, 4, 24, 24))
+        p.setPen(QtCore.Qt.NoPen)
+        p.setBrush(QtGui.QColor(0, 115, 217, 110))
+        p.drawRect(QtCore.QRectF(4, 11, 24, 10))
+        p.setPen(_pen(QtGui.QColor(0, 90, 190), 1.4))
+        p.drawLine(q(4, 11), q(28, 11))
+        p.drawLine(q(4, 21), q(28, 21))
+        p.setPen(_pen(QtGui.QColor(0, 90, 190), 1.6, QtCore.Qt.DashLine))
+        p.drawLine(q(3, 16), q(29, 16))
+        _dot(p, 10, 16, r=2.2)
+        _dot(p, 22, 16, r=2.2)
     elif name == "opening":
         p.setPen(_pen(INK, 1.4))
         p.setBrush(SLAB)
@@ -766,7 +781,7 @@ def icon(name: str) -> QtGui.QIcon:
 
 ICON_NAMES = ("joint_load", "frame_load", "area_load", "select", "select_window", "select_line", "point", "beam", "quick_beam", "secondary_beams", "column",
               "quick_column", "brace", "quick_brace", "wall", "quick_wall", "slab", "rect_slab", "quick_slab",
-              "opening", "panel_load", "move", "replicate", "divide", "delete", "undo", "redo", "run", "view_3d", "view_plan",
+              "opening", "strip", "panel_load", "move", "replicate", "divide", "delete", "undo", "redo", "run", "view_3d", "view_plan",
               "view_xz", "view_yz", "layout_1", "layout_2", "layout_2v", "layout_3", "layout_4", "snap_grid",
               "snap_point", "snap_mid", "snap_line", "snap_perp", "snap_int", "snap_ortho", "snap_options", "theme", "colors", "extrude", "display", "rotate3d", "pan", "zoom_in",
               "zoom_out", "zoom_window", "zoom_full", "grid", "select_all", "select_previous", "select_clear", "palette",

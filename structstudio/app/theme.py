@@ -51,6 +51,8 @@ COLOR_ITEMS: List[Tuple[str, str, str]] = [
     ("axis_3", "Local axis 3 (arrow and number)", "Objects"),
     ("frame_end_i", "Frame end i (label)", "Objects"),
     ("frame_end_j", "Frame end j (label)", "Objects"),
+    ("strip_a", "Design strips - layer A", "Objects"),
+    ("strip_b", "Design strips - layer B", "Objects"),
     ("selection", "Selected objects (dashed highlight)", "Interaction"),
     ("select_box", "Selection box (drag)", "Interaction"),
     ("preview", "Drawing preview (the line / outline being drawn)", "Interaction"),
@@ -171,6 +173,8 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "axis_1": (1.00, 0.32, 0.32),
         "frame_end_i": (0.30, 0.85, 0.40),
         "frame_end_j": (1.00, 0.32, 0.32),
+        "strip_a": (0.25, 0.85, 0.75),  # teal: apart from the blue beams
+        "strip_b": (1.00, 0.75, 0.25),  # amber
         "axis_2": (0.35, 0.90, 0.42),
         "axis_3": (0.40, 0.62, 1.00),
     },
@@ -211,6 +215,8 @@ DEFAULTS: Dict[str, Dict[str, RGB]] = {
         "axis_1": (0.85, 0.12, 0.12),
         "frame_end_i": (0.10, 0.62, 0.20),
         "frame_end_j": (0.85, 0.12, 0.12),
+        "strip_a": (0.00, 0.58, 0.52),  # teal: apart from the blue beams
+        "strip_b": (0.80, 0.52, 0.00),  # amber: apart from the orange columns
         "axis_2": (0.10, 0.60, 0.20),
         "axis_3": (0.15, 0.35, 0.90),
     },

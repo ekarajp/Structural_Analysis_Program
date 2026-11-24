@@ -28,6 +28,11 @@ class DisplayOptions:
     ramps: bool = True
     openings: bool = True
     load_panels: bool = True  # drawn load panels (Load > Load Panel); always shown while a panel command runs
+    # slab design strips (turned on by the strip commands); layer A / B each on its own
+    design_strips: bool = False
+    strips_layer_a: bool = True
+    strips_layer_b: bool = True
+    strip_labels: bool = False
     # ---- assignments
     supports: bool = True
     springs: bool = True  # spring supports (elastic): drawn like the rigid supports
@@ -108,7 +113,9 @@ GROUPS: List[Tuple[str, List[Tuple[str, str]]]] = [
     ("Object Visibility", [("joints", "Joints"), ("beams", "Beams"), ("columns", "Columns"), ("braces", "Braces"),
                            ("null_lines", "Null lines"), ("rigid_links", "Rigid links"), ("floors", "Floors"), ("walls", "Walls"),
                            ("ramps", "Ramps"), ("openings", "Openings / null areas"),
-                           ("load_panels", "Load panels (drawn load areas)")]),
+                           ("load_panels", "Load panels (drawn load areas)"),
+                           ("design_strips", "Design strips (slab design)"), ("strips_layer_a", "   layer A"),
+                           ("strips_layer_b", "   layer B"), ("strip_labels", "   strip names")]),
     ("Assignments", [("supports", "Joint restraints"), ("springs", "Joint springs"),
                      ("releases", "Frame releases"), ("local_axes", "Frame local axes"),
                      ("area_local_axes", "Shell local axes (floors / walls)"),

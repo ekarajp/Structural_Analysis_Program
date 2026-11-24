@@ -19,7 +19,7 @@ from .base import ModelError, convert_dataclass, to_dict
 from .loads import (ComboItem, LinearBucklingCase, LinearStaticCase, LoadCombination, LoadPattern, MassSource,
                     ModalCase, PDeltaCase, ResponseSpectrumCase, ResponseSpectrumFunction, SpectrumLoad,
                     TimeHistoryFunction)
-from .objects import (Area, AreaLoad, Diaphragm, Frame, FrameLoad, GridLine, GridSystem, GroundDisplacement, Group,
+from .objects import (Area, AreaLoad, DesignStrip, Diaphragm, Frame, FrameLoad, GridLine, GridSystem, GroundDisplacement, Group,
                       LineSpring, PanelLoad, PanelLoadCase, Point, PointLoad, Story, Tendon, TendonLoad,
                       TendonPoint, Tower, FREE)
 from .properties import FrameModifiers, FrameSection, Material, RebarSize, ShellModifiers, ShellSection
@@ -80,8 +80,8 @@ def _version_tuple(text) -> tuple:
 
 _KNOWN_KEYS = {"schema_version", "units", "display_units", "info", "options", "materials", "rebar_sizes",
                "frame_sections", "shell_sections", "stories", "towers", "grid_systems", "grid_lines", "diaphragms", "points",
-               "frames", "areas", "groups", "line_springs", "tendons", "panel_loads", "load_patterns", "mass_sources",
-               "functions", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",
+               "frames", "areas", "groups", "line_springs", "tendons", "panel_loads", "design_strips", "load_patterns",
+               "mass_sources", "functions", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",
                "frame_nonlinear", "hinge_properties", "link_properties", "links", "design", "defaults"}
 
 _CASE_TYPES = {
@@ -97,7 +97,7 @@ _CASE_TYPES = {
 _TYPE_REGISTRY = {
     cls.__name__: cls for cls in (
         Material, RebarSize, FrameModifiers, FrameSection, ShellModifiers, ShellSection, Point, Frame, Area, PointLoad,
-        GroundDisplacement, Tendon, TendonLoad, TendonPoint, PanelLoad, PanelLoadCase,
+        GroundDisplacement, Tendon, TendonLoad, TendonPoint, PanelLoad, PanelLoadCase, DesignStrip,
         FrameLoad, AreaLoad, Story, Tower, GridLine, GridSystem, Diaphragm, Group, LineSpring, LoadPattern, MassSource,
         ResponseSpectrumFunction, TimeHistoryFunction, LinearStaticCase, ModalCase, ResponseSpectrumCase,
         PDeltaCase, LinearBucklingCase, ComboItem, LoadCombination, SpectrumLoad,
@@ -233,6 +233,8 @@ class Model:
         self.line_springs: Dict[str, LineSpring] = {}
         self.tendons: Dict[str, Tendon] = {}
         self.panel_loads: Dict[str, PanelLoad] = {}
+        # slab design strips (design data: they add nothing to the analysis)
+        self.design_strips: Dict[str, DesignStrip] = {}
         self.load_patterns: Dict[str, LoadPattern] = {}
         self.mass_sources: Dict[str, MassSource] = {"MsSrc1": MassSource()}
         self.functions: Dict[str, ResponseSpectrumFunction | TimeHistoryFunction] = {}
@@ -480,6 +482,8 @@ class Model:
             hint = towers.get(("area", a.name)) or self._tower_hint(pp)
             s = self.story_at(top, tol, tower=hint, xy=(sum(q.x for q in pp) / len(pp), sum(q.y for q in pp) / len(pp)))
             a.story = s.name if s else (a.story if a.story in self.stories else None)
+        for ds in getattr(self, "design_strips", {}).values():
+            ds.story = self.strip_story(ds)
 
     def set_tower_stories(self, tower: Optional[str], levels: Sequence[Tuple[str, float]]) -> None:
         """Replace the stories of one tower by (name, elevation) levels (the lowest is its
@@ -576,7 +580,7 @@ class Model:
             if same is not None:
                 rename[st.name] = same.name
                 del self.stories[st.name]
-        for table in (self.points, self.frames, self.areas, self.panel_loads):
+        for table in (self.points, self.frames, self.areas, self.panel_loads, self.design_strips):
             for o in table.values():
                 if getattr(o, "story", None) in rename:
                     o.story = rename[o.story]
@@ -796,6 +800,8 @@ class Model:
         first = self.default_tower() == name
         for s in stories:
             del self.stories[s]
+        for n in [n for n, ds in self.design_strips.items() if ds.story in stories]:
+            del self.design_strips[n]  # (design data of the tower's floors)
         for g in systems:
             del self.grid_systems[g]
         self.grid_lines = [g for g in self.grid_lines if g.system not in systems]
@@ -1092,6 +1098,65 @@ class Model:
         panel = self.add_panel_load(pts, distribution, span_dir, name=name, story=a.story, loads=list(loads))
         panel.area = area
         return panel
+
+    # ----------------------------------------------------------- design strips
+    def add_design_strip(self, points, widths=None, layer: str = "A", kind: str = "Column",
+                         name: Optional[str] = None, story: Optional[str] = None, auto: bool = False,
+                         auto_width: bool = True) -> DesignStrip:
+        """A slab design strip along the polyline ``points`` (global xyz, one level).
+        ``widths``: (left, right) for every segment alike, or one (start left, start right,
+        end left, end right) per segment."""
+        from .objects import STRIP_KINDS, STRIP_LAYERS
+        pts = [tuple(float(v) for v in p) for p in points]
+        if len(pts) < 2:
+            raise ModelError("STRIP_POINTS", "A design strip needs at least two points")
+        if any(not math.isfinite(v) or abs(v) > COORDINATE_LIMIT for p in pts for v in p):
+            raise ModelError("NONFINITE_COORDINATE", "A design strip point is not a finite number")
+        tol = max(self.options.merge_tolerance, 1e-9)
+        if any(abs(p[2] - pts[0][2]) > tol for p in pts):
+            raise ModelError("STRIP_LEVEL", "A design strip lies at one level (every point at the same Z)")
+        clean = [pts[0]]
+        for p in pts[1:]:  # (a point repeated: one segment of zero length dropped)
+            if math.hypot(p[0] - clean[-1][0], p[1] - clean[-1][1]) > tol:
+                clean.append(p)
+        if len(clean) < 2:
+            raise ModelError("STRIP_POINTS", "A design strip needs two different points")
+        nseg = len(clean) - 1
+        if widths is None:
+            widths = (0.0, 0.0)
+        widths = list(widths)
+        if len(widths) == 2 and not isinstance(widths[0], (list, tuple)):
+            ws = [(float(widths[0]), float(widths[1]), float(widths[0]), float(widths[1]))] * nseg
+        else:
+            if len(widths) != nseg:
+                raise ModelError("STRIP_WIDTHS", f"A design strip of {nseg} segment(s) needs {nseg} width row(s)")
+            ws = [tuple(float(v) for v in w) for w in widths]
+            if any(len(w) != 4 for w in ws):
+                raise ModelError("STRIP_WIDTHS", "Strip widths: start left, start right, end left, end right")
+        if any(not math.isfinite(v) or v < 0 for w in ws for v in w):
+            raise ModelError("STRIP_WIDTHS", "Strip widths must be zero or more")
+        if layer not in STRIP_LAYERS or kind not in STRIP_KINDS:
+            raise ModelError("BAD_OPTION", f"Strip layer {layer!r} / kind {kind!r}: use "
+                                           f"{'/'.join(STRIP_LAYERS)}, {'/'.join(STRIP_KINDS)}")
+        if name is None:
+            name = self._next_name(f"{kind[0]}S{layer[0]}", self.design_strips)
+        elif name in self.design_strips:
+            raise ModelError("DUPLICATE_NAME", f"A design strip named {name!r} already exists")
+        ds = DesignStrip(name, clean, ws, layer, kind, story, bool(auto), bool(auto_width))
+        ds.story = story if story is not None else self.strip_story(ds)
+        self.design_strips[name] = ds
+        return ds
+
+    def strip_story(self, ds) -> Optional[str]:
+        """The story a design strip lies on (from its level)."""
+        if not ds.points:
+            return None
+        tol = max(self.options.merge_tolerance, 1e-9)
+        xs = [p[0] for p in ds.points]
+        ys = [p[1] for p in ds.points]
+        hint = self.tower_of_story(ds.story) if (self.multi_tower and ds.story in self.stories) else None
+        st = self.story_at(ds.points[0][2], tol, tower=hint, xy=(sum(xs) / len(xs), sum(ys) / len(ys)))
+        return st.name if st else None
 
     def prune_groups(self):
         """After editing objects: groups keep only the objects that still exist (a member
@@ -1523,8 +1588,8 @@ class Model:
         out = Model(self.info.name, new_units)
         out.info = dataclasses.replace(self.info)
         for attr in ("materials", "rebar_sizes", "frame_sections", "shell_sections", "stories", "towers", "grid_systems", "diaphragms",
-                     "points", "frames", "areas", "groups", "line_springs", "tendons", "panel_loads", "load_patterns", "mass_sources",
-                     "functions", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",
+                     "points", "frames", "areas", "groups", "line_springs", "tendons", "panel_loads", "design_strips",
+                     "load_patterns", "mass_sources", "functions", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",
                      "frame_nonlinear", "hinge_properties", "link_properties", "links"):
             table = getattr(self, attr)
             setattr(out, attr, {k: convert_dataclass(v, src, new_units) for k, v in table.items()})
@@ -1596,6 +1661,7 @@ class Model:
             "line_springs": to_dict(self.line_springs),
             "tendons": to_dict(self.tendons),
             "panel_loads": to_dict(self.panel_loads),
+            "design_strips": to_dict(self.design_strips),
             "load_patterns": to_dict(self.load_patterns),
             "mass_sources": to_dict(self.mass_sources),
             "functions": to_dict(self.functions),
@@ -1658,12 +1724,15 @@ class Model:
         if isinstance(data.get("design"), dict):
             m.design = _from_dict(data["design"], "design")
         for attr in ("materials", "rebar_sizes", "frame_sections", "shell_sections", "stories", "towers", "grid_systems", "diaphragms",
-                     "points", "frames", "areas", "groups", "line_springs", "tendons", "panel_loads", "load_patterns", "mass_sources",
-                     "functions", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",
+                     "points", "frames", "areas", "groups", "line_springs", "tendons", "panel_loads", "design_strips",
+                     "load_patterns", "mass_sources", "functions", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",
                      "frame_nonlinear", "hinge_properties", "link_properties", "links"):
             table = data.get(attr, {})
             setattr(m, attr, {k: _from_dict(v, f"{attr}.{k}") for k, v in table.items()})
         m.grid_lines = [_from_dict(g, f"grid_lines[{i}]") for i, g in enumerate(data.get("grid_lines", []))]
+        for ds in m.design_strips.values():  # (read as lists)
+            ds.points = [tuple(p) for p in ds.points]
+            ds.widths = [tuple(w) for w in ds.widths]
         n = max([int(k[2:]) for k in m.panel_loads if k.startswith("PL") and k[2:].isdigit()] or [0])
         if n:
             m._counters["PL"] = max(m._counters.get("PL", 0), n)

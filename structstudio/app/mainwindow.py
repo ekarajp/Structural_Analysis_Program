@@ -56,6 +56,7 @@ DRAW_TOOLS = [
     ("rect_slab", "Draw Rectangular Floor", "Shift+R+A", "rect_slab"),
     ("quick_slab", "Quick Draw Floor (click grid cell)", "Shift+A", "quick_slab"),
     ("opening", "Draw Openings", "O, P", "opening"),
+    ("strip", "Draw Design Strips (slab design)", "D, S", "strip"),
     ("panel_load", "Load Panel (drawn load area)", "Shift+P", "panel_load"),
     ("area_load", "Area Load (floors / walls)", "Ctrl+Alt+A", "area_load"),
     ("frame_load", "Frame Load", "Ctrl+Alt+F", "frame_load"),
@@ -1338,6 +1339,11 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             return
         if kind == "panel":
             self.edit_panel_load(name)
+            return
+        if kind == "strip":
+            from .strip_dialog import StripDialog
+            if name in self.doc.model.design_strips:
+                StripDialog(self.doc, name, self).exec()
             return
         from .object_info import open_object_info
         self._info_dialogs = [d for d in getattr(self, "_info_dialogs", []) if d.isVisible()]

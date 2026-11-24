@@ -339,6 +339,7 @@ class ModelViewport(QtWidgets.QWidget):
         self._scene_keys: List[str] = []
         self._overlay_actors: List[vtk.vtkProp] = []
         self._panel_actors: List[vtk.vtkProp] = []
+        self._strip_actors: List[vtk.vtkProp] = []
         # parts to redo when this window is shown again ("scene", "selection",
         # "labels", "overlays"): a window that is not on screen builds nothing
         self._dirty: Set[str] = set()
@@ -1141,6 +1142,9 @@ class ModelViewport(QtWidgets.QWidget):
     def object_menu(self, kind: str, name: str, x: int, y: int):
         """Right-click on an object: Information (ETABS), and what to show."""
         st = self.state
+        if kind == "strip":
+            self._strip_menu(name, x, y)
+            return
         what = {"frame": "Frame", "area": "Shell", "point": "Joint", "panel": "Load panel"}.get(kind, kind)
         menu = QtWidgets.QMenu(self.window())  # (owned by the program window, not the native drawing)
         menu.setAttribute(QtCore.Qt.WA_DeleteOnClose)
@@ -1189,6 +1193,42 @@ class ModelViewport(QtWidgets.QWidget):
             st.set_tool("reshape")
         elif axes is not None and a is axes:
             self.toggle_member_axes(name)
+
+    def _strip_menu(self, name: str, x: int, y: int):
+        """Right-click on a design strip: its properties, select, reshape, delete."""
+        st = self.state
+        ds = self.doc.model.design_strips.get(name)
+        if ds is None:
+            return
+        menu = QtWidgets.QMenu(self.window())
+        menu.setAttribute(QtCore.Qt.WA_DeleteOnClose)
+        info = menu.addAction(f"Design strip {name} (layer {ds.layer}, {ds.kind.lower()}) - Properties...")
+        f = menu.font()
+        f.setBold(True)
+        info.setFont(f)
+        menu.addSeparator()
+        sel = menu.addAction("Select")
+        reshape = menu.addAction("Reshape this strip - drag its points")
+        delete = menu.addAction("Delete this strip")
+        h = self.vtk_widget.height()
+        r = self.vtk_widget.devicePixelRatioF() or 1.0
+        a = menu.exec(self.vtk_widget.mapToGlobal(QtCore.QPoint(int(x / r), int(h - y / r))))
+        if a is None:
+            return
+        if a is info:
+            self.object_info_requested.emit("strip", name)
+        elif a is sel:
+            st.toggle("strip", name, True)
+        elif a is reshape:
+            if name not in st.strips:
+                st.toggle("strip", name, False)
+            st.set_tool("reshape")
+        elif a is delete:
+            from .strip_commands import delete_strips
+            try:
+                delete_strips(self.doc, [name])
+            except Exception as exc:
+                st.report(exc)
 
     def toggle_member_axes(self, name: str):
         """Local axes of one member on / off (right-click), not of every member."""
@@ -1248,6 +1288,8 @@ class ModelViewport(QtWidgets.QWidget):
                 self.request_render()
         elif what == "results":
             self.invalidate("overlays")
+        elif what == "design":  # design strips / design data: the strips drawn again
+            self.invalidate("selection")
 
     def _on_display_changed(self):
         """A Display command (the toolbar's case / diagram / deformed ...): the active
@@ -1484,7 +1526,8 @@ class ModelViewport(QtWidgets.QWidget):
             hits = self.pick_all(x, y)
             # a member / shell before its joints: pointing at a beam near its end shows the
             # beam's grips (the end moves alone), a joint alone takes everything on it along
-            hit = next((h for h in hits if h[0] in ("frame", "area")), None) or \
+            hit = next((h for h in hits if h[0] == "strip"), None) or \
+                next((h for h in hits if h[0] in ("frame", "area")), None) or \
                 next((h for h in hits if h[0] == "point"), None)
         changed = False if on_grip is not None else tool.set_hover(hit)
         if on_grip is not None:
@@ -1558,7 +1601,8 @@ class ModelViewport(QtWidgets.QWidget):
     def _on_selection(self, x: int, y: int) -> bool:
         st = self.state
         for kind, name in self.pick_all(x, y):
-            if name in {"frame": st.frames, "area": st.areas, "point": st.points, "panel": st.panels}.get(kind, ()):
+            if name in {"frame": st.frames, "area": st.areas, "point": st.points, "panel": st.panels,
+                        "strip": getattr(st, "strips", set())}.get(kind, ()):
                 return True
         return False
 
@@ -1816,11 +1860,16 @@ class ModelViewport(QtWidgets.QWidget):
             pass
 
     def _panels_for_tool(self, _name=None):
-        """Panel commands show the load panels even when they are hidden (Display Options)."""
-        if getattr(self, "_finalized", False) or self.display_options.load_panels:
+        """Panel commands show the load panels even when they are hidden (Display Options);
+        strip commands the design strips."""
+        if getattr(self, "_finalized", False):
             return
-        self._build_panels()
-        self.render()
+        if not self.display_options.load_panels:
+            self._build_panels()  # (the strips too)
+            self.render()
+        elif not getattr(self.display_options, "design_strips", False):
+            self._build_strips()
+            self.render()
 
     def _build_panels(self, rd=None):
         """Load panels (a selected one with its outline): shown with the plain
@@ -1844,6 +1893,79 @@ class ModelViewport(QtWidgets.QWidget):
             print("panel display error:", exc)
         for a in self._panel_actors:
             self.renderer.AddActor(a)
+        self._build_strips()
+
+    # ------------------------------------------------------- design strips
+    def strips_shown(self) -> bool:
+        """Design strips are drawn: Display Options > Design strips, or a strip command."""
+        tool = self.state.tool
+        return bool(getattr(self.display_options, "design_strips", False)) or bool(getattr(tool, "shows_strips", False))
+
+    def visible_strips(self) -> list:
+        """The design strips this window shows: a plan the strips at its level (its
+        tower's, unless other towers at the level are shown too), 3D all of them,
+        elevations none.  Layers off in Display Options are left out."""
+        m = self.doc.model
+        strips = list(getattr(m, "design_strips", {}).values())
+        if not strips or self.config.kind in ("xz", "yz"):
+            return []
+        o = self.display_options
+        layers = {"A": getattr(o, "strips_layer_a", True), "B": getattr(o, "strips_layer_b", True), "Other": True}
+        strips = [ds for ds in strips if layers.get(ds.layer, True) and ds.points]
+        if self.config.kind == "plan":
+            z = self.plane().value
+            tol = max(m.options.merge_tolerance, 1e-6)
+            strips = [ds for ds in strips if abs(float(ds.points[0][2]) - z) <= tol]
+            if m.multi_tower and not self._plan_same_level() and self.config.story in m.stories:
+                t = m.tower_of_story(self.config.story)
+                strips = [ds for ds in strips if ds.story is None or m.tower_of_story(ds.story) == t]
+        else:
+            t = self.tower_filter()
+            if t is not None and m.multi_tower:
+                strips = [ds for ds in strips if ds.story is None or m.tower_of_story(ds.story) == t]
+        return strips
+
+    def _build_strips(self):
+        for a in self._strip_actors:
+            self.renderer.RemoveActor(a)
+        self._strip_actors = []
+        st = self.state
+        sel = getattr(st, "strips", set())
+        try:
+            if self.strips_shown():
+                self._strip_actors = scene.build_strip_actors(
+                    self.doc.model, self.visible_strips(), sel,
+                    labels=bool(getattr(self.display_options, "strip_labels", False)))
+            elif sel:  # (hidden: a selected strip still shows where it is)
+                self._strip_actors = scene.build_strip_actors(
+                    self.doc.model, [ds for ds in self.visible_strips() if ds.name in sel], sel)
+        except Exception as exc:  # display must never crash the app
+            print("strip display error:", exc)
+        for a in self._strip_actors:
+            self.renderer.AddActor(a)
+
+    def _pick_strip(self, x: float, y: float, tol: float):
+        """The design strip whose centre line (or outline) passes within ``tol`` display
+        pixels of (x, y) - None when strips are not shown."""
+        if not self.strips_shown():
+            return None
+        from ..design.strips import strip_outline
+        best, best_d = None, tol
+        for ds in self.visible_strips():
+            z = float(ds.points[0][2])
+            lines = [[self._display(p) for p in ds.points]]
+            ring = [self._display((q[0], q[1], z)) for q in strip_outline(ds)]
+            lines.append(ring + ring[:1])
+            for k, pl in enumerate(lines):
+                for (ax, ay), (bx, by) in zip(pl[:-1], pl[1:]):
+                    L2 = (bx - ax) ** 2 + (by - ay) ** 2
+                    if L2 <= 0:
+                        continue
+                    t = max(0.0, min(1.0, ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / L2))
+                    d = math.hypot(ax + t * (bx - ax) - x, ay + t * (by - ay) - y) + (0.5 * tol if k else 0.0)
+                    if d < best_d:
+                        best, best_d = ds.name, d
+        return best
 
     def update_overlays(self):
         for a in self._overlay_actors:
@@ -2941,6 +3063,16 @@ class ModelViewport(QtWidgets.QWidget):
                 self._share_clear()
                 self.render()
                 self._check_pending_panel()
+            elif getattr(st.tool, "finishes_on_right", False) and len(getattr(st.tool, "points", []) or []) >= 2:
+                # an open line that is an object of its own (a design strip): right click finishes it
+                try:
+                    st.tool.finish()
+                except Exception as exc:
+                    st.report(exc)
+                st.update_hint()
+                self._clear_preview()
+                self._share_clear()
+                self.render()
             else:
                 # right click without drag ends the current chain (ETABS behaviour)
                 st.tool.cancel()
@@ -3338,6 +3470,11 @@ class ModelViewport(QtWidgets.QWidget):
                 best, best_d = ("point", n), d
         if best:
             return best
+        # design strips shown (Display Options / a strip command): a strip lies over beams
+        # and slab - it is picked before them (hide the strips to pick a beam under one)
+        strip = self._pick_strip(x, y, tol)
+        if strip:
+            return ("strip", strip)
         for f in frames:
             (ax, ay), (bx, by) = disp[f.point_i], disp[f.point_j]
             L2 = (bx - ax) ** 2 + (by - ay) ** 2
@@ -3391,6 +3528,9 @@ class ModelViewport(QtWidgets.QWidget):
         for pl in getattr(m, "panel_loads", {}).values():
             if len(pl.points) >= 3 and point_in_polygon((x, y), [self._display(p) for p in pl.points]):
                 out.append(("panel", pl.name))
+        strip = self._pick_strip(x, y, tol)
+        if strip:
+            out.append(("strip", strip))
         return out
 
     def _click_select(self, x: int, y: int, add: bool):
@@ -3419,7 +3559,17 @@ class ModelViewport(QtWidgets.QWidget):
             areas = [a for a in areas if vis(m.areas[a])]
             pv = self._point_visible()
             points = [p for p in points if pv(m.points[p])]
+        strips = []
+        if self.strips_shown():
+            for ds in self.visible_strips():
+                disp = [self._display(p) for p in ds.points]
+                inside_all = all(x0 <= dx <= x1 and y0 <= dy <= y1 for dx, dy in disp)
+                touches = any(x0 <= dx <= x1 and y0 <= dy <= y1 for dx, dy in disp)
+                if inside_all or (crossing and touches):
+                    strips.append(ds.name)
         self.state.set_selection(frames, areas, points, add=add)
+        if strips:
+            self.state.add_strips(strips)
 
     def _line_select(self, p0, p1, add: bool):
         frames, areas, points = objects_on_line(self.doc.model, self._display, p0, p1, self.visible())

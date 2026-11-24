@@ -345,6 +345,48 @@ class PanelLoad:
     area: Optional[str] = None
 
 
+STRIP_LAYERS = ("A", "B", "Other")
+STRIP_KINDS = ("Column", "Middle")
+
+
+@dataclass
+class DesignStrip:
+    """A slab *design strip*: a centre line (a polyline lying at one level) with a width
+    on each side.  The slab moments and shears are added up across the strip's width
+    at sections along it, and the strip is designed for them as a wide beam.  A strip
+    adds nothing to the analysis (it is design data: drawing or changing one keeps the
+    analysis results).
+
+    ``widths``: one (start left, start right, end left, end right) per segment, left /
+    right looking from point k to point k+1; the width varies linearly along a segment.
+    ``layer``: strips running one way are layer A, the other way B.  ``kind``: Column
+    (over a line of supports) or Middle (between two column strips).  ``auto``: made
+    by Auto Design Strips (a new Auto run replaces it, keeping hand-drawn ones);
+    ``auto_width``: Auto Strip Widths may work its widths out again."""
+
+    name: str
+    points: List[Vec3] = field(default_factory=list)  # global xyz of the centre line
+    widths: List[Tuple[float, float, float, float]] = field(default_factory=list)
+    layer: str = "A"
+    kind: str = "Column"
+    story: Optional[str] = None
+    auto: bool = False
+    auto_width: bool = True
+    label: Optional[str] = None
+
+    def convert_units(self, src, dst) -> "DesignStrip":
+        """The centre line and the widths are lengths."""
+        import dataclasses
+        r = src.factor("length") / dst.factor("length")
+        return dataclasses.replace(self, points=[tuple(v * r for v in p) for p in self.points],
+                                   widths=[tuple(v * r for v in w) for w in self.widths])
+
+    def segment_widths(self, k: int) -> Tuple[float, float, float, float]:
+        if 0 <= k < len(self.widths):
+            return tuple(float(v) for v in self.widths[k])
+        return (0.0, 0.0, 0.0, 0.0)
+
+
 @dataclass
 class LineSpring:
     """Distributed spring support along a line (SAFE / ETABS "line springs",
