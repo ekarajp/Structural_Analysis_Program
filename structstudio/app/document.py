@@ -209,7 +209,7 @@ class Document:
         self.model.__dict__.update(restored.__dict__)
         self._undo, self._redo = undo, redo
 
-    def edit_design(self, func: Callable[[Model], None]):
+    def edit_design(self, func: Callable[[Model], None], what: str = "design"):
         """A change of design data only (design preferences, Cd / Ie of the load cases,
         slab design data): undoable, but the model stays locked and the analysis results
         are kept - they do not depend on it (as ETABS keeps them for design overwrites)."""
@@ -233,14 +233,20 @@ class Document:
         self._geometry_before = None
         self.dirty = True
         self.results = res
-        self._emit("design")
+        self._emit(what)
 
     # what the analysis does not depend on: design preferences, design strips, the
     # project information - undoing / redoing a change of these keeps the results
     DESIGN_KEYS = ("design", "design_strips", "info")
 
     def _analysis_part(self, model) -> dict:
-        return {k: v for k, v in model.to_dict().items() if k not in self.DESIGN_KEYS}
+        """The model as the analysis sees it: no design data, and no labels of joints /
+        frames / shells (display names)."""
+        d = {k: v for k, v in model.to_dict().items() if k not in self.DESIGN_KEYS}
+        for table in ("points", "frames", "areas"):
+            d[table] = {n: {f: v for f, v in o.items() if f != "label"} if isinstance(o, dict) else o
+                        for n, o in (d.get(table) or {}).items()}
+        return d
 
     def _design_only(self, other) -> bool:
         """``other`` (a model) differs from the current model in design data only."""

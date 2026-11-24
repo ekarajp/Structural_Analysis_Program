@@ -1516,7 +1516,9 @@ LABEL_PREFIX = {"Beam": "B", "Column": "C", "Brace": "D", "Null": "N", "Rigid": 
 
 def auto_relabel(doc: Document) -> int:
     """*Edit > Auto Relabel All*: plan labels per story in X-then-Y order
-    (B1, B2 ... C1 ... F1 ... W1 ..., joints 1, 2, ...)."""
+    (B1, B2 ... C1 ... F1 ... W1 ..., joints 1, 2, ...).  Labels are display
+    names: the analysis does not use them, so the results and the lock stay
+    (one undo step that keeps them too)."""
     def mutate(model: Model):
         pts = model.points
 
@@ -1543,7 +1545,7 @@ def auto_relabel(doc: Document) -> int:
                 k += 1
                 p.label = str(k)
 
-    doc.edit(mutate)
+    doc.edit_design(mutate, what="labels")
     return len(doc.model.frames) + len(doc.model.areas) + len(doc.model.points)
 
 

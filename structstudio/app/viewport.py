@@ -1312,6 +1312,9 @@ class ModelViewport(QtWidgets.QWidget):
             self.invalidate("overlays")
         elif what == "design":  # design strips / design data: the strips drawn again
             self.invalidate("selection")
+        elif what == "labels":  # Auto Relabel: the names on screen again
+            self._fill_header()
+            self.invalidate("selection", "labels", "overlays")
 
     def _on_display_changed(self):
         """A Display command (the toolbar's case / diagram / deformed ...): the active

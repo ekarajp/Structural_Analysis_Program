@@ -124,3 +124,23 @@ def test_measure_text():
     assert C.measure([(0, 0, 0), (3, 4, 0)], "line").startswith("Length = 5")
     assert C.measure([(1, 0, 0), (0, 0, 0), (0, 1, 0)], "angle").startswith("Angle = 90")
     assert C.measure([(0, 0, 0), (2, 0, 0), (2, 2, 0), (0, 2, 0)], "area").startswith("Area = 4")
+
+
+def test_auto_relabel_keeps_the_results_and_the_lock(doc):
+    """Labels are names only: Auto Relabel All (and its undo / redo) keeps the analysis
+    results and does not ask to unlock the model."""
+    from structstudio.api import analyze
+    m = doc.model
+    cases = [n for n in m.load_cases if n in m.load_patterns][:1]
+    doc.set_results(analyze(m, cases))
+    res = doc.results
+    doc.ask_unlock = lambda: (_ for _ in ()).throw(AssertionError("Auto Relabel must not ask to unlock"))
+    first = next(iter(m.frames.values()))
+    first.label = "MY-BEAM"
+    C.auto_relabel(doc)
+    assert doc.results is res and doc.locked
+    assert doc.model.frames[first.name].label != "MY-BEAM"
+    doc.undo()
+    assert doc.results is res and doc.model.frames[first.name].label == "MY-BEAM"
+    doc.redo()
+    assert doc.results is res and doc.locked

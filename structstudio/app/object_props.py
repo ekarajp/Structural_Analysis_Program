@@ -101,7 +101,7 @@ class ObjectPropertiesPanel(QtWidgets.QWidget):
         self.editors: Dict[str, QtWidgets.QWidget] = {}
         self.tool_name = ""
         self.state.tool_changed.connect(self._tool_changed)
-        self.doc.on_change(lambda what: self.refresh() if what in ("model", "results") else None)
+        self.doc.on_change(lambda what: self.refresh() if what in ("model", "results", "labels") else None)
         self.state.display_changed.connect(self._display_changed)
         self._tool_changed(self.state.tool.name)
 
