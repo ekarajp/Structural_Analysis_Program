@@ -1139,11 +1139,27 @@ class ModelViewport(QtWidgets.QWidget):
         self._set_hidden(hf | ({name} if kind == "frame" else set()), ha | ({name} if kind == "area" else set()),
                          hp | ({name} if kind == "point" else set()))
 
-    def object_menu(self, kind: str, name: str, x: int, y: int):
-        """Right-click on an object: Information (ETABS), and what to show."""
+    OBJECT_WORDS = {"frame": "Frame", "area": "Shell", "point": "Joint", "panel": "Load panel",
+                    "strip": "Design strip"}
+
+    def _select_other_menu(self, menu, others) -> dict:
+        """"Select Other" (Inventor): the other objects under the cursor; one chosen
+        becomes the selection.  Returns action -> (kind, name)."""
+        out = {}
+        if not others:
+            return out
+        sub = menu.addMenu(f"Select Other ({len(others)} more here)")
+        for kind, name in others:
+            a = sub.addAction(f"{self.OBJECT_WORDS.get(kind, kind)} {name}")
+            out[a] = (kind, name)
+        return out
+
+    def object_menu(self, kind: str, name: str, x: int, y: int, others=()):
+        """Right-click on an object: Information (ETABS), what to show, and Select Other
+        (the objects under it)."""
         st = self.state
         if kind == "strip":
-            self._strip_menu(name, x, y)
+            self._strip_menu(name, x, y, others)
             return
         what = {"frame": "Frame", "area": "Shell", "point": "Joint", "panel": "Load panel"}.get(kind, kind)
         menu = QtWidgets.QMenu(self.window())  # (owned by the program window, not the native drawing)
@@ -1158,6 +1174,7 @@ class ModelViewport(QtWidgets.QWidget):
         sel_only = menu.addAction("Show only the selected objects") if (st.frames or st.areas or st.points) else None
         hide = menu.addAction("Hide this object")
         show_all = menu.addAction("Show all objects") if any(self.hidden) else None
+        other = self._select_other_menu(menu, others)
         reshape = None
         if kind in ("frame", "area", "point"):
             menu.addSeparator()
@@ -1175,7 +1192,9 @@ class ModelViewport(QtWidgets.QWidget):
         a = menu.exec(self.vtk_widget.mapToGlobal(QtCore.QPoint(int(x / r), int(h - y / r))))
         if a is None:
             return
-        if a is info:
+        if a in other:
+            st.toggle(other[a][0], other[a][1], False)
+        elif a is info:
             self.object_info_requested.emit(kind, name)
         elif a is sel and kind in ("frame", "area", "point"):
             st.toggle(kind, name, True)
@@ -1194,7 +1213,7 @@ class ModelViewport(QtWidgets.QWidget):
         elif axes is not None and a is axes:
             self.toggle_member_axes(name)
 
-    def _strip_menu(self, name: str, x: int, y: int):
+    def _strip_menu(self, name: str, x: int, y: int, others=()):
         """Right-click on a design strip: its properties, select, reshape, delete."""
         st = self.state
         ds = self.doc.model.design_strips.get(name)
@@ -1208,6 +1227,7 @@ class ModelViewport(QtWidgets.QWidget):
         info.setFont(f)
         menu.addSeparator()
         sel = menu.addAction("Select")
+        other = self._select_other_menu(menu, others)
         reshape = menu.addAction("Reshape this strip - drag its points")
         delete = menu.addAction("Delete this strip")
         h = self.vtk_widget.height()
@@ -1215,7 +1235,9 @@ class ModelViewport(QtWidgets.QWidget):
         a = menu.exec(self.vtk_widget.mapToGlobal(QtCore.QPoint(int(x / r), int(h - y / r))))
         if a is None:
             return
-        if a is info:
+        if a in other:
+            st.toggle(other[a][0], other[a][1], False)
+        elif a is info:
             self.object_info_requested.emit("strip", name)
         elif a is sel:
             st.toggle("strip", name, True)
@@ -1943,6 +1965,138 @@ class ModelViewport(QtWidgets.QWidget):
             print("strip display error:", exc)
         for a in self._strip_actors:
             self.renderer.AddActor(a)
+
+    def _strip_first(self) -> bool:
+        """Design strips are picked before beams / columns: in a strip command, and in
+        Reshape while strips are the selection."""
+        st = self.state
+        tool = st.tool
+        return bool(getattr(tool, "shows_strips", False)) or \
+            (tool.name == "reshape" and bool(getattr(st, "strips", None)) and
+             not (st.frames or st.areas or st.points))
+
+    # --------------------------------------- overlapping objects: Tab (Revit)
+    CYCLE_PIXELS = 4
+
+    def _focus_on_hover(self):
+        """The window under the mouse takes the keys (Tab, Esc, typed lengths) - unless
+        something the user types into or steps through with the keys has them (a form
+        field, a list, the model tree)."""
+        w = self.vtk_widget
+        if w.hasFocus():
+            return
+        fw = QtWidgets.QApplication.focusWidget()
+        if fw is not None:
+            if isinstance(fw, (QtWidgets.QLineEdit, QtWidgets.QAbstractSpinBox, QtWidgets.QTextEdit,
+                               QtWidgets.QPlainTextEdit, QtWidgets.QAbstractItemView, QtWidgets.QComboBox)):
+                return
+            if fw.window() is not w.window():  # a form / another window has the keys
+                return
+        w.setFocus(QtCore.Qt.OtherFocusReason)
+
+    def hits_under(self, x: int, y: int) -> list:
+        """Every object under display (x, y): the one a click picks first, then the
+        others (the order Tab goes through)."""
+        first = self.pick(x, y)
+        rest = [h for h in self.pick_all(x, y) if h != first]
+        return ([first] if first else []) + rest
+
+    def _cycle_ok(self) -> bool:
+        """Tab cycles the objects under the cursor where a click selects objects."""
+        t = self.state.tool
+        if self.state.grid_mode:
+            return False
+        if t.name in ("select", "select_line") or getattr(t, "picks", None) or getattr(t, "selecting", False):
+            return True
+        return t.name == "reshape" and getattr(t, "hot", None) is None
+
+    def cycle_objects(self, back: bool = False) -> bool:
+        """Tab (Revit): the next of the objects under the cursor is highlighted; a click
+        there selects it.  Moving the mouse away starts again."""
+        if not self._cycle_ok():
+            return False
+        x, y = getattr(self, "_last_xy", (0, 0))
+        cyc = getattr(self, "_cycle", None)
+        if cyc is None or abs(cyc["xy"][0] - x) > self.CYCLE_PIXELS or abs(cyc["xy"][1] - y) > self.CYCLE_PIXELS:
+            hits = self.hits_under(x, y)
+            if picks := getattr(self.state.tool, "picks", None):
+                hits = [h for h in hits if h[0] in picks]
+            cyc = {"xy": (x, y), "hits": hits, "i": 0}
+        hits = cyc["hits"]
+        if not hits:
+            self._cycle = None
+            self.state.status.emit("Tab: nothing under the cursor")
+            return True
+        if len(hits) == 1:
+            cyc["i"] = 0
+        else:
+            cyc["i"] = (cyc["i"] + (-1 if back else 1)) % len(hits)
+        self._cycle = cyc
+        kind, name = hits[cyc["i"]]
+        what = {"frame": "Frame", "area": "Shell", "point": "Joint", "panel": "Load panel",
+                "strip": "Design strip"}.get(kind, kind)
+        self.state.status.emit(f"{what} {name} ({cyc['i'] + 1}/{len(hits)}) - click = select it, "
+                               f"Tab = next{'' if len(hits) > 1 else ' (the only object here)'}")
+        self._show_cycle()
+        return True
+
+    def cycled_hit(self, x: int, y: int):
+        """The object Tab highlighted, when the click is where Tab was pressed."""
+        cyc = getattr(self, "_cycle", None)
+        if cyc is None:
+            return None
+        if abs(cyc["xy"][0] - x) > self.CYCLE_PIXELS or abs(cyc["xy"][1] - y) > self.CYCLE_PIXELS:
+            return None
+        return cyc["hits"][cyc["i"]] if cyc["hits"] else None
+
+    def end_cycle(self):
+        if getattr(self, "_cycle", None) is not None or getattr(self, "_cycle_actors", None):
+            self._cycle = None
+            for a in getattr(self, "_cycle_actors", []):
+                self.renderer.RemoveActor(a)
+            self._cycle_actors = []
+            self.render()
+
+    def _show_cycle(self):
+        for a in getattr(self, "_cycle_actors", []):
+            self.renderer.RemoveActor(a)
+        self._cycle_actors = []
+        cyc = self._cycle
+        kind, name = cyc["hits"][cyc["i"]]
+        m = self.doc.model
+        seg = []
+        try:
+            if kind == "frame" and name in m.frames:
+                f = m.frames[name]
+                seg = [m.points[f.point_i].xyz, m.points[f.point_j].xyz]
+            elif kind == "area" and name in m.areas:
+                P = [m.points[q].xyz for q in m.areas[name].points]
+                for k in range(len(P)):
+                    seg += [P[k], P[(k + 1) % len(P)]]
+            elif kind == "panel" and name in m.panel_loads:
+                P = list(m.panel_loads[name].points)
+                for k in range(len(P)):
+                    seg += [P[k], P[(k + 1) % len(P)]]
+            elif kind == "strip" and name in m.design_strips:
+                from ..design.strips import strip_outline
+                ds = m.design_strips[name]
+                z = float(ds.points[0][2])
+                ring = [(q[0], q[1], z) for q in strip_outline(ds)]
+                for k in range(len(ring)):
+                    seg += [ring[k], ring[(k + 1) % len(ring)]]
+                seg += [c for a, b in zip(ds.points[:-1], ds.points[1:]) for c in (a, b)]
+            elif kind == "point" and name in m.points:
+                p = np.array(m.points[name].xyz, float)
+                r = self._world_tolerance() * 1.5
+                for d in ((r, 0, 0), (0, r, 0), (0, 0, r)):
+                    seg += [tuple(p - d), tuple(p + d)]
+            if seg:
+                act = scene._dashed_lines_actor(m, seg, scene.COLORS["preview"], 5.0)
+                self._cycle_actors = [act]
+                self.renderer.AddActor(act)
+        except Exception as exc:  # display must never break picking
+            print("cycle highlight error:", exc)
+        self.render()
 
     def _pick_strip(self, x: float, y: float, tol: float):
         """The design strip whose centre line (or outline) passes within ``tol`` display
@@ -2897,9 +3051,10 @@ class ModelViewport(QtWidgets.QWidget):
             if self._dragging:
                 self._window_select(p0, (x, y), True, crossing=x < p0[0])
             else:
-                hit = self.pick(x, y)
+                hit = self.cycled_hit(x, y) or self.pick(x, y)
                 if hit is not None:
                     st.toggle(hit[0], hit[1], True)
+            self.end_cycle()
             self._dragging = False
             st.update_hint()
             return
@@ -2917,9 +3072,10 @@ class ModelViewport(QtWidgets.QWidget):
                 self._window_select(p0, (x, y), True, crossing=x < p0[0])
                 st.keep_only(*picks)
             else:
-                hit = next((h for h in self.pick_all(x, y) if h[0] in picks), None)
-                if hit is not None:
+                hit = self.cycled_hit(x, y) or next((h for h in self.hits_under(x, y) if h[0] in picks), None)
+                if hit is not None and hit[0] in picks:
                     st.toggle(hit[0], hit[1], True)
+            self.end_cycle()
             self._dragging = False
             return
         if self._dragging:
@@ -2937,6 +3093,10 @@ class ModelViewport(QtWidgets.QWidget):
             self._drag_nav(x, y)
             return
         self._last_xy = (x, y)
+        self._focus_on_hover()
+        cyc = getattr(self, "_cycle", None)
+        if cyc is not None and (abs(cyc["xy"][0] - x) > self.CYCLE_PIXELS or abs(cyc["xy"][1] - y) > self.CYCLE_PIXELS):
+            self.end_cycle()
         if st.tool.name == "reshape":
             st.tool.shift_lock = bool(self.interactor.GetShiftKey())
         if self._press is not None and getattr(self, "_reshape_drag", False):
@@ -3032,18 +3192,15 @@ class ModelViewport(QtWidgets.QWidget):
                 if hook is not None and hook(self.pick(x, y)):
                     self._right_press = None
                     return
-                # ETABS: right click on an object opens its Information form, on the
-                # background the window context menu; Shift lists the objects under the cursor
-                if self.interactor.GetShiftKey():
-                    hits = self.pick_all(x, y)
-                else:
-                    hit = self.pick(x, y)
-                    hits = [hit] if hit else []
+                # right click on an object: its menu (Information first, ETABS), with
+                # "Select Other" listing the objects under it (Inventor); on the background
+                # the window context menu.  (Shift + right click is the snap menu only.)
+                hits = self.cycled_hit(x, y)
+                hits = self.hits_under(x, y) if hits is None else \
+                    [hits] + [h for h in self.hits_under(x, y) if h != hits]
+                self.end_cycle()
                 if hits:
-                    from .object_info import choose_object
-                    chosen = choose_object(hits, self) if len(hits) > 1 else hits[0]
-                    if chosen:
-                        self.object_menu(chosen[0], chosen[1], x, y)
+                    self.object_menu(hits[0][0], hits[0][1], x, y, others=hits[1:])
                 else:
                     self.background_menu_requested.emit(self, x, y)
             elif getattr(st.tool, "picks", None):
@@ -3470,11 +3627,13 @@ class ModelViewport(QtWidgets.QWidget):
                 best, best_d = ("point", n), d
         if best:
             return best
-        # design strips shown (Display Options / a strip command): a strip lies over beams
-        # and slab - it is picked before them (hide the strips to pick a beam under one)
-        strip = self._pick_strip(x, y, tol)
-        if strip:
-            return ("strip", strip)
+        # design strips shown: a column strip lies on its beam - the beam is picked first
+        # (Tab cycles to the strip under it), except in a strip command (strips first)
+        strip_first = self._strip_first()
+        if strip_first:
+            strip = self._pick_strip(x, y, tol)
+            if strip:
+                return ("strip", strip)
         for f in frames:
             (ax, ay), (bx, by) = disp[f.point_i], disp[f.point_j]
             L2 = (bx - ax) ** 2 + (by - ay) ** 2
@@ -3486,6 +3645,10 @@ class ModelViewport(QtWidgets.QWidget):
                 best, best_d = ("frame", f.name), d
         if best:
             return best
+        if not strip_first:
+            strip = self._pick_strip(x, y, tol)
+            if strip:
+                return ("strip", strip)
         for a in areas:
             if point_in_polygon((x, y), [disp[p] for p in a.points]):
                 return ("area", a.name)
@@ -3534,7 +3697,8 @@ class ModelViewport(QtWidgets.QWidget):
         return out
 
     def _click_select(self, x: int, y: int, add: bool):
-        hit = self.pick(x, y)
+        hit = self.cycled_hit(x, y) or self.pick(x, y)
+        self.end_cycle()
         st = self.state
         if hit is None:
             if not add:
@@ -4182,11 +4346,12 @@ class ModelViewport(QtWidgets.QWidget):
         return t
 
     def _on_tab(self, back: bool = False) -> bool:
-        """Tab in the dynamic input: first box <-> second box; what was typed in each
-        box stays (CAD)."""
+        """Tab: in the dynamic input first box <-> second box (what was typed in each
+        box stays, CAD); where a click selects, the next of the objects under the cursor
+        (Revit)."""
         if not self._accepts_typing() or self.config.kind == "3d" or not self._point_tool() or \
                 (self._dim_base() is None and self._box_mode() != "abs"):
-            return False
+            return self.cycle_objects(back)
         boxes = self._boxes()
         if boxes is None:
             return False

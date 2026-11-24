@@ -4,7 +4,7 @@ Like the ETABS *{Joint, Beam/Column/Brace, Slab/Deck/Wall} Information* forms
 and the SAP2000 *Object Model - {Point, Line, Area} Information* forms: a tabbed
 window with *Geometry*, *Assignments* and *Loads*, every assignment editable in
 place (changes are applied through the document, so they are undoable).
-Shift + right click with several objects under the cursor shows a chooser.
+Several objects under the cursor: Tab highlights the next one (a click selects it); the right-click menu has Select Other.
 """
 from __future__ import annotations
 
@@ -668,7 +668,7 @@ def open_object_info(doc: Document, kind: str, name: str, parent=None) -> Object
 
 
 def choose_object(hits: Sequence[Tuple[str, str]], parent=None) -> Optional[Tuple[str, str]]:
-    """Shift + right click: several objects under the cursor."""
+    """A chooser of several objects under the cursor (kept for scripts / older callers)."""
     if not hits:
         return None
     if len(hits) == 1:

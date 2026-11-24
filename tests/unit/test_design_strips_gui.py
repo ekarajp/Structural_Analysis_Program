@@ -190,3 +190,60 @@ def test_strip_properties_form(window, app):
     w = AutoWidthsDialog(window.doc.model, "Story1", ["CS-X"], window)
     assert w.names() == ["CS-X"]
     w.reject()
+
+
+@gui
+def test_overlapping_beam_and_strip_tab_cycles(app):
+    """A column strip lies on its beam: a click picks the beam; Tab (Revit) highlights
+    the next object under the cursor and a click there selects it; moving away starts
+    again; the right-click menu lists the others under Select Other; in a strip command
+    the strip comes first."""
+    from structstudio.app import strip_commands as SC
+    from structstudio.app.document import Document
+    from structstudio.app.mainwindow import MainWindow
+    from structstudio.app.templates import build_model
+    w = MainWindow(Document(build_model(structure="rc_frame", x_ordinates=(0, 8, 16), y_ordinates=(0, 6, 12))))
+    w.resize(1600, 950)
+    w.show()
+    app.processEvents()
+    try:
+        vp, z = _plan(w)
+        SC.auto_strips(w.doc, ["Story1"])
+        w._show_strips()
+        app.processEvents()
+        x, y = _display(vp, 4, 6, z)  # on the beam of grid 2 and its column strip
+        hits = vp.hits_under(x, y)
+        assert hits[0][0] == "frame" and any(h[0] == "strip" for h in hits)
+        vp._last_xy = (x, y)
+        st = w.state
+        for _ in range(len(hits)):  # Tab until the strip is highlighted
+            assert vp.cycle_objects()
+            if vp.cycled_hit(x, y)[0] == "strip":
+                break
+        assert vp.cycled_hit(x, y)[0] == "strip" and vp._cycle_actors
+        _click(vp, 4, 6, z)
+        assert len(st.strips) == 1 and not st.frames and vp.cycled_hit(x, y) is None
+        # a plain click there: the beam
+        _click(vp, 4, 6, z)
+        assert len(st.frames) == 1 and not st.strips
+        # Tab, then the mouse moves away: back to the plain pick
+        vp._last_xy = (x, y)
+        vp.cycle_objects()
+        vp.interactor.SetEventPosition(x + 40, y + 40)
+        vp.style.InvokeEvent("MouseMoveEvent")
+        assert vp.cycled_hit(x, y) is None
+        # the right-click menu: Select Other lists the rest
+        menu = QtWidgets.QMenu()
+        acts = vp._select_other_menu(menu, hits[1:])
+        assert sorted(acts.values()) == sorted(hits[1:])
+        # in a strip command the strip is picked first
+        st.set_tool("strip")
+        assert vp.pick(x, y)[0] == "strip"
+        st.set_tool("select")
+        assert vp.pick(x, y)[0] == "frame"
+    finally:
+        w.doc.dirty = False
+        w.views.finalize()
+        w.close()
+        w.deleteLater()
+        app.processEvents()
