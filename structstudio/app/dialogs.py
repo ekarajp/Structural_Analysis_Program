@@ -377,6 +377,13 @@ class GridStoriesDialog(QtWidgets.QDialog):
         self.box_a = self._box("X Grid", self.x_table, ("", 0.0))
         self.box_b = self._box("Y Grid", self.y_table, ("", 0.0))
         self.story_page = self._with_buttons(self.story_table, ("", 3.0))
+        # X-Y-Story: the objects go with their stories (default; Edit > Keep Objects on Their
+        # Stories turns it off for good, this box for this change)
+        self.carry_box = QtWidgets.QCheckBox("Objects move with their stories")
+        self.carry_box.setChecked(bool(getattr(doc, "stories_carry", True)))
+        self.carry_box.setToolTip("On: a new story height or elevation moves the floors, beams, columns and "
+                                  "loads of that story (and those above) with it.  Off: only the levels change")
+        self.story_page.layout().addWidget(self.carry_box)
         self.z_page = self._with_buttons(self.z_table, ("", 0.0))
         self.levels = QtWidgets.QStackedWidget()
         self.levels.addWidget(self.story_page)
@@ -844,6 +851,31 @@ class GridStoriesDialog(QtWidgets.QDialog):
 
         glue = bool(getattr(self.doc, "glue_grids", False))
         self.glued = 0
+        self.carried = 0
+        m0 = self.doc.model
+        old_levels = [(s.name, s.elevation) for s in
+                      (m0.stories_of(tower) if tower is not None else m0.stories_bottom_up())]
+        # stories: the objects move with them (no question - a story is a level the objects
+        # are on); Z lines: only with Move Objects with Grid Lines, what is on a moved line
+        carry = self.carry_box.isChecked() if mode == "story" else glue
+        drop = []
+        if mode == "story" and carry:
+            # a deleted story takes what is on it (ETABS); the story above reaches down
+            _pairs, gone = m0.pair_levels(old_levels, levels)
+            if gone:
+                objs = m0.objects_on_levels(gone)
+                n = len(objs["frames"]) + len(objs["areas"])
+                many = len(gone) > 1
+                if n and QtWidgets.QMessageBox.question(
+                        self, "Delete stories",
+                        f"Stor{'ies' if many else 'y'} {', '.join(gone)}: {n} frame(s) / shell(s) on "
+                        f"{'them' if many else 'it'} are deleted with {'them' if many else 'it'}; the story "
+                        f"above comes down onto the story under {'them' if many else 'it'}.",
+                        QtWidgets.QMessageBox.Ok | QtWidgets.QMessageBox.Cancel,
+                        QtWidgets.QMessageBox.Ok) != QtWidgets.QMessageBox.Ok:
+                    return
+                drop = list(gone)
+        self.dropped_strips = 0
 
         def mutate(model: Model):
             import dataclasses as _dc
@@ -865,6 +897,15 @@ class GridStoriesDialog(QtWidgets.QDialog):
                         if prev is not None and prev.ordinate != o:
                             moves.append((sname, dirn, prev.ordinate, o))
             shifted = glue_moves(model, moves) if moves else {}
+            if drop:
+                model.delete_on_levels(drop)
+            if carry:
+                snapped = []
+                self.carried = model.carry_levels(old_levels, levels, tower, on_levels_only=(mode == "xyz"),
+                                                  snapped=snapped)
+                if snapped:
+                    from .modify import _merge_points
+                    _merge_points(model, snapped, max(model.options.merge_tolerance, 1e-6))
             # several towers: the other towers' systems and lines stay as they are
             edited = set(model.grid_systems_of(tower)) if tower is not None else set(old)
             model.grid_systems = {n: gs for n, gs in old.items() if n not in edited}
@@ -910,8 +951,26 @@ class GridStoriesDialog(QtWidgets.QDialog):
             else:
                 model.options.grid_mode = "story"
                 model._stories_from_levels(levels)
+            # design strips lie on a story: one left between levels (its story gone or
+            # moved away) is deleted
+            lost = [n for n, ds in model.design_strips.items() if model.strip_story(ds) is None]
+            for n in lost:
+                del model.design_strips[n]
+            self.dropped_strips = len(lost)
 
         self.doc.edit(mutate)
+        if self.carried or self.glued or self.dropped_strips:
+            w = self.parent()
+            while w is not None and not isinstance(w, QtWidgets.QMainWindow):
+                w = w.parent()
+            msg = []
+            if self.carried or self.glued:
+                msg.append(f"{self.carried + self.glued} joint(s) moved with the "
+                           f"{'stories' if mode == 'story' and self.carried else 'grid lines'}")
+            if self.dropped_strips:
+                msg.append(f"{self.dropped_strips} design strip(s) no longer on a story were deleted")
+            if w is not None:
+                w.statusBar().showMessage("; ".join(msg), 8000)
         super().accept()
 
 

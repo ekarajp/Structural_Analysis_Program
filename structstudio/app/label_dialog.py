@@ -54,7 +54,8 @@ class ChangeLabelsDialog(QtWidgets.QDialog):
         self.order.addItem("in the order of the present labels", "label")
         self.per_story = QtWidgets.QCheckBox("Each story starts at the next number again")
         self.per_story.setChecked(True)
-        self.per_story.setToolTip("As ETABS: the same label (C1) on every story; off: one count over the stories")
+        self.per_story.setToolTip("On: the same label (C1) on every story, as usual in building models; "
+                                  "off: one count over the stories")
         number = QtWidgets.QPushButton("Number the list")
         number.setToolTip("Fill the New label column with the numbering above")
         number.clicked.connect(self.renumber)
@@ -235,7 +236,7 @@ class AutoRelabelDialog(QtWidgets.QDialog):
         self.digits.setValue(int(r.digits))
         self.digits.setToolTip("Zero padded: 2 gives B01, B02 ...; 0 = as the number is")
         f.addRow("Digits", self.digits)
-        self.per_story = QtWidgets.QCheckBox("Each story starts again (the same label on every story, ETABS)")
+        self.per_story = QtWidgets.QCheckBox("Each story starts again (the same label on every story)")
         self.per_story.setChecked(bool(r.per_story))
         f.addRow("", self.per_story)
         self.by_type = QtWidgets.QCheckBox("Each type its own count (B1, B2 ... C1, C2 ...)")
@@ -327,14 +328,37 @@ class AutoRelabelDialog(QtWidgets.QDialog):
             "Nothing to relabel (tick Frames / Shells / Joints)."
         if custom:
             text += f"\n{custom} label(s) the objects have now - also the ones typed by hand - are replaced."
+        clash = self._clashes()
+        if clash:
+            text += "\nCheck: " + clash
         text += "\nThe rules are kept with the model.  The analysis results stay (labels are names only); " \
                 "Undo brings the old labels back."
         self.preview.setText(text)
         return plan
 
+    def _clashes(self) -> str:
+        """Types in the model that would share a prefix and a count (B1 a beam and a brace)."""
+        m = self.doc.model
+        present = {f.type for f in m.frames.values()} | {a.type for a in m.areas.values()}
+        out = []
+        for p, ts in C.prefix_clashes(self.rules()):
+            ts = [t for t in ts if t in present]
+            if len(ts) > 1:
+                out.append(f"{' and '.join(TYPE_WORDS.get(t, t).lower() for t in ts)} share the prefix "
+                           f"{p or '(none)'!r}")
+        if not out:
+            return ""
+        return ("; ".join(out) + " - two objects on one story can get the same label (give each type its own "
+                "prefix, or untick Each type its own count)")
+
     def _ok(self):
         if not (self.k_frames.isChecked() or self.k_shells.isChecked() or self.k_joints.isChecked()):
             QtWidgets.QMessageBox.information(self, self.windowTitle(), "Tick Frames, Shells or Joints")
+            return
+        clash = self._clashes()
+        if clash and QtWidgets.QMessageBox.question(
+                self, self.windowTitle(), clash[0].upper() + clash[1:] + ".\n\nLabel them like this anyway?") \
+                != QtWidgets.QMessageBox.Yes:
             return
         try:
             self.count = C.auto_relabel(self.doc, self.rules())

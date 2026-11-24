@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import pickle
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from ..model import Model
 from ..model.model import nonfinite_points
@@ -20,6 +20,11 @@ class Document:
         self.dirty = False
         self.results: Optional[Results] = None
         self._undo: List[str] = []
+        # what each undo step was (Undo Move): the command running (set by the menus) or
+        # the drawing / editing tool (``name_hint``); id of a snapshot -> its name
+        self.command_name: Optional[str] = None
+        self.name_hint: Optional[Callable[[], Optional[str]]] = None
+        self._names: Dict[int, str] = {}
         self._redo: List[str] = []
         self._listeners: List[Callable[[str], None]] = []
         # ETABS: after an analysis the model is locked (the results belong to it); an edit asks
@@ -41,6 +46,7 @@ class Document:
         # Edit > Move Objects with Grid Lines (off: moving a grid line moves only the line -
         # on screen in Grid Mode or a new ordinate in the grid form)
         self.glue_grids = False
+        self.stories_carry = True  # X-Y-Story: objects move with their stories
         self.active_tower = None  # several towers: the tower of the active window (new objects go there)
         self._geometry_before = None
 
@@ -109,10 +115,28 @@ class Document:
         self.notes = []
         self.duplicates = []
         self._geometry_before = self._geometry() if self.check_duplicates else None
-        self._undo.append(self._snapshot(self.model))
+        snap = self._snapshot(self.model)
+        self._undo.append(snap)
         if len(self._undo) > self.MAX_UNDO:
             self._undo.pop(0)
         self._redo.clear()
+        name = self.command_name
+        if not name and self.name_hint is not None:
+            try:
+                name = self.name_hint()
+            except Exception:  # (a name must never break an edit)
+                name = None
+        if len(self._names) > 4 * self.MAX_UNDO + 50:  # (every new snapshot is named when made)
+            live = {id(x) for x in self._undo} | {id(x) for x in self._redo}
+            self._names = {k: v for k, v in self._names.items() if k in live}
+        self._names[id(snap)] = name or "Edit"
+
+    def undo_name(self) -> Optional[str]:
+        """What Undo takes back (None: nothing)."""
+        return self._names.get(id(self._undo[-1])) if self._undo else None
+
+    def redo_name(self) -> Optional[str]:
+        return self._names.get(id(self._redo[-1])) if self._redo else None
 
     def _geometry(self):
         m = self.model
@@ -161,10 +185,14 @@ class Document:
         try:
             # several towers: new objects go to the tower of the window drawn in
             self.model.active_tower = getattr(self, "active_tower", None)
+            before = {t: set(getattr(self.model, t)) for t in ("points", "frames", "areas")}
             try:
                 func(self.model)
             finally:
                 self.model.active_tower = None
+            # what the command made gets the next labels (a model that uses labels)
+            from .commands import label_new_objects
+            label_new_objects(self.model, before)
             bad = nonfinite_points(self.model)
             if bad:  # never commit a model with inf / NaN coordinates (refused, never clamped)
                 p = self.model.points[bad[0]]
@@ -310,7 +338,10 @@ class Document:
         if not keep:
             self.check_editable()
         res = self.results
-        target.append(self._snapshot(self.model))
+        snap = self._snapshot(self.model)
+        name = self._names.get(id(source[-1]), "Edit")
+        target.append(snap)
+        self._names[id(snap)] = name
         source.pop()
         self.model = other
         self.results = res if keep else None

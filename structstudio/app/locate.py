@@ -8,7 +8,7 @@ import numpy as np
 
 from ..model import Model
 
-KINDS = ("points", "frames", "areas", "panel_loads")
+KINDS = ("points", "frames", "areas", "panel_loads", "design_strips")
 
 
 def object_xyz(model: Model, attr: str, name: str) -> Optional[np.ndarray]:
@@ -34,6 +34,9 @@ def object_xyz(model: Model, attr: str, name: str) -> Optional[np.ndarray]:
             return object_xyz(model, "areas", pl.area)
         pts = getattr(pl, "points", None) or getattr(pl, "polygon", None)
         return None if not pts else np.array([tuple(q)[:3] for q in pts], float)
+    if attr == "design_strips":
+        ds = getattr(model, "design_strips", {}).get(name)
+        return None if ds is None or not ds.points else np.array([tuple(q)[:3] for q in ds.points], float)
     return None
 
 
@@ -87,6 +90,10 @@ def location_text(model: Model, attr: str, name: str) -> str:
     u = model.units.shown("length")
     story = object_story(model, attr, name)
     at = f"{story}" if story else f"z = {X[:, 2].max():g} {u}"
+    lab = getattr(obj, "label", None)
+    shown = name
+    if attr in ("points", "frames", "areas") and lab and lab != name:
+        name = f"{shown} (label {lab})"  # the unique name with the label the user sees
     if attr == "points":
         return f"Joint {name}  ·  {at}  ·  grid {grid_ref(model, X[0])}  ·  z = {X[0, 2]:g} {u}"
     if attr == "frames":
@@ -103,4 +110,10 @@ def location_text(model: Model, attr: str, name: str) -> str:
         sec = obj.section or "no section"
         return (f"{obj.type} {name}  ·  {sec}  ·  {at}  ·  grid {_grid_span(model, X)}  ·  "
                 f"area = {area:.2f} {u}²")
+    if attr == "design_strips":
+        lab = obj.label or name
+        L = float(sum(np.linalg.norm(X[k + 1] - X[k]) for k in range(len(X) - 1)))
+        tag = f" (label {lab})" if lab != name else ""
+        return (f"Design strip {name}{tag}  ·  {obj.kind} strip, layer {obj.layer}"
+                f"  ·  {at}  ·  grid {_grid_span(model, X)}  ·  L = {L:.3f} {u}")
     return f"Load panel {name}  ·  {at}  ·  grid {_grid_span(model, X)}"

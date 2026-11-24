@@ -8,6 +8,7 @@
     ("dir", "Direction", "X", {"choices": ["X", "Y"]})     # combo box
     ("size", "Max size", None, {"optional": True})          # float or blank = None
     ("name", "Label", "P1")                                # text
+    ("st", "Stories", ["S2"], {"checks": ["S2", "S3"]})     # names to tick (a list)
 
 ``values()`` returns {key: value}.  Groups of fields can be separated with
 ``("-", "Group title")``.
@@ -79,6 +80,29 @@ class FormDialog(QtWidgets.QDialog):
 
     @staticmethod
     def _editor(default, opts):
+        if "checks" in opts:  # a list of names to tick (value: the ticked names)
+            w = QtWidgets.QWidget()
+            v = QtWidgets.QVBoxLayout(w)
+            v.setContentsMargins(0, 0, 0, 0)
+            lst = QtWidgets.QListWidget()
+            on = set(default or ())
+            for name in opts["checks"]:
+                it = QtWidgets.QListWidgetItem(str(name))
+                it.setFlags(it.flags() | QtCore.Qt.ItemIsUserCheckable)
+                it.setCheckState(QtCore.Qt.Checked if name in on else QtCore.Qt.Unchecked)
+                lst.addItem(it)
+            lst.setMinimumHeight(min(260, 22 * max(len(opts["checks"]), 3) + 8))
+            v.addWidget(lst)
+            row = QtWidgets.QHBoxLayout()
+            for text, state in (("All", QtCore.Qt.Checked), ("None", QtCore.Qt.Unchecked)):
+                b = QtWidgets.QPushButton(text)
+                b.clicked.connect(lambda _=False, st=state: [lst.item(i).setCheckState(st)
+                                                             for i in range(lst.count())])
+                row.addWidget(b)
+            row.addStretch(1)
+            v.addLayout(row)
+            w.list = lst
+            return w, "checks"
         if "choices" in opts:
             w = QtWidgets.QComboBox()
             w.addItems([str(c) for c in opts["choices"]])
@@ -108,6 +132,9 @@ class FormDialog(QtWidgets.QDialog):
             kind = self._kinds[key]
             if kind == "bool":
                 out[key] = w.isChecked()
+            elif kind == "checks":
+                out[key] = [w.list.item(i).text() for i in range(w.list.count())
+                            if w.list.item(i).checkState() == QtCore.Qt.Checked]
             elif kind == "int":
                 out[key] = w.value()
             elif kind == "choice":
@@ -126,6 +153,11 @@ class FormDialog(QtWidgets.QDialog):
         w, kind = self._widgets[key], self._kinds[key]
         if kind == "bool":
             w.setChecked(bool(value))
+        elif kind == "checks":
+            on = set(value or ())
+            for i in range(w.list.count()):
+                it = w.list.item(i)
+                it.setCheckState(QtCore.Qt.Checked if it.text() in on else QtCore.Qt.Unchecked)
         elif kind == "int":
             w.setValue(int(value))
         elif kind == "choice":

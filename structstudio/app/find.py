@@ -13,12 +13,13 @@ import numpy as np
 from ..model import Model
 from . import locate
 
-KIND_NAMES = {"points": "Joint", "frames": "Frame", "areas": "Shell", "panel_loads": "Load panel"}
+KIND_NAMES = {"points": "Joint", "frames": "Frame", "areas": "Shell", "panel_loads": "Load panel",
+              "design_strips": "Design strip"}
 
 
 @dataclass
 class Hit:
-    attr: str            # points | frames | areas | panel_loads | "xyz" (a bare location)
+    attr: str            # points | frames | areas | panel_loads | design_strips | "xyz" (a bare location)
     name: str
     text: str            # one line for the result list
     xyz: Optional[tuple] = None   # the searched location (coordinates / grid)
@@ -116,7 +117,7 @@ def _inside(X: np.ndarray, q: np.ndarray, n: np.ndarray) -> bool:
 
 def _near(model: Model, p: np.ndarray, plan: bool, story: Optional[str], limit: int) -> List[Hit]:
     """Objects nearest to a location: joints first, then members / shells."""
-    rank = {"points": 0, "frames": 1, "areas": 2, "panel_loads": 3}
+    rank = {"points": 0, "frames": 1, "areas": 2, "panel_loads": 3, "design_strips": 4}
     out = []
     for attr, name, obj in _objects(model):
         if story and locate.object_story(model, attr, name) != story:
@@ -177,7 +178,7 @@ def find_objects(model: Model, text: str, limit: int = 30) -> List[Hit]:
         else:
             continue
         line = _describe(model, attr, name)
-        if label and label != name:
+        if label and label != name and f"label {label}" not in line:
             line = f"{line}   [label {label}]"
         hits.append(Hit(attr, name, line, score=score))
     hits.sort(key=lambda h: (h.score, locate.KINDS.index(h.attr), _natural(h.name)))

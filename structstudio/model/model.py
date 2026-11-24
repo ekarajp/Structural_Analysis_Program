@@ -514,6 +514,159 @@ class Model:
             prev = z
         self.reassign_stories(keep)
 
+    # ------------------------------------------------- objects follow their levels
+    @staticmethod
+    def pair_levels(old: Sequence[Tuple[str, float]], new: Sequence[Tuple[str, float]]):
+        """Old level name -> new level name: the same name, else (the same number of
+        levels gone and new: renamed) in order bottom up.  Also the old levels that are
+        gone (deleted)."""
+        oldd = {str(n): float(z) for n, z in old}
+        newd = {str(n): float(z) for n, z in new}
+        pairs = {n: n for n in oldd if n in newd}
+        gone = sorted((n for n in oldd if n not in newd), key=lambda n: oldd[n])
+        added = sorted((n for n in newd if n not in oldd), key=lambda n: newd[n])
+        if gone and len(gone) == len(added):
+            pairs.update(zip(gone, added))
+            gone = []
+        return pairs, gone
+
+    def _level_member(self, tower: Optional[str], old_names) -> callable:
+        """Is a point / polygon (story, xy) in ``tower`` (several towers)?"""
+        if not self.multi_tower or tower is None:
+            return lambda story, xy: True
+        t = self._tower(tower)
+
+        def member(story, xy):
+            if story in old_names:
+                return True
+            if story in self.stories:
+                return False
+            return xy is not None and self.tower_at(*xy) == t
+        return member
+
+    def objects_on_levels(self, names, tower: Optional[str] = None) -> Dict[str, List[str]]:
+        """The frames, shells, joints, load panels and design strips that are on stories
+        ``names`` (by their story; joints that nothing else uses)."""
+        names = set(names)
+        frames = [f.name for f in self.frames.values() if f.story in names]
+        areas = [a.name for a in self.areas.values() if a.story in names]
+        fa = set(frames) | set(areas)
+        used = set()
+        for f in self.frames.values():
+            if f.name not in fa:
+                used |= {f.point_i, f.point_j}
+        for a in self.areas.values():
+            if a.name not in fa:
+                used |= set(a.points)
+        points = [p.name for p in self.points.values() if p.story in names and p.name not in used]
+        panels = [p.name for p in self.panel_loads.values() if p.story in names and not p.area]
+        strips = [s.name for s in self.design_strips.values() if s.story in names]
+        return {"frames": frames, "areas": areas, "points": points, "panels": panels, "strips": strips}
+
+    def delete_on_levels(self, names) -> int:
+        """Delete what :meth:`objects_on_levels` finds (ETABS: a deleted story takes its
+        objects with it).  The number of frames and shells deleted."""
+        objs = self.objects_on_levels(names)
+        fa_areas = set(objs["areas"])
+        for n in objs["frames"]:
+            self.frames.pop(n, None)
+        for n in objs["areas"]:
+            self.areas.pop(n, None)
+        for n in [p.name for p in self.panel_loads.values() if p.area in fa_areas] + objs["panels"]:
+            self.panel_loads.pop(n, None)
+        for n in objs["strips"]:
+            self.design_strips.pop(n, None)
+        used = {f.point_i for f in self.frames.values()} | {f.point_j for f in self.frames.values()}
+        for a in self.areas.values():
+            used |= set(a.points)
+        for lk in getattr(self, "links", {}).values():
+            used |= {lk.point_i, lk.point_j}
+        for n in objs["points"]:
+            if n not in used:
+                self.points.pop(n, None)
+        self.prune_groups()
+        return len(objs["frames"]) + len(objs["areas"])
+
+    def carry_levels(self, old: Sequence[Tuple[str, float]], new: Sequence[Tuple[str, float]],
+                     tower: Optional[str] = None, on_levels_only: bool = False,
+                     snapped: Optional[list] = None) -> int:
+        """Objects follow their levels when the stories (or Z lines) change: a point at or
+        under a level keeps its distance below that level (ETABS: an object belongs to the
+        story above it); above the top level: from the top.  A deleted level: what is on it
+        or under it (down to the level below) goes onto the level below - the story above
+        reaches down to it (its joints are put in ``snapped``, to merge them).
+        ``on_levels_only`` (X-Y-Z mode, Move Objects with Grid Lines): only what is on a
+        level moves.  Joints, free load panels, design strips and tendon paths of
+        ``tower`` (several towers; else all).  Call before the stories change; returns the
+        number of joints moved."""
+        pairs, _gone = self.pair_levels(old, new)
+        newd = {str(n): float(z) for n, z in new}
+        lv = sorted(((float(z), (newd[pairs[n]] - float(z)) if n in pairs else None) for n, z in old),
+                    key=lambda t: t[0])
+        if not lv or all((d is not None and abs(d) < 1e-12) for _, d in lv):
+            return 0
+        tol = max(self.options.merge_tolerance, 1e-9)
+
+        def below(k: int):
+            """The new elevation of the nearest kept level under level k (None: none)."""
+            for i in range(k - 1, -1, -1):
+                if lv[i][1] is not None:
+                    return lv[i][0] + lv[i][1]
+            return None
+
+        def shift(z: float):
+            """(dz, snapped onto a level)"""
+            if on_levels_only:
+                for zo, d in lv:
+                    if abs(z - zo) <= tol:
+                        return (d or 0.0), False
+                return 0.0, False
+            k = next((i for i, (zo, _) in enumerate(lv) if zo >= z - tol), len(lv) - 1)
+            if lv[k][1] is not None:
+                return lv[k][1], False
+            zb = below(k)
+            if zb is not None:  # on / under a deleted level: onto the level below
+                return zb - z, True
+            for i in range(k + 1, len(lv)):  # (the base deleted: with the next level)
+                if lv[i][1] is not None:
+                    return lv[i][1], False
+            return 0.0, False
+
+        def dz(z: float) -> float:
+            return shift(z)[0]
+
+        old_names = {str(n) for n, _ in old}
+        member = self._level_member(tower, old_names)
+        moved = 0
+        for p in self.points.values():
+            if member(p.story, (p.x, p.y)):
+                d, snap = shift(p.z)
+                if d:
+                    p.z += d
+                    moved += 1
+                if snap and snapped is not None:
+                    snapped.append(p.name)
+
+        def poly(pts):
+            return [(x, y, z + dz(z)) for x, y, z in pts]
+
+        def centre(pts):
+            return (sum(q[0] for q in pts) / len(pts), sum(q[1] for q in pts) / len(pts)) if pts else None
+
+        for pl in self.panel_loads.values():
+            if not pl.area and pl.points and member(pl.story, centre(pl.points)):
+                pl.points = poly(pl.points)
+        for ds in self.design_strips.values():
+            if ds.points and member(ds.story, centre(ds.points)):
+                ds.points = poly(ds.points)
+        for td in self.tendons.values():
+            pts = [tp.xyz for tp in td.path]
+            if pts and member(None, centre(pts)):
+                for tp in td.path:
+                    x, y, z = tp.xyz
+                    tp.xyz = (x, y, z + dz(z))
+        return moved
+
     def add_tower_stories(self, tower: str, n_stories: int, typical: float, bottom: Optional[float] = None,
                           base_elevation: float = 0.0, prefix: Optional[str] = None) -> List[Story]:
         """ETABS "Quick Story Definition for New Tower": a new tower with a base and

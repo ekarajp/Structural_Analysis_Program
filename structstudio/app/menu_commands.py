@@ -6,6 +6,7 @@ those operations on the current selection.
 """
 from __future__ import annotations
 
+import math
 import os
 from typing import Callable, Dict, List, Optional
 
@@ -314,7 +315,7 @@ class MenuCommandsMixin:
         return select_by_type(self.doc.model, t)
 
     def _need_any(self) -> bool:
-        if any(self._sel()):
+        if self._have("any"):
             return True
         return self._wait_for("any", 2)
 
@@ -396,9 +397,13 @@ class MenuCommandsMixin:
     # --------------------------------------------------------------- Edit
     def edit_copy(self):
         if self._need_any():
-            self.state.clipboard = C.copy_objects(self.doc.model, *self._sel())
+            strips = sorted(self.state.strips)
+            self.state.clipboard = C.copy_objects(self.doc.model, *self._sel(), strips=strips)
             f, a, p = self._sel()
-            self._info(f"Copied {len(f)} frame(s), {len(a)} shell(s), {len(p)} joint(s) - Ctrl+V to place them")
+            parts = [f"{len(f)} frame(s)", f"{len(a)} shell(s)", f"{len(p)} joint(s)"]
+            if strips:
+                parts.append(f"{len(strips)} design strip(s)")
+            self._info(f"Copied {', '.join(parts)} - Ctrl+V to place them")
 
     def edit_cut(self):
         if self._need_any():
@@ -426,35 +431,78 @@ class MenuCommandsMixin:
         n = C.add_grid_lines_at_points(self.doc, list(self.state.points))
         self._info(f"Added {n} grid line(s)")
 
+    def _selection_stories(self) -> List[str]:
+        """The stories the selected frames / shells / joints / design strips are on."""
+        m = self.doc.model
+        f, a, p = self._sel()
+        out = {m.frames[n].story for n in f if n in m.frames} | {m.areas[n].story for n in a if n in m.areas}
+        if not out:
+            out = {m.points[n].story for n in p if n in m.points}
+        out |= {m.design_strips[n].story for n in getattr(self.state, "strips", ()) if n in m.design_strips}
+        return [s for s in out if s in m.stories]
+
     def edit_replicate_tabs(self):
         if not self._need_any():
             return
-        stories = [s.name for s in self.doc.model.stories_bottom_up()][::-1]
+        m = self.doc.model
+        own = self._selection_stories()
+        tw = m.tower_of_story(own[0]) if (own and m.multi_tower) else None
+        bottom_up = m.stories_of(tw) if tw is not None else m.stories_bottom_up()
+        # Base (the lowest level) carries no story of objects; the selection's own story
+        # would only make copies on top of the originals
+        targets = [s.name for s in bottom_up[1:] if s.name not in own][::-1]
+        z_own = max((m.stories[s].elevation for s in own), default=None)
+        above = [n for n in targets if z_own is None or m.stories[n].elevation > z_own]
         # mirror copies: Edit > Mirror (MM) draws the axis in the window
         d = TabbedFormDialog("Array / Replicate to Stories", [
             ("linear", "Linear", [("dx", "dx", 0.0), ("dy", "dy", 0.0), ("dz", "dz", 0.0),
                                   ("n", "Number", 1, {"min": 1, "max": 1000})]),
             ("radial", "Radial", [("cx", "Rotate about point  X", 0.0), ("cy", "Y", 0.0),
                                   ("angle", "Angle (deg)", 90.0), ("n", "Number", 1, {"min": 1, "max": 360})]),
-            ("story", "Story", [("stories", "Stories (comma separated, blank = all above)", "")]),
+            ("story", "Story", [("stories", "Copy to stories" + (f" (from {', '.join(own)})" if own else ""),
+                                 above, {"checks": targets})]),
         ], self, extra=[("delete", "Delete original objects", False)])
-        if not d.exec():
-            return
-        kind, v = d.result_values()
+        while True:
+            if not d.exec():
+                return
+            try:
+                kind, v = d.result_values()
+            except ValueError as exc:
+                QtWidgets.QMessageBox.warning(self, "Replicate", f"Invalid number: {exc}")
+                continue
+            why = None
+            if kind == "linear" and abs(v["dx"]) + abs(v["dy"]) + abs(v["dz"]) <= 1e-12:
+                why = "Give an offset (dx, dy or dz): with none the copies would lie on the originals."
+            elif kind == "radial" and abs(math.remainder(v["angle"], 360.0)) <= 1e-9:
+                why = "Give an angle that is not 0 or a whole turn: the copies would lie on the originals."
+            elif kind == "story" and not v["stories"]:
+                why = "Tick the stories to copy to."
+            elif kind == "story" and not own:
+                why = "The selected objects are not on a story: use the Linear tab (dz) instead."
+            if why is None:
+                break
+            QtWidgets.QMessageBox.information(self, "Replicate", why)
         sel = self._sel()
+        strips = sorted(self.state.strips)
         if kind == "story":
-            names = [s.strip() for s in v["stories"].split(",") if s.strip()] or stories
             from .tools import replicate_to_stories
-            made = self._try("Replicate", lambda: replicate_to_stories(self.doc, *sel, names,
-                                                                       delete_original=v.get("delete", False)))
+            made = self._try("Replicate", lambda: replicate_to_stories(self.doc, *sel, v["stories"],
+                                                                       delete_original=v.get("delete", False),
+                                                                       strips=strips))
         else:
             if kind == "linear":
                 T, rev = C.linear_transforms(v["dx"], v["dy"], v["dz"], v["n"]), False
             else:
                 T, rev = C.radial_transforms(v["cx"], v["cy"], v["angle"], v["n"]), False
             made = self._try("Replicate", lambda: C.replicate_transform(self.doc, *sel, T, reverse_areas=rev,
-                                                                        delete_original=v.get("delete", False)))
-        self._info(f"Replicate: created {len(made or [])} object(s)")
+                                                                        delete_original=v.get("delete", False),
+                                                                        strips=strips))
+        if made is None:
+            return
+        if not made:
+            return QtWidgets.QMessageBox.information(
+                self, "Replicate", "Nothing was made from the selection.")
+        self._info(f"Replicate: created {len(made)} object(s)")
 
     def edit_merge_joints(self):
         if not self._need("point"):
@@ -637,11 +685,27 @@ class MenuCommandsMixin:
         if not d.exec():
             return
         stories, opt = d.chosen_stories(), d.options()
+        bar = QtWidgets.QProgressDialog("Laying out the design strips ...", "Cancel", 0, max(len(stories), 1), self)
+        bar.setWindowTitle("Auto Design Strips")
+        bar.setWindowModality(QtCore.Qt.WindowModal)
+        bar.setMinimumDuration(400)
+
+        def progress(k, n, st):
+            bar.setMaximum(max(n, 1))
+            bar.setValue(k)
+            if st:
+                bar.setLabelText(f"Laying out the design strips: {st}  ({k + 1} of {n})")
+            QtWidgets.QApplication.processEvents()
+            return not bar.wasCanceled()
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         try:
-            rep = auto_strips(self.doc, stories, opt)
+            rep = auto_strips(self.doc, stories, opt, progress=progress)
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
+            bar.close()
+        if rep.cancelled:
+            self.statusBar().showMessage("Auto Design Strips cancelled - nothing was changed", 6000)
+            return
         self._show_strips()
         made = sum(rep.made.values())
         what = (f"{made} design strip(s) made on {len(rep.made)} story(ies)" if made else "No strip was made") + \
@@ -1362,7 +1426,12 @@ class MenuCommandsMixin:
         self._try("Frame point load", lambda: self.doc.edit(mutate))
 
     def assign_group(self):
-        if not self._need_any():
+        if not any(self._sel()):
+            if self.state.strips:
+                QtWidgets.QMessageBox.information(self, "Assign Objects to Group", "Groups hold frames, shells and "
+                                                  "joints: select those (design strips are not put in groups).")
+                return
+            self._wait_for("any", 1)
             return
         m = self.doc.model
         name, ok = QtWidgets.QInputDialog.getItem(self, "Assign Objects to Group", "Group:", list(m.groups) or ["GROUP1"],

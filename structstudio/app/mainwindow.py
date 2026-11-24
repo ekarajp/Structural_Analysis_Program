@@ -180,6 +180,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         self.setWindowTitle(f"Structural Studio {__version__}{_build_tag()}")
         self.resize(1600, 950)
         self.state = ViewState(self.doc, self)
+        self.doc.name_hint = self._tool_title  # (Undo Draw Beam: what a tool's click made)
         # display theme + graphics colours (before any window is drawn)
         raw = settings.value("graphics/colors", "") if settings is not None else ""
         self.color_settings = theme.ColorSettings.from_json(raw if isinstance(raw, str) else "")
@@ -285,9 +286,9 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         except (TypeError, ValueError):
             takes_arg = False
         if takes_arg:
-            a.triggered.connect(lambda checked=False, s=slot: guarded_call(s, self, checked))
+            a.triggered.connect(lambda checked=False, s=slot: guarded_call(s, self, checked, name=a.text()))
         else:
-            a.triggered.connect(lambda checked=False, s=slot: guarded_call(s, self))
+            a.triggered.connect(lambda checked=False, s=slot: guarded_call(s, self, name=a.text()))
         return a
 
     def _menu_tool(self, cid: str, icon_name: str, tip: Optional[str] = None):
@@ -544,6 +545,12 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             "Move Objects with Grid Lines", self.set_glue_grids, checkable=True, checked=self.doc.glue_grids,
             tip="Off (default): moving a grid line - on screen or a new ordinate in the table - moves only the "
                 "line.  On: the joints on it, and the members on them, move with it")
+        v = store.value("stories/move_objects", True)
+        self.doc.stories_carry = v if isinstance(v, bool) else str(v).lower() in ("1", "true", "yes")
+        self.act_carry_stories = self._make(
+            "Keep Objects on Their Stories", self.set_stories_carry, checkable=True, checked=self.doc.stories_carry,
+            tip="On (default): a new story height or elevation (Edit Stories) moves the objects of the story "
+                "with it, as the stories are the levels the objects are on.  Off: only the levels change")
         # measure tools (View > Measure) are tools like the draw commands
         for key, label in (("measure_line", "Measure Line"), ("measure_area", "Measure Area"),
                            ("measure_angle", "Measure Angle")):
@@ -557,7 +564,8 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         # ---- command id -> existing action
         acts = {f"tool.{k}": a for k, a in self.tool_actions.items()}
         acts.update({
-            "edit.glue_joints": self.act_glue_grids, "edit.grids_on_screen": self.act_grid_mode,
+            "edit.glue_joints": self.act_glue_grids, "edit.carry_stories": self.act_carry_stories,
+            "edit.grids_on_screen": self.act_grid_mode,
             "edit.undo": self.act_undo, "edit.redo": self.act_redo, "edit.delete": self.act_delete,
             "edit.move": self.act_move, "edit.divide_frames": self.act_divide, "edit.replicate": self.act_replicate,
             "analyze.run": self.act_run, "analyze.lock": self.act_lock,
@@ -1008,14 +1016,30 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             a.setChecked(k == mode)
             a.blockSignals(False)
 
+    def _tool_title(self):
+        t = getattr(getattr(self, "state", None), "tool", None)
+        if t is None or getattr(t, "name", "select") in ("select", "select_line"):
+            return None
+        return t.title or t.name.replace("_", " ").title()
+
+    def _sync_undo_names(self):
+        """Undo / Redo say which command they take back (Undo Move, Redo Delete)."""
+        for a, can, name, word in ((self.act_undo, self.doc.can_undo, self.doc.undo_name(), "Undo"),
+                                   (self.act_redo, self.doc.can_redo, self.doc.redo_name(), "Redo")):
+            a.setEnabled(can)
+            text = f"{word} {name}" if can and name else word
+            if a.text() != text:
+                a.setText(text)
+                sc = a.shortcut().toString()
+                a.setToolTip(f"{text} ({sc})" if sc else text)
+
     # ----------------------------------------------------------- handlers
     def _on_doc_change(self, what: str):
         if what in ("lock", "results", "model", "units", "replaced"):
             self._sync_lock()
             self._sync_fine_mesh()
         self.setWindowTitle(f"Structural Studio {__version__}{_build_tag()} - {self.doc.title}")
-        self.act_undo.setEnabled(self.doc.can_undo)
-        self.act_redo.setEnabled(self.doc.can_redo)
+        self._sync_undo_names()
         if what == "model":
             self._sync_grid_mode()
             if self.doc.notes or self.doc.duplicates:  # after the command has finished speaking
@@ -1488,6 +1512,11 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             self.state.set_selection([name] if attr == "frames" else [],
                                      areas=[name] if attr == "areas" else [],
                                      points=[name] if attr == "points" else [])
+        elif attr == "design_strips" and name in m.design_strips:
+            self.state.set_selection()
+            self.state.add_strips([name], add=False)
+            if hasattr(self, "_show_strips"):
+                self._show_strips()
         self.locate_object(attr, name, zoom=zoom)
 
     def go_to_find_hit(self, hit):
@@ -2039,7 +2068,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         st = self.state
         return bool({"point": st.points, "frame": st.frames, "area": st.areas,
                      "point_area": st.points or st.areas,
-                     "any": any(self._sel()) or st.panels}.get(kind, any(self._sel())))
+                     "any": any(self._sel()) or st.panels or st.strips}.get(kind, any(self._sel())))
 
     def _need(self, kind: str) -> bool:
         """A command needs objects of ``kind``.  Selected already: go on.  Nothing selected:
@@ -2250,6 +2279,12 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
         self.settings_store().setValue("grid/move_objects", bool(on))
         self.statusBar().showMessage("Moved grid lines carry the joints on them" if on
                                      else "Moved grid lines leave the objects where they are", 4000)
+
+    def set_stories_carry(self, on: bool):
+        self.doc.stories_carry = bool(on)
+        self.settings_store().setValue("stories/move_objects", bool(on))
+        self.statusBar().showMessage("New story heights move the objects with their stories" if on
+                                     else "New story heights change only the levels", 4000)
 
     def _grid_tool(self, key: str):
         if not self.state.grid_mode:

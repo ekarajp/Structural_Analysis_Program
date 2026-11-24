@@ -873,6 +873,7 @@ class SelectTool(Tool):
                              "Ctrl + click = add / remove", "right-click = object info", "Delete = delete",
                              "Esc = clear the selection")
         return next_step("Select", "click an object or drag a window to select",
+                         "Tab = the next object under the cursor (overlapping beams / strips)",
                          "drag right-to-left = crossing", "or choose a command first")
 
 
@@ -2125,12 +2126,23 @@ TOOLS: Dict[str, type] = {
 
 # ------------------------------------------------------------- selection ops
 def delete_objects(doc: Document, frames: Sequence[str] = (), areas: Sequence[str] = (),
-                   points: Sequence[str] = ()) -> int:
-    """Delete objects; points are only removed when nothing references them."""
+                   points: Sequence[str] = (), panels: Sequence[str] = (), strips: Sequence[str] = ()) -> int:
+    """Delete objects; points are only removed when nothing references them.  Load
+    panels and design strips with them, in the same undo step (design strips alone:
+    a design edit - the analysis results stay)."""
     frames, areas, points = set(frames), set(areas), set(points)
+    panels = {n for n in panels if n in doc.model.panel_loads}
+    strips = {n for n in strips if n in doc.model.design_strips}
     count = len(frames) + len(areas)
+    if strips and not (frames or areas or points or panels):
+        doc.edit_design(lambda m: [m.design_strips.pop(n, None) for n in strips])
+        return len(strips)
 
     def mutate(model: Model):
+        for n in panels:
+            model.panel_loads.pop(n, None)
+        for n in strips:
+            model.design_strips.pop(n, None)
         for n in frames:
             model.frames.pop(n, None)
         for n in areas:
@@ -2149,9 +2161,9 @@ def delete_objects(doc: Document, frames: Sequence[str] = (), areas: Sequence[st
             g.areas = [a for a in g.areas if a in model.areas]
             g.points = [p for p in g.points if p in model.points]
 
-    if count or points:
+    if count or points or panels or strips:
         doc.edit(mutate)
-    return count
+    return count + len(panels) + len(strips)
 
 
 def objects_in_window(model: Model, inside, story: Optional[str] = None) -> Tuple[List[str], List[str], List[str]]:
@@ -2244,13 +2256,15 @@ def replicate_linear(doc: Document, frames: Sequence[str], areas: Sequence[str],
 
 
 def replicate_to_stories(doc: Document, frames: Sequence[str], areas: Sequence[str], points: Sequence[str],
-                         stories: Sequence[str], delete_original: bool = False) -> List[str]:
+                         stories: Sequence[str], delete_original: bool = False,
+                         strips: Sequence[str] = ()) -> List[str]:
     """Copy the selection to other stories (ETABS "Replicate > Story"): joints
-    with all their assignments, members with theirs; ``delete_original`` removes
-    the copied objects afterwards (one undo step)."""
+    with all their assignments, members with theirs, design strips; ``delete_original``
+    removes the copied objects afterwards (one undo step; strips only: a design edit)."""
     created: List[str] = []
     frames, areas, points = list(frames), list(areas), list(points)
     m = doc.model
+    strips = [n for n in strips if n in m.design_strips]
     src_story = None
     for n in frames + areas:
         obj = m.frames.get(n) or m.areas.get(n)
@@ -2262,11 +2276,17 @@ def replicate_to_stories(doc: Document, frames: Sequence[str], areas: Sequence[s
             if m.points[n].story:
                 src_story = m.points[n].story
                 break
+    if src_story is None:
+        for n in strips:
+            if m.design_strips[n].story:
+                src_story = m.design_strips[n].story
+                break
     if src_story is None or src_story not in m.stories:
         return created
     z0 = m.stories[src_story].elevation
     from ..model.point_ops import clone_assignments, has_assignments
     from .commands import _delete_originals
+    from .strip_commands import transform_strips
     notes: List[str] = []
 
     def mutate(model: Model):
@@ -2274,6 +2294,9 @@ def replicate_to_stories(doc: Document, frames: Sequence[str], areas: Sequence[s
         targets = [st for st in stories if st != src_story and st in model.stories]
         for st in targets:
             dz = model.stories[st].elevation - z0
+            if strips:
+                created.extend(transform_strips(model, strips, lambda p, dz=dz: p + np.array([0.0, 0.0, dz]),
+                                                copy=True, notes=notes))
             cache: Dict[str, Point] = {}
 
             def moved(name: str) -> Point:
@@ -2301,9 +2324,11 @@ def replicate_to_stories(doc: Document, frames: Sequence[str], areas: Sequence[s
                          "those joints keep their own supports, springs and loads")
         if delete_original and targets:
             _delete_originals(model, frames, areas, points, created)
+            for n in strips:
+                model.design_strips.pop(n, None)
 
-    doc.edit(mutate)
-    for t in notes:
+    (doc.edit_design if strips and not (frames or areas or points) else doc.edit)(mutate)
+    for t in dict.fromkeys(notes):
         doc.note(t, "info")
     return created
 

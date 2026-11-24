@@ -1995,6 +1995,9 @@ class ModelViewport(QtWidgets.QWidget):
                 return
             if fw.window() is not w.window():  # a form / another window has the keys
                 return
+            other = fw.parent()
+            if other is not self and (getattr(other, "_typed", "") or getattr(other, "_held_second", "")):
+                return  # a length being typed in another window stays there (Enter / Esc ends it)
         w.setFocus(QtCore.Qt.OtherFocusReason)
 
     def hits_under(self, x: int, y: int) -> list:

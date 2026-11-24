@@ -115,15 +115,24 @@ def _merge_points(model: Model, moved: Sequence[str], tol: float) -> int:
 
 def transform_in_place(doc: Document, frames: Sequence[str], areas: Sequence[str], points: Sequence[str],
                        T: Transform, panels: Sequence[str] = (), stretch: bool = False,
-                       reverse_areas: bool = False, merge: bool = True) -> int:
+                       reverse_areas: bool = False, merge: bool = True, strips: Sequence[str] = ()) -> int:
     """Move / rotate / mirror the selection itself (one undo step); returns the
     number of joints moved.  Without ``stretch`` a joint shared with an
     unselected object is left for that object and the selection gets its own
-    copy of the joint (the selection detaches)."""
+    copy of the joint (the selection detaches).  Design strips only: a design edit
+    (the analysis results stay)."""
     frames = [n for n in frames if n in doc.model.frames]
     areas = [n for n in areas if n in doc.model.areas]
     points = [n for n in points if n in doc.model.points]
     panels = [n for n in panels if n in doc.model.panel_loads and not doc.model.panel_loads[n].area]
+    strips = [n for n in strips if n in doc.model.design_strips]
+    from .strip_commands import transform_strips
+    notes: List[str] = []
+    if strips and not (frames or areas or points or panels):
+        doc.edit_design(lambda m: transform_strips(m, strips, T, notes=notes))
+        for t in notes:
+            doc.note(t, "info")
+        return 0
     if not (frames or areas or points or panels):
         return 0
     count = [0]
@@ -179,17 +188,25 @@ def transform_in_place(doc: Document, frames: Sequence[str], areas: Sequence[str
         if merge:
             _merge_points(model, names, max(model.options.merge_tolerance, 1e-6))
         _restory(model)
+        if strips:
+            transform_strips(model, strips, T, notes=notes)
         count[0] = len(names)
 
     doc.edit(mutate)
+    for t in notes:
+        doc.note(t, "info")
     return count[0]
 
 
 def copy_transformed(doc: Document, frames, areas, points, T: Transform, reverse_areas: bool = False,
-                     panels: Sequence[str] = ()) -> Tuple[List[str], List[str], List[str]]:
-    """Copy of the selection through ``T``; returns the new (frames, areas, points)."""
+                     panels: Sequence[str] = (), strips: Sequence[str] = ()) -> Tuple[List[str], List[str], List[str]]:
+    """Copy of the selection through ``T``; returns the new (frames, areas, points)
+    (the new design strips: ``copy_transformed.last_strips``)."""
     before = (set(doc.model.frames), set(doc.model.areas), set(doc.model.points), set(doc.model.panel_loads))
     free = [n for n in panels if n in doc.model.panel_loads and not doc.model.panel_loads[n].area]
+    strips = [n for n in strips if n in doc.model.design_strips]
+    s_before = set(doc.model.design_strips)
+    copy_transformed.last_strips = []
 
     def panels_too(model: Model):  # in the same undo step as the objects
         for n in free:
@@ -197,14 +214,15 @@ def copy_transformed(doc: Document, frames, areas, points, T: Transform, reverse
             pl.name = model._next_name("PL", model.panel_loads)
             pl.points = [tuple(float(v) for v in T(np.array(q, float))) for q in pl.points]
             model.panel_loads[pl.name] = pl
-    if frames or areas or points:
+    if frames or areas or points or strips:
         created = replicate_transform(doc, list(frames), list(areas), list(points), [T], reverse_areas=reverse_areas,
-                                      extra=panels_too if free else None)
+                                      extra=panels_too if free else None, strips=strips)
     else:
         created = []
         if free:
             doc.edit(panels_too)
     m = doc.model
+    copy_transformed.last_strips = [n for n in m.design_strips if n not in s_before]
     fr = [n for n in created if n in m.frames and n not in before[0]]
     ar = [n for n in created if n in m.areas and n not in before[1]]
     pt = [n for n in created if n in m.points and n not in before[2]]
@@ -510,7 +528,7 @@ def parse_absolute(text: str, plane: Plane) -> XYZ:
                      f" - not {text!r}")
 
 
-def ghost_lines(model: Model, frames, areas, points, panels, T: Transform, limit: int = 4000):
+def ghost_lines(model: Model, frames, areas, points, panels, T: Transform, limit: int = 4000, strips=()):
     """Line segments of the objects mapped through ``T`` (the preview of a move / copy)."""
     m = model
     out = []
@@ -541,6 +559,11 @@ def ghost_lines(model: Model, frames, areas, points, panels, T: Transform, limit
         if pl is not None and not pl.area:
             q = [tuple(float(v) for v in T(np.array(p, float))) for p in pl.points]
             out += [(q[k], q[(k + 1) % len(q)]) for k in range(len(q))]
+    for n in list(strips)[:limit]:
+        ds = m.design_strips.get(n)
+        if ds is not None and len(ds.points) > 1:
+            q = [tuple(float(v) for v in T(np.array(p, float))) for p in ds.points]
+            out += [(q[k], q[k + 1]) for k in range(len(q) - 1)]
     return out
 
 
@@ -568,6 +591,16 @@ class ModifyTool(Tool):
         st = self.state
         return list(st.frames), list(st.areas), list(st.points), list(st.panels)
 
+    def _strips(self):
+        return sorted(getattr(self.state, "strips", ()))
+
+    def _select_copies(self, fr, ar, pts):
+        """The copies (with the design strips copied) become the selection."""
+        self.state.set_selection(fr, ar, () if (fr or ar) else pts)
+        made = list(getattr(copy_transformed, "last_strips", []))
+        if made:
+            self.state.add_strips(made)
+
     def hint(self, state=None) -> str:
         if self.selecting:
             n = state.count if state is not None else 0
@@ -583,7 +616,8 @@ class ModifyTool(Tool):
     # ghost of the selection through a transform (preview)
     def ghost(self, T: Transform, limit: int = 4000) -> List[Tuple[XYZ, XYZ]]:
         st = self.state
-        return ghost_lines(self.model, st.frames, st.areas, st.points, st.panels, T, limit)
+        return ghost_lines(self.model, st.frames, st.areas, st.points, st.panels, T, limit,
+                           strips=getattr(st, "strips", ()))
 
     def _end(self):
         """Back to the select tool (the result stays selected)."""
@@ -623,8 +657,11 @@ class MoveTool(ModifyTool):
         return True
 
     def apply(self, T, f, a, pp, pan):
-        n = transform_in_place(self.doc, f, a, pp, T, panels=pan, stretch=self.settings.modify_stretch)
-        self.state.status.emit(f"Moved {len(f)} frame(s), {len(a)} shell(s) ({n} joint(s))")
+        n = transform_in_place(self.doc, f, a, pp, T, panels=pan, strips=self._strips(),
+                               stretch=self.settings.modify_stretch)
+        ns = len(self._strips())
+        self.state.status.emit(f"Moved {len(f)} frame(s), {len(a)} shell(s) ({n} joint(s))"
+                               + (f", {ns} design strip(s)" if ns else ""))
         self._end()
 
     def preview(self, cursor) -> Preview:
@@ -650,11 +687,12 @@ class CopyTool(MoveTool):
             self.points = [p]
             return False
         f, a, pp, pan = self._sel()
-        fr, ar, pts = copy_transformed(self.doc, f, a, pp, translation(np.subtract(p, self.points[0])), panels=pan)
+        fr, ar, pts = copy_transformed(self.doc, f, a, pp, translation(np.subtract(p, self.points[0])), panels=pan,
+                                       strips=self._strips())
         self.copies = getattr(self, "copies", 0) + 1
         self.state.status.emit(f"Copy {self.copies}: {len(fr)} frame(s), {len(ar)} shell(s)")
         if not self.settings.modify_multiple:
-            self.state.set_selection(fr, ar, pts if not (fr or ar) else ())
+            self._select_copies(fr, ar, pts)
             self._end()
         return True
 
@@ -702,10 +740,11 @@ class RotateTool(ModifyTool):
         f, a, pp, pan = self._sel()
         T = self._T(ang)
         if self.settings.modify_copy:
-            fr, ar, pts = copy_transformed(self.doc, f, a, pp, T, panels=pan)
-            self.state.set_selection(fr, ar, () if (fr or ar) else pts)
+            fr, ar, pts = copy_transformed(self.doc, f, a, pp, T, panels=pan, strips=self._strips())
+            self._select_copies(fr, ar, pts)
         else:
-            transform_in_place(self.doc, f, a, pp, T, panels=pan, stretch=self.settings.modify_stretch)
+            transform_in_place(self.doc, f, a, pp, T, panels=pan, strips=self._strips(),
+                               stretch=self.settings.modify_stretch)
         self.state.status.emit(f"Rotated by {ang:.2f}°" + (" (copy)" if self.settings.modify_copy else ""))
         self._end()
 
@@ -752,10 +791,12 @@ class MirrorTool(ModifyTool):
         T = mirror(self.points[0], p, plane_normal(self.plane))
         f, a, pp, pan = self._sel()
         if self.settings.mirror_copy:
-            fr, ar, pts = copy_transformed(self.doc, f, a, pp, T, reverse_areas=True, panels=pan)
-            self.state.set_selection(fr, ar, () if (fr or ar) else pts)
+            fr, ar, pts = copy_transformed(self.doc, f, a, pp, T, reverse_areas=True, panels=pan,
+                                           strips=self._strips())
+            self._select_copies(fr, ar, pts)
         else:
-            transform_in_place(self.doc, f, a, pp, T, panels=pan, stretch=self.settings.modify_stretch,
+            transform_in_place(self.doc, f, a, pp, T, panels=pan, strips=self._strips(),
+                               stretch=self.settings.modify_stretch,
                                reverse_areas=True)
         self.state.status.emit("Mirrored" + (" (copy)" if self.settings.mirror_copy else ""))
         self._end()
@@ -798,8 +839,8 @@ class PasteTool(ModifyTool):
             return None
         if getattr(clip, "base", None) is not None:
             return np.array(clip.base, float)
-        xyz = np.array([p.xyz for p in clip.points.values()], float)
-        return xyz.min(axis=0)
+        xyz = [p.xyz for p in clip.points.values()] + [q for ds in getattr(clip, "strips", ()) for q in ds.points]
+        return np.array(xyz, float).min(axis=0)
 
     def step_hint(self) -> str:
         return next_step(self.title, self.prompt)
@@ -814,10 +855,14 @@ class PasteTool(ModifyTool):
         d = self._offset(p)
         clip = self.state.clipboard
         fr, ar, pts = paste_objects(self.doc, clip, float(d[0]), float(d[1]), float(d[2]))
-        self.state.status.emit(f"Pasted {len(fr)} frame(s), {len(ar)} shell(s)")
+        strips = list(getattr(paste_objects, "last_strips", []))
+        self.state.status.emit(f"Pasted {len(fr)} frame(s), {len(ar)} shell(s)"
+                               + (f", {len(strips)} design strip(s)" if strips else ""))
         self.points = []
         self.state.set_tool("select")
         self.state.set_selection(fr, ar, () if (fr or ar) else pts)
+        if strips:
+            self.state.add_strips(strips)
         return True
 
     def preview(self, cursor) -> Preview:
@@ -834,6 +879,9 @@ class PasteTool(ModifyTool):
         for ar in clip.areas[:4000]:
             q = [tuple(np.add(clip.points[n].xyz, d)) for n in ar.points if n in clip.points]
             out += [(q[k], q[(k + 1) % len(q)]) for k in range(len(q))]
+        for ds in getattr(clip, "strips", ())[:4000]:
+            q = [tuple(np.add(p, d)) for p in ds.points]
+            out += [(q[k], q[k + 1]) for k in range(len(q) - 1)]
         pv.lines = out
         return pv
 

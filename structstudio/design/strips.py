@@ -136,16 +136,40 @@ class Floor:
         self.polys = [p for p in polys if len(p) >= 3]
         self.tol = tol
         self.near = tol  # (layout: the distance a support counts as on a line)
-        self.edges = [(p[i], p[(i + 1) % len(p)]) for p in self.polys for i in range(len(p))]
+        edges = [(p[i], p[(i + 1) % len(p)]) for p in self.polys for i in range(len(p))]
+        # the edge between two floor objects side by side (the same two corners, the other
+        # way round) is inside the slab: only the outline is kept (far fewer edges for a
+        # floor of many bays - the rays and the edge distances run over the outline)
+        g = max(tol, 1e-9)
+
+        def key(a, b):
+            return (round(a[0] / g), round(a[1] / g), round(b[0] / g), round(b[1] / g))
+        count: Dict[tuple, int] = {}
+        for a, b in edges:
+            count[key(a, b)] = count.get(key(a, b), 0) + 1
+        self.edges = [(a, b) for a, b in edges if not count.get(key(b, a))]
+        self.boxes = [(min(q[0] for q in p), max(q[0] for q in p), min(q[1] for q in p), max(q[1] for q in p))
+                      for p in self.polys]
         xs = [q[0] for p in self.polys for q in p] or [0.0]
         ys = [q[1] for p in self.polys for q in p] or [0.0]
         self.box = (min(xs), max(xs), min(ys), max(ys))
         self.area = sum(abs(_poly_area(p)) for p in self.polys)
 
+    def _in_poly(self, p: XY) -> bool:
+        x, y = p
+        for poly, (x0, x1, y0, y1) in zip(self.polys, self.boxes):
+            if x0 <= x <= x1 and y0 <= y <= y1 and point_in_polygon(p, poly):
+                return True
+        return False
+
     def inside(self, p: XY, tol: Optional[float] = None) -> bool:
         tol = self.tol if tol is None else tol
-        if any(point_in_polygon(p, poly) for poly in self.polys):
+        if self._in_poly(p):
             return True
+        x, y = p
+        b = self.box
+        if x < b[0] - tol or x > b[1] + tol or y < b[2] - tol or y > b[3] + tol:
+            return False
         return any(_seg_dist(p, a, b) <= tol for a, b in self.edges)
 
     def exit(self, o: XY, d: XY) -> float:
@@ -159,7 +183,7 @@ class Floor:
         for t in ts:
             mid = 0.5 * (prev + t)
             if not self.inside(_add(o, _mul(d, mid))):  # (a run along the slab edge is over the slab)
-                if first and t <= self.near and not any(point_in_polygon(o, poly) for poly in self.polys):
+                if first and t <= self.near and not self._in_poly(o):
                     prev = t
                     first = False
                     continue
@@ -186,7 +210,7 @@ class Floor:
         pts = list(pts)
         for end in (0, -1):
             p = pts[end]
-            if not any(point_in_polygon(p, poly) for poly in self.polys):
+            if not self._in_poly(p):
                 q, d = self.nearest_edge_point(p)
                 if d <= self.near:
                     pts[end] = q
@@ -683,6 +707,43 @@ def _on_polyline(pts, cum, p, tol) -> Optional[float]:
     return s if d <= tol else None
 
 
+def story_signature(model, story: str):
+    """What the strip layout of a story depends on, in plan: the objects at its level
+    (each with what is above / below it, not how far) - two stories with the same
+    signature get the same strips (a typical floor laid out once)."""
+    if story not in model.stories:
+        return None
+    tol = _tol(model)
+    z = model.stories[story].elevation
+    g = max(tol, 1e-6) * 10
+
+    def r(v):
+        return round(v / g)
+
+    def side(dz):
+        return 0 if abs(dz) <= tol else (1 if dz > 0 else -1)
+    pts = model.points
+    at = {n for n, p in pts.items() if abs(p.z - z) <= tol}
+    sig = []
+    for n in at:
+        p = pts[n]
+        if any(p.restraints) or any(p.springs):
+            sig.append(("J", r(p.x), r(p.y), tuple(p.restraints), tuple(p.springs)))
+    for f in model.frames.values():
+        if f.point_i in at or f.point_j in at:
+            a, b = pts[f.point_i], pts[f.point_j]
+            ends = sorted(((r(a.x), r(a.y), side(a.z - z)), (r(b.x), r(b.y), side(b.z - z))))
+            sig.append(("F", f.type, f.section, tuple(ends)))
+    for ar in model.areas.values():
+        if any(q in at for q in ar.points):
+            sig.append(("A", ar.type, ar.section,
+                        tuple(sorted((r(pts[q].x), r(pts[q].y), side(pts[q].z - z)) for q in ar.points))))
+    for ls in getattr(model, "line_springs", {}).values():
+        sig.append(("S", repr(ls)))  # (rare: any line spring - no reuse across a change)
+    tower = model.tower_of_story(story) if model.multi_tower else None
+    return (tower, tuple(sorted(sig, key=repr)))
+
+
 def layout(model, story: str, options: Optional[StripOptions] = None) -> StripLayout:
     """The design strips of the floor at ``story`` (not added to the model)."""
     opt = options or StripOptions()
@@ -932,9 +993,22 @@ def _side_distance(o: XY, n: XY, others: List[Chain], floor: Floor, tol: float, 
     ends (a ray from near the end of a strip passing just beside the end of the next)."""
     e = floor.exit(o, n)
     best, hit = e, None
+    far = e + max(tol, floor.near)
+    # (only the strips the ray can reach: a box test first)
+    px, py = o[0] + n[0] * far, o[1] + n[1] * far
+    pad = reach + tol
+    x0, x1 = min(o[0], px) - pad, max(o[0], px) + pad
+    y0, y1 = min(o[1], py) - pad, max(o[1], py) + pad
     for ch in others:
-        last = len(ch.pts) - 2
-        for k, (a, b) in enumerate(zip(ch.pts[:-1], ch.pts[1:])):
+        pts = ch.pts
+        if max(q[0] for q in pts) < x0 or min(q[0] for q in pts) > x1 or \
+                max(q[1] for q in pts) < y0 or min(q[1] for q in pts) > y1:
+            continue
+        last = len(pts) - 2
+        for k, (a, b) in enumerate(zip(pts[:-1], pts[1:])):
+            if (a[0] < x0 and b[0] < x0) or (a[0] > x1 and b[0] > x1) or \
+                    (a[1] < y0 and b[1] < y0) or (a[1] > y1 and b[1] > y1):
+                continue
             if reach > 0 and (k == 0 or k == last):
                 u = _unit(_sub(b, a))
                 if k == 0:
@@ -1272,6 +1346,15 @@ def coverage(model, story: str, layer: str, spacing: Optional[float] = None) -> 
     x0, x1, y0, y1 = floor.box
     h = spacing or max(math.sqrt(max(floor.area, 1e-12) / 3000.0), 1e-6)
     gap = max(0.02 * _length_unit(model), floor.tol)
+    # the quads in cells of a coarse grid (a sample tests only the quads of its cell)
+    cell = max(h * 8, 1e-9)
+    bins: Dict[Tuple[int, int], list] = {}
+    for name, q in quads:
+        qx0, qx1 = min(c[0] for c in q) - gap, max(c[0] for c in q) + gap
+        qy0, qy1 = min(c[1] for c in q) - gap, max(c[1] for c in q) + gap
+        for i in range(int(math.floor((qx0 - x0) / cell)), int(math.floor((qx1 - x0) / cell)) + 1):
+            for j in range(int(math.floor((qy0 - y0) / cell)), int(math.floor((qy1 - y0) / cell)) + 1):
+                bins.setdefault((i, j), []).append((name, q, qx0, qx1, qy0, qy1))
     n = 0
     un = ov = 0
     w_un = w_ov = None
@@ -1280,10 +1363,13 @@ def coverage(model, story: str, layer: str, spacing: Optional[float] = None) -> 
         x = x0 + 0.5 * h
         while x < x1:
             p = (x, y)
-            if any(point_in_polygon(p, poly) for poly in floor.polys):
+            if floor._in_poly(p):
                 n += 1
                 state = {}
-                for name, q in quads:
+                for name, q, qx0, qx1, qy0, qy1 in bins.get((int(math.floor((x - x0) / cell)),
+                                                             int(math.floor((y - y0) / cell))), ()):
+                    if x < qx0 or x > qx1 or y < qy0 or y > qy1:
+                        continue
                     v = _in_quad(p, q, gap)
                     if v >= 0:
                         state[name] = max(state.get(name, -1), v)

@@ -69,6 +69,7 @@ class AutoReport:
     notes: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     removed: int = 0
+    cancelled: bool = False
 
 
 def coverage_note(model, story: str) -> List[str]:
@@ -92,20 +93,48 @@ def coverage_note(model, story: str) -> List[str]:
     return out
 
 
-def auto_strips(doc, stories: Sequence[str], options: Optional[S.StripOptions] = None) -> AutoReport:
+def _reuse(lay: "S.StripLayout", src: str, st: str, z: float) -> "S.StripLayout":
+    """The layout of story ``src`` for story ``st`` (the same floor): its strips at z."""
+    import copy as _copy
+    out = _copy.deepcopy(lay)
+    out.story = st
+    for kw in out.strips:
+        kw["points"] = [(p[0], p[1], z) for p in kw["points"]]
+    out.notes = [f"the same floor as {src}: the same strips"]
+    out.warnings = [w.replace(f"{src}:", f"{st}:", 1) if w.startswith(f"{src}:") else w for w in lay.warnings]
+    return out
+
+
+def auto_strips(doc, stories: Sequence[str], options: Optional[S.StripOptions] = None,
+                progress=None) -> AutoReport:
     """Edit > Add/Edit Design Strips > Auto Design Strips: the strips of each story laid
     out again from its supports (one undo step).  The strips Auto made before are
-    replaced; hand-drawn ones stay (``keep_user``) or go too."""
+    replaced; hand-drawn ones stay (``keep_user``) or go too.  A story with the same
+    floor as one laid out already (a typical floor) gets the same strips.
+    ``progress(done, total, story) -> bool``: False cancels (nothing is changed;
+    ``rep.cancelled``)."""
     opt = options or S.StripOptions()
     rep = AutoReport()
     layouts = {}
-    for st in stories:
-        if st not in doc.model.stories:
-            continue
-        lay = S.layout(doc.model, st, opt)
+    seen = {}  # story signature -> the story laid out
+    todo = [st for st in stories if st in doc.model.stories]
+    for k, st in enumerate(todo):
+        if progress is not None and progress(k, len(todo), st) is False:
+            rep.cancelled = True
+            return rep
+        sig = S.story_signature(doc.model, st)
+        src = seen.get(sig)
+        if src is not None:
+            lay = _reuse(layouts[src], src, st, doc.model.stories[st].elevation)
+        else:
+            lay = S.layout(doc.model, st, opt)
+            seen[sig] = st
         layouts[st] = lay
         rep.notes += [f"{st}: {n}" if not n.startswith(st) else n for n in lay.notes]
         rep.warnings += lay.warnings
+    if progress is not None and progress(len(todo), len(todo), "") is False:
+        rep.cancelled = True
+        return rep
     if not any(lay.strips for lay in layouts.values()):
         if not rep.warnings:
             rep.warnings.append("No strip was made")
@@ -177,23 +206,36 @@ def auto_widths(doc, stories: Sequence[str], names: Optional[Sequence[str]] = No
             rep.made[st] = len(got)
             if not remake_middle:
                 continue
-            # the middle strips Auto made go and are made again in the gaps; hand-drawn ones stay
-            # (with automatic widths: worked out again, to the column strips as they are now)
-            gone = [n for n, ds in model.design_strips.items() if ds.story == st and ds.kind == "Middle"
-                    and ds.auto]
-            for n in gone:
-                del model.design_strips[n]
-            rep.removed += len(gone)
-            manual = [ds for ds in model.design_strips.values() if ds.story == st and ds.kind == "Middle"]
+            # the middle strips are made again in the gaps: one Auto made along the same line
+            # stays (its name and label too) with its new widths, the others Auto made go;
+            # hand-drawn ones stay (with automatic widths: worked out again)
+            olds = {n: ds for n, ds in model.design_strips.items() if ds.story == st and ds.kind == "Middle"
+                    and ds.auto}
+            manual = [ds for ds in model.design_strips.values() if ds.story == st and ds.kind == "Middle"
+                      and not ds.auto]
             for ds in manual:
                 if ds.auto_width:
                     _widths_auto(model, ds)
             z = model.stories[st].elevation
+            tol = max(model.options.merge_tolerance, 1e-9) * 10
+            kept = set()
             for fam, pts, ws in middles:
                 kw = dict(points=[(p[0], p[1], z) for p in pts], widths=ws, layer=fam, kind="Middle", auto=True)
                 if _duplicates_user(kw, manual, model):
                     continue
+                same = next((n for n, ds in olds.items() if n not in kept and ds.layer == fam
+                             and len(ds.points) == len(pts)
+                             and all(math.hypot(a[0] - b[0], a[1] - b[1]) <= tol for a, b in zip(ds.points, pts))),
+                            None)
+                if same is not None:
+                    model.design_strips[same].widths = [tuple(float(v) for v in w) for w in ws]
+                    kept.add(same)
+                    continue
                 model.add_design_strip(story=st, **kw)
+                rep.removed += 1  # (counted as made again)
+            for n in olds:
+                if n not in kept:
+                    del model.design_strips[n]
 
     doc.edit_design(mutate)
     for st in results:
@@ -322,6 +364,64 @@ def reshape_strip(doc, name: str, k: int, xy: Tuple[float, float], insert: bool 
         ds.auto = False  # (reshaped by hand: a new Auto run keeps it)
 
     doc.edit_design(mutate)
+
+
+def _plan_flips(T) -> bool:
+    """Does the transform turn the plan over (a mirror): the left side of a strip
+    becomes its right side."""
+    import numpy as np
+    o = np.asarray(T(np.zeros(3)), float)
+    ex = np.asarray(T(np.array([1.0, 0.0, 0.0])), float) - o
+    ey = np.asarray(T(np.array([0.0, 1.0, 0.0])), float) - o
+    return float(ex[0] * ey[1] - ex[1] * ey[0]) < 0.0
+
+
+def transform_strips(model, names: Sequence[str], T, copy: bool = False, notes: Optional[list] = None) -> List[str]:
+    """Move (or copy) design strips through ``T`` (xyz -> xyz): Move / Copy / Rotate /
+    Mirror / Replicate / Paste.  The widths go with the strip (a mirror swaps its left
+    and right); a strip must stay at one level on a story - else it is left (noted).
+    Copies get new names; a moved or copied strip counts as drawn by hand (a new Auto
+    run keeps it).  The names moved / made."""
+    import numpy as np
+    flip = _plan_flips(T)
+    tol = max(model.options.merge_tolerance, 1e-9)
+    out: List[str] = []
+    skipped = []
+    for n in names:
+        ds = model.design_strips.get(n)
+        if ds is None or not ds.points:
+            continue
+        pts = [tuple(float(v) for v in T(np.array(p, float))) for p in ds.points]
+        ws = [(w[1], w[0], w[3], w[2]) for w in ds.widths] if flip else [tuple(w) for w in ds.widths]
+        if any(abs(p[2] - pts[0][2]) > tol for p in pts):
+            skipped.append(ds.label or n)
+            continue
+        if copy:
+            try:
+                new = model.add_design_strip(pts, ws, layer=ds.layer, kind=ds.kind, auto=False,
+                                             auto_width=ds.auto_width)
+            except ModelError:
+                skipped.append(ds.label or n)
+                continue
+            if new.story is None:
+                del model.design_strips[new.name]
+                skipped.append(ds.label or n)
+                continue
+            out.append(new.name)
+        else:
+            old = (ds.points, ds.widths, ds.story)
+            ds.points, ds.widths = pts, ws
+            ds.story = model.strip_story(ds)
+            if ds.story is None:  # off every story: left where it was
+                ds.points, ds.widths, ds.story = old
+                skipped.append(ds.label or n)
+                continue
+            ds.auto = False
+            out.append(n)
+    if skipped and notes is not None:
+        notes.append(f"Design strip(s) {', '.join(skipped[:6])}{' ...' if len(skipped) > 6 else ''} left: "
+                     "a strip lies flat on a story")
+    return out
 
 
 def delete_strips(doc, names: Sequence[str]) -> int:

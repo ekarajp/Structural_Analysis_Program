@@ -133,7 +133,7 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
         "-",
         # one place for every modify command (CAD style; numbers can be typed in the window)
         ("Move  (MV)", "edit.move"),  # Ctrl+M and M V: the action's own shortcuts
-        ("Copy  (CO)", "tool.copy"),
+        ("Copy by Base Point  (CO)", "tool.copy"),
         ("Reshape - drag joints  (RS)", "tool.reshape"),
         ("Rotate  (RO)", "tool.rotate"),
         ("Mirror  (MM)", "tool.mirror"),
@@ -149,6 +149,7 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
         ("Grid System Mode", "edit.grid_mode_menu"),
         ("Add Grid Lines at Selected Joints", "edit.grid_at_joints"),
         ("Move Objects with Grid Lines", "edit.glue_joints"),
+        ("Keep Objects on Their Stories", "edit.carry_stories"),
         "-",
         ("Merge Joints...", "edit.merge_joints"),
         "-",
@@ -531,11 +532,27 @@ def iter_commands(entries: Sequence[Entry] = None, path: Tuple[str, ...] = ()):
 PLANNED_TIP = "Planned - not available in this version yet"
 
 
-def guarded_call(fn, window=None, *args):
+def command_title(text: Optional[str]) -> Optional[str]:
+    """The name of a command for Undo / Redo: its menu text without "...", the typed
+    shortcut ("Move  (MV)") and the & of the mnemonic."""
+    import re
+    if not text:
+        return None
+    t = re.sub(r"\s{2,}\(.*\)\s*$", "", str(text)).replace("&", "").replace("...", "").strip()
+    return t or None
+
+
+def guarded_call(fn, window=None, *args, name: Optional[str] = None):
     """Run a command; a model that stays locked (the user answered No to unlocking it) or
     an analysis still running is not an error: the command just does nothing, and the
-    reason goes to the status bar."""
+    reason goes to the status bar.  ``name``: what Undo / Redo call the edits it makes."""
     from ..model import ModelError
+    doc = getattr(window, "doc", None) if window is not None else None
+    prev = getattr(doc, "command_name", None) if doc is not None else None
+    title = command_title(name)
+    named = doc is not None and title and not title.startswith(("Undo", "Redo"))
+    if named:
+        doc.command_name = title
     try:
         return fn(*args)
     except ModelError as exc:
@@ -547,6 +564,9 @@ def guarded_call(fn, window=None, *args):
         except RuntimeError:
             pass
         return None
+    finally:
+        if named:
+            doc.command_name = prev
 
 
 class MenuBuilder:
@@ -613,7 +633,7 @@ class MenuBuilder:
             return a
         fn = self.commands.get(cid)
         if fn is not None:
-            a = self.make(label, lambda _=False, f=fn: guarded_call(f, self.window), shortcut)
+            a = self.make(label, lambda _=False, f=fn, t=label: guarded_call(f, self.window, name=t), shortcut)
             self.actions[cid] = a
             self.implemented.append(cid)
             return a

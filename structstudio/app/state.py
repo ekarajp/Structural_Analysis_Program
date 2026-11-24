@@ -490,15 +490,8 @@ class ViewState(QtCore.QObject):
     def delete_selected(self) -> int:
         if self.grid_mode:  # Grid Mode: Delete removes the selected grid lines
             return self.delete_grid_selection()
-        n = delete_objects(self.doc, self.frames, self.areas, self.points)
-        if self.panels:
-            names = set(self.panels)
-            self.doc.edit(lambda m: [m.panel_loads.pop(p, None) for p in names])
-            n += len(names)
-        if self.strips:  # design data: the analysis results stay
-            names = set(self.strips)
-            self.doc.edit_design(lambda m: [m.design_strips.pop(p, None) for p in names])
-            n += len(names)
+        # one undo step; design strips alone: the analysis results stay
+        n = delete_objects(self.doc, self.frames, self.areas, self.points, panels=self.panels, strips=self.strips)
         self.frames, self.areas, self.points, self.panels = set(), set(), set(), set()
         self.strips = set()
         self.status.emit(f"Deleted {n} object(s)")

@@ -141,10 +141,11 @@ class Clipboard:
     panels: Dict[str, list] = field(default_factory=dict)  # area name -> its area-load panels
     units: object = None  # UnitSystem of the copied values
     definitions: Dict[str, dict] = field(default_factory=dict)  # table -> {name: definition}
+    strips: list = field(default_factory=list)  # design strips (copies)
 
     @property
     def empty(self) -> bool:
-        return not (self.points or self.frames or self.areas)
+        return not (self.points or self.frames or self.areas or self.strips)
 
     def in_units(self, units) -> "Clipboard":
         """The same objects expressed in ``units``."""
@@ -156,7 +157,8 @@ class Clipboard:
         def cv(o):
             return convert_dataclass(o, src, units)
         out = Clipboard(points={k: cv(v) for k, v in self.points.items()}, frames=[cv(f) for f in self.frames],
-                        areas=[cv(a) for a in self.areas], units=units)
+                        areas=[cv(a) for a in self.areas], units=units,
+                        strips=[ds.convert_units(src, units) for ds in self.strips])
         r = src.factor("length") / units.factor("length")
         for k, lst in self.panels.items():
             new = []
@@ -205,8 +207,10 @@ def _definitions(model: Model, frames: Sequence[Frame], areas: Sequence[Area], p
     return out
 
 
-def copy_objects(model: Model, frames: Sequence[str], areas: Sequence[str], points: Sequence[str]) -> Clipboard:
+def copy_objects(model: Model, frames: Sequence[str], areas: Sequence[str], points: Sequence[str],
+                 strips: Sequence[str] = ()) -> Clipboard:
     clip = Clipboard(units=model.units)
+    clip.strips = [copy.deepcopy(model.design_strips[n]) for n in strips if n in model.design_strips]
     for n in _sel_points(model, frames, areas, points):
         clip.points[n] = copy.deepcopy(model.points[n])
     clip.frames = [copy.deepcopy(model.frames[n]) for n in frames if n in model.frames]
@@ -267,9 +271,35 @@ def paste_objects(doc: Document, clip: Clipboard, dx: float, dy: float, dz: floa
     skipped silently: when a definition is missing everywhere the paste stops
     before changing the model."""
     out: Selection = ([], [], [])
+    paste_objects.last_strips = []
     if clip.empty:
         return out
     clip = clip.in_units(doc.model.units)
+    strips_made: List[str] = []
+    paste_objects.last_strips = strips_made
+
+    def strips_too(model: Model):
+        from .strip_commands import transform_strips
+        names = []
+        for ds in clip.strips:  # (into the model under a free name, moved, then the copy kept)
+            tmp = copy.deepcopy(ds)
+            k = len(names) + 1
+            while f"_clip{k}" in model.design_strips:
+                k += 1
+            tmp.name = f"_clip{k}"
+            model.design_strips[tmp.name] = tmp
+            names.append(tmp.name)
+        strips_made.extend(transform_strips(model, names, lambda p: p + np.array([dx, dy, dz]), copy=True,
+                                            notes=notes))
+        for n in names:
+            model.design_strips.pop(n, None)
+
+    if clip.strips and not (clip.points or clip.frames or clip.areas):
+        notes: List[str] = []
+        doc.edit_design(strips_too)
+        for t in dict.fromkeys(notes):
+            doc.note(t, "info")
+        return out
     add, lost = _missing_definitions(doc.model, clip)
     if lost:
         raise ModelError("MISSING_DEFINITION", "Cannot paste: the copied objects use " + ", ".join(lost) +
@@ -310,6 +340,8 @@ def paste_objects(doc: Document, clip: Clipboard, dx: float, dy: float, dz: floa
                 q.receivers = panel.receivers
             out[1].append(b.name)
         _restory_new(model, out)
+        if clip.strips:
+            strips_too(model)
 
     doc.edit(mutate)
     for t in notes:
@@ -335,18 +367,33 @@ def _is_translation(T) -> bool:
 def replicate_transform(doc: Document, frames: Sequence[str], areas: Sequence[str], points: Sequence[str],
                         transforms: Sequence[Callable[[np.ndarray], np.ndarray]],
                         reverse_areas: bool = False, delete_original: bool = False,
-                        extra: Optional[Callable[[Model], None]] = None) -> List[str]:
+                        extra: Optional[Callable[[Model], None]] = None,
+                        strips: Sequence[str] = ()) -> List[str]:
     """Copy the selection once per transform (xyz -> xyz).  Used by the Linear,
     Radial and Mirror tabs of *Edit > Replicate* and by Copy / Rotate / Mirror
     with the copy option.  New joints get every assignment of their original
     (supports, springs, masses, diaphragm, local axes, loads, ground
     displacements); a copy that lands on an existing joint leaves that joint as it
-    is (reported).  ``extra`` runs inside the same undo step."""
+    is (reported).  ``extra`` runs inside the same undo step.  Design strips: copied
+    too (strips only: a design edit - the analysis results stay)."""
     created: List[str] = []
     frames, areas, points = list(frames), list(areas), list(points)
-    if not transforms or not (frames or areas or points):
+    strips = [n for n in strips if n in doc.model.design_strips]
+    if not transforms or not (frames or areas or points or strips):
         return created
     notes: List[str] = []
+    from .strip_commands import transform_strips
+    if strips and not (frames or areas or points or extra):
+        def strips_only(model: Model):
+            for T in transforms:
+                created.extend(transform_strips(model, strips, T, copy=True, notes=notes))
+            if delete_original:
+                for n in strips:
+                    model.design_strips.pop(n, None)
+        doc.edit_design(strips_only)
+        for t in dict.fromkeys(notes):
+            doc.note(t, "info")
+        return created
 
     def mutate(model: Model):
         kept: List[str] = []
@@ -397,6 +444,8 @@ def replicate_transform(doc: Document, frames: Sequence[str], areas: Sequence[st
                     b.loads = turn_loads(b.loads, A, "area")
                 copy_area_panels(model, n, b.name)
                 created.append(b.name)
+            if strips:
+                created.extend(transform_strips(model, strips, T, copy=True, notes=notes))
         if tilted:
             notes.append(f"Joints {', '.join(tilted[:6])}: tilted local axes could not be turned with the copy - "
                          "their supports / springs are kept as assigned")
@@ -410,10 +459,12 @@ def replicate_transform(doc: Document, frames: Sequence[str], areas: Sequence[st
             extra(model)
         if delete_original:
             _delete_originals(model, frames, areas, points, created)
+            for n in strips:
+                model.design_strips.pop(n, None)
         _restory(model)
 
     doc.edit(mutate)
-    for t in notes:
+    for t in dict.fromkeys(notes):
         doc.note(t, "info")
     return created
 
@@ -1604,6 +1655,110 @@ def auto_relabel(doc: Document, rules=None) -> int:
 
     doc.edit_design(mutate, what="labels")
     return len(plan)
+
+
+def label_new_objects(model: Model, before: Dict[str, set]) -> int:
+    """After a command: the joints / frames / shells it made (names not in ``before``,
+    {table: names}) get the next labels under the label rules - when the model uses
+    labels for that kind (some object has one).  A copy whose label is used on its story
+    already (a piece of a divided shell, a pasted floor on the same story) gets the next
+    label too; a copy on another story keeps it (the same label on every story).
+    Returns the number of labels given."""
+    import re
+    rules = model.label_rules
+    pts = model.points
+    tol = max(model.options.merge_tolerance, 1e-6)
+    pre = dict(DEFAULT_PREFIXES)
+    pre.update({k: str(v) for k, v in (rules.prefixes or {}).items()})
+    order_st = {st.name: k for k, st in enumerate(model.stories_bottom_up())}
+    if model.multi_tower:
+        for t in model.tower_names():
+            for k, st in enumerate(model.stories_of(t)):
+                order_st[st.name] = k
+
+    def tag(story):
+        if rules.story_tag == "name" and story:
+            return f"{story}{rules.story_sep}"
+        if rules.story_tag == "number" and story in order_st:
+            return f"{order_st[story]}{rules.story_sep}"
+        return ""
+
+    tail = re.compile(r"(\d+)$")
+    given = 0
+    for kind, table, on in (("frame", "frames", rules.frames), ("area", "areas", rules.shells),
+                            ("point", "points", rules.joints)):
+        objs = getattr(model, table)
+        old = before.get(table)
+        if old is None or not on:
+            continue
+        new = [n for n in objs if n not in old]
+        if not new or not any(objs[n].label for n in objs if n in old):
+            continue
+
+        def typ(o):
+            if kind == "point":
+                return "Joint"
+            t = getattr(o, "type", None)
+            return t if t in LABEL_PREFIX else ("Beam" if kind == "frame" else "Floor")
+
+        def group(o):
+            return typ(o) if rules.by_type else ("Joint" if kind == "point" else "all")
+
+        def where(o):
+            if kind == "point":
+                return o.x, o.y
+            P = [pts[o.point_i], pts[o.point_j]] if kind == "frame" else [pts[q] for q in o.points]
+            return sum(q.x for q in P) / len(P), sum(q.y for q in P) / len(P)
+
+        used: Dict[Optional[str], set] = {}  # story -> labels there
+        top: Dict[tuple, int] = {}  # (story or None, group) -> the highest number used
+        newset = set(new)
+        for n, o in objs.items():
+            if n in newset or not o.label:
+                continue
+            used.setdefault(o.story, set()).add(o.label)
+            m_ = tail.search(o.label)
+            if m_:
+                key = (o.story if rules.per_story else None, group(o))
+                top[key] = max(top.get(key, int(rules.start) - int(rules.step)), int(m_.group(1)))
+        order = sorted(new, key=lambda n: _plan_key(rules, *where(objs[n]), tol))
+        for n in order:
+            o = objs[n]
+            here = used.setdefault(o.story, set())
+            if o.label and o.label not in here:
+                here.add(o.label)  # (a copy on another story keeps its label)
+                continue
+            key = (o.story if rules.per_story else None, group(o))
+            k = top.get(key, int(rules.start) - int(rules.step)) + int(rules.step)
+            while True:
+                num = str(k).zfill(int(rules.digits)) if rules.digits else str(k)
+                lab = f"{tag(o.story)}{pre.get(typ(o), '')}{num}"
+                if lab not in here:
+                    break
+                k += int(rules.step) or 1
+            top[key] = k
+            o.label = lab
+            here.add(lab)
+            given += 1
+    return given
+
+
+def prefix_clashes(rules) -> List[Tuple[str, List[str]]]:
+    """Object types that would share a label prefix under ``rules`` (one count per type:
+    a beam B1 and a brace B1 on one story) - [(prefix, types)]."""
+    if not rules.by_type:
+        return []
+    pre = dict(DEFAULT_PREFIXES)
+    pre.update({k: str(v) for k, v in (rules.prefixes or {}).items()})
+    frames = ("Beam", "Column", "Brace", "Null", "Rigid")
+    shells = ("Floor", "Wall", "Ramp", "Opening")
+    out = []
+    for kinds in (frames, shells):
+        seen: Dict[str, List[str]] = {}
+        for t in kinds:
+            seen.setdefault(pre.get(t, ""), []).append(t)
+        out += [(p, ts) for p, ts in seen.items() if len(ts) > 1]
+    return out
 
 
 # ------------------------------------------------------- Edit > Change Labels
