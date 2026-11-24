@@ -144,3 +144,37 @@ def test_auto_relabel_keeps_the_results_and_the_lock(doc):
     assert doc.results is res and doc.model.frames[first.name].label == "MY-BEAM"
     doc.redo()
     assert doc.results is res and doc.locked
+
+
+def test_change_labels_numbering_clashes_and_results(doc):
+    """Edit > Change Labels: prefix / next number / increment / suffix in plan order,
+    per story (or one count), clashes found, an empty label gives the name back, the
+    analysis results stay."""
+    from structstudio.api import analyze
+    m = doc.model
+    beams = [n for n, f in m.frames.items() if f.type == "Beam"]
+    cols = [n for n, f in m.frames.items() if f.type == "Column"]
+    s1 = sorted(n for n in beams if m.frames[n].story == "Story1")
+    new = dict(C.number_labels(m, "frame", s1, prefix="2B", start=10, step=5, suffix="-a", width=3))
+    assert sorted(new.values())[0] == "2B010-a" and len(set(new.values())) == len(s1)
+    # plan order: Y then X
+    first = min(s1, key=lambda n: (round(sum(m.points[p].y for p in (m.frames[n].point_i, m.frames[n].point_j)), 6),
+                                   round(sum(m.points[p].x for p in (m.frames[n].point_i, m.frames[n].point_j)), 6)))
+    assert new[first] == "2B010-a"
+    both = dict(C.number_labels(m, "frame", beams, prefix="B"))  # per story: every story from B1
+    assert sum(1 for v in both.values() if v == "B1") == len({m.frames[n].story for n in beams})
+    one = dict(C.number_labels(m, "frame", beams, prefix="B", per_story=False))
+    assert len(set(one.values())) == len(beams)
+    # a beam and a column both "X1" on one story: a clash
+    same_story = [c for c in cols if m.frames[c].story == "Story1"][:1] + s1[:1]
+    assert C.label_clashes(m, "frame", {n: "X1" for n in same_story}) == [("X1", "Story1")]
+    cases = [n for n in m.load_cases if n in m.load_patterns][:1]
+    doc.set_results(analyze(m, cases))
+    res = doc.results
+    assert C.change_labels(doc, "frame", new) == len(s1)
+    assert doc.results is res and doc.locked and doc.model.frames[first].label == "2B010-a"
+    assert C.change_labels(doc, "frame", new) == 0  # nothing new: no undo step
+    C.change_labels(doc, "frame", {first: ""})
+    assert doc.model.frames[first].label is None
+    doc.undo()
+    assert doc.model.frames[first].label == "2B010-a" and doc.results is res

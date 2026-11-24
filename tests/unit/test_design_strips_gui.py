@@ -247,3 +247,28 @@ def test_overlapping_beam_and_strip_tab_cycles(app):
         w.close()
         w.deleteLater()
         app.processEvents()
+
+
+@gui
+def test_change_labels_form(window, app):
+    """Edit > Change Labels on the selection: the kinds selected, the numbering fills the
+    table, a typed label, a clash shown, OK changes the labels (one undo step)."""
+    from structstudio.app.label_dialog import ChangeLabelsDialog
+    m = window.doc.model
+    cols = sorted(n for n, f in m.frames.items() if f.type == "Column" and f.story == "Story1")
+    pts = sorted(m.points)[:2]
+    d = ChangeLabelsDialog(window.doc, {"frame": cols, "point": pts, "area": [], "strip": []}, window)
+    assert d.kind.count() == 2 and d.current_kind() == "frame" and d.table.rowCount() == len(cols)
+    d.prefix.setText("K")
+    d.renumber()
+    labels = d.new_labels()
+    assert sorted(labels.values(), key=lambda s: int(s[1:])) == [f"K{k}" for k in range(1, len(cols) + 1)]
+    d.table.item(0, 3).setText(d.table.item(1, 3).text())  # two the same on one story
+    assert d._check()
+    d.table.item(0, 3).setText("K-first")
+    assert not d._check()
+    d._ok()
+    assert d.result() == QtWidgets.QDialog.Accepted and d.changed == len(cols)
+    assert {m.frames[n].label for n in cols} == set(d.new_labels().values())
+    window.doc.undo()
+    assert all(window.doc.model.frames[n].label != "K-first" for n in cols)

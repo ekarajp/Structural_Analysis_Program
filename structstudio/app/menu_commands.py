@@ -59,6 +59,7 @@ class MenuCommandsMixin:
             "edit.split_edge": self.edit_split_edge,
             "edit.remove_shell_joints": self.edit_remove_shell_joints,
             "edit.reverse_wall": self.edit_reverse_wall,
+            "edit.change_labels": self.edit_change_labels,
             "edit.strips_auto": self.edit_auto_strips,
             "edit.strip_widths": self.edit_auto_strip_widths,
             "edit.relabel": self.edit_relabel,
@@ -671,6 +672,23 @@ class MenuCommandsMixin:
         text += "\n\nThe analysis results are kept (labels are names only).  Undo brings the old labels back."
         if QtWidgets.QMessageBox.question(self, "Auto Relabel All", text) == QtWidgets.QMessageBox.Yes:
             C.auto_relabel(self.doc)
+
+    def edit_change_labels(self):
+        """Edit > Change Labels: new labels for the selected objects (a numbering or typed);
+        labels are names only - the analysis results stay."""
+        st = self.state
+        strips = sorted(getattr(st, "strips", ()))
+        if not (st.frames or st.areas or st.points or strips):
+            self._wait_for("any", 1)  # (select, then Enter / right-click runs the command)
+            return
+        from .label_dialog import ChangeLabelsDialog
+        d = ChangeLabelsDialog(self.doc, {"frame": sorted(st.frames), "area": sorted(st.areas),
+                                          "point": sorted(st.points), "strip": strips}, self)
+        if d.kind.count() == 0:
+            QtWidgets.QMessageBox.information(self, "Change Labels", "Select the objects to label first.")
+            return
+        if d.exec() and getattr(d, "changed", 0):
+            self.statusBar().showMessage(f"Change Labels: {d.changed} label(s) changed", 6000)
 
     # --------------------------------------------------------------- View
     def view_set_plan(self):

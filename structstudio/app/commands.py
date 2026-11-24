@@ -1549,6 +1549,102 @@ def auto_relabel(doc: Document) -> int:
     return len(doc.model.frames) + len(doc.model.areas) + len(doc.model.points)
 
 
+# ------------------------------------------------------- Edit > Change Labels
+LABEL_KINDS = {"point": "points", "frame": "frames", "area": "areas", "strip": "design_strips"}
+
+
+def _label_xy(model: Model, kind: str, o):
+    """(z, y, x) of an object for the plan order of labels (bottom story first)."""
+    if kind == "point":
+        return (o.z, o.y, o.x)
+    if kind == "frame":
+        a, b = model.points[o.point_i], model.points[o.point_j]
+        return (max(a.z, b.z), (a.y + b.y) / 2, (a.x + b.x) / 2)
+    if kind == "area":
+        P = [model.points[q] for q in o.points]
+        return (max(p.z for p in P), sum(p.y for p in P) / len(P), sum(p.x for p in P) / len(P))
+    P = o.points
+    return (P[0][2], sum(p[1] for p in P) / len(P), sum(p[0] for p in P) / len(P))
+
+
+def label_of(o) -> str:
+    """The label shown for an object (its name when it has none)."""
+    return o.label or o.name
+
+
+def number_labels(model: Model, kind: str, names: Sequence[str], prefix: str = "", start: int = 1,
+                  step: int = 1, suffix: str = "", order: str = "position", per_story: bool = True,
+                  width: int = 0) -> List[Tuple[str, str]]:
+    """New labels for the objects ``names`` of ``kind``: prefix + number + suffix, the
+    numbers from ``start`` by ``step``, in plan order (Y then X, as Auto Relabel) or in
+    the order of the present labels; ``per_story``: every story starts again at ``start``
+    (a label may repeat on each story, ETABS); ``width``: zero-padded digits.
+    Returns [(name, new label)]."""
+    table = getattr(model, LABEL_KINDS[kind])
+    objs = [table[n] for n in names if n in table]
+    tol = max(model.options.merge_tolerance, 1e-9)
+
+    def r(v):
+        return round(v / tol) * tol
+
+    if order == "position":
+        objs.sort(key=lambda o: tuple(r(v) for v in _label_xy(model, kind, o)))
+    else:
+        import re
+        objs.sort(key=lambda o: [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", label_of(o))])
+    out = []
+    counters: Dict[Optional[str], int] = {}
+    for o in objs:
+        st = o.story if per_story else None
+        k = counters.get(st, 0)
+        counters[st] = k + 1
+        n = int(start) + k * int(step)
+        out.append((o.name, f"{prefix}{str(n).zfill(int(width)) if width else n}{suffix}"))
+    return out
+
+
+def label_clashes(model: Model, kind: str, new: Dict[str, str]) -> List[Tuple[str, str]]:
+    """(label, story) that two objects of ``kind`` would share on one story (frames of
+    another type, e.g. a beam and a column both "1", do count)."""
+    table = getattr(model, LABEL_KINDS[kind])
+    seen: Dict[Tuple[str, Optional[str]], str] = {}
+    out = []
+    for n, o in table.items():
+        lab = new.get(n, label_of(o))
+        key = (lab, o.story)
+        if key in seen:
+            out.append(key)
+        else:
+            seen[key] = n
+    return sorted(set(out), key=lambda t: (str(t[1]), t[0]))
+
+
+def change_labels(doc: Document, kind: str, labels: Dict[str, str]) -> int:
+    """*Edit > Change Labels*: the objects get the labels ``{name: label}`` (an empty
+    label: back to the name).  Labels are display names: the analysis results and the
+    lock stay; one undo step."""
+    if kind not in LABEL_KINDS:
+        raise ModelError("BAD_OPTION", f"Unknown object kind {kind!r}")
+    clean = {}
+    for n, lab in labels.items():
+        lab = (lab or "").strip()
+        if any(c in lab for c in "\r\n\t"):
+            raise ModelError("BAD_NAME", f"Label {lab!r}: no line breaks or tabs")
+        clean[n] = lab or None
+    table = getattr(doc.model, LABEL_KINDS[kind])
+    todo = {n: lab for n, lab in clean.items() if n in table and table[n].label != lab}
+    if not todo:
+        return 0
+
+    def mutate(model: Model):
+        t = getattr(model, LABEL_KINDS[kind])
+        for n, lab in todo.items():
+            t[n].label = lab
+
+    doc.edit_design(mutate, what="labels")
+    return len(todo)
+
+
 # ----------------------------------------------------------- assign helpers
 def assign(doc: Document, kind: str, names: Sequence[str], **values) -> int:
     """Set attributes on selected objects (``kind``: point | frame | area)."""
