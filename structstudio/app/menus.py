@@ -167,7 +167,7 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
         ("Add/Edit Design Strips", [("Auto Design Strips...", "edit.strips_auto"),
                                     ("Auto Strip Widths...", "edit.strip_widths")]),
         "-",
-        ("Auto Relabel All", "edit.relabel"),
+        ("Auto Relabel All...", "edit.relabel"),
         ("Change Labels...", "edit.change_labels"),
     ]),
     ("&View", [

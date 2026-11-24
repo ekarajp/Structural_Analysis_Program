@@ -9,7 +9,7 @@ drawing generation possible later.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .base import q, qlist
 
@@ -453,6 +453,37 @@ class GridSystem:
 class Diaphragm:
     name: str
     rigid: bool = True  # False => semi-rigid (meshed membrane)
+
+
+LABEL_TYPES = ("Beam", "Column", "Brace", "Null", "Rigid", "Floor", "Wall", "Ramp", "Opening", "Joint")
+DEFAULT_LABEL_PREFIXES = {"Beam": "B", "Column": "C", "Brace": "D", "Null": "N", "Rigid": "RL", "Floor": "F",
+                          "Wall": "W", "Ramp": "R", "Opening": "O", "Joint": ""}
+
+
+@dataclass
+class LabelRules:
+    """How Edit > Auto Relabel All labels the objects (kept with the model).
+
+    ``prefixes``: per object type; ``order``: "YX" row by row (along X, rows by Y) or
+    "XY" column by column; ``corner``: where the count starts (bottom-left, top-left,
+    bottom-right, top-right of the plan); ``per_story``: every story counts again (the
+    same label on each story, ETABS); ``by_type``: each type its own count (B1.., C1..)
+    or one count over the types; ``story_tag``: none | name | number - the story in the
+    label (``story_sep`` between, e.g. "2-B1")."""
+
+    prefixes: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_LABEL_PREFIXES))
+    order: str = "YX"
+    corner: str = "bottom-left"
+    per_story: bool = True
+    by_type: bool = True
+    start: int = 1
+    step: int = 1
+    digits: int = 0
+    story_tag: str = "none"
+    story_sep: str = "-"
+    joints: bool = True
+    frames: bool = True
+    shells: bool = True
 
 
 @dataclass

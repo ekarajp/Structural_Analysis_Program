@@ -258,6 +258,8 @@ def test_change_labels_form(window, app):
     cols = sorted(n for n, f in m.frames.items() if f.type == "Column" and f.story == "Story1")
     pts = sorted(m.points)[:2]
     d = ChangeLabelsDialog(window.doc, {"frame": cols, "point": pts, "area": [], "strip": []}, window)
+    d.show()  # (shown: the fit-to-screen code reads its size - an attribute named "width" broke it)
+    app.processEvents()
     assert d.kind.count() == 2 and d.current_kind() == "frame" and d.table.rowCount() == len(cols)
     d.prefix.setText("K")
     d.renumber()
@@ -272,3 +274,34 @@ def test_change_labels_form(window, app):
     assert {m.frames[n].label for n in cols} == set(d.new_labels().values())
     window.doc.undo()
     assert all(window.doc.model.frames[n].label != "K-first" for n in cols)
+
+
+@gui
+def test_auto_relabel_rules_form(window, app):
+    from structstudio.app.label_dialog import AutoRelabelDialog
+    d = AutoRelabelDialog(window.doc, window)
+    d.show()
+    app.processEvents()
+    d.prefix["Column"].setText("K")
+    d.corner.setCurrentIndex(d.corner.findData("top-left"))
+    d.digits.setValue(2)
+    assert "K01" in d.preview.text()
+    d._ok()
+    m = window.doc.model
+    assert d.result() == QtWidgets.QDialog.Accepted
+    assert m.label_rules.prefixes["Column"] == "K" and m.label_rules.corner == "top-left"
+    assert all(f.label.startswith("K") for f in m.frames.values() if f.type == "Column")
+    # the form opens again with the model's rules
+    d2 = AutoRelabelDialog(window.doc, window)
+    d2.show()
+    app.processEvents()
+    assert d2.prefix["Column"].text() == "K" and d2.digits.value() == 2
+    d2.defaults()
+    assert d2.prefix["Column"].text() == "C"
+    d2.reject()
+    # the strip and design forms open and fit too
+    from structstudio.app.strip_dialog import AutoStripsDialog, AutoWidthsDialog
+    for f in (AutoStripsDialog(m, "Story1", window), AutoWidthsDialog(m, "Story1", (), window)):
+        f.show()
+        app.processEvents()
+        f.reject()

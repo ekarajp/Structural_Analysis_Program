@@ -2000,9 +2000,11 @@ class ModelViewport(QtWidgets.QWidget):
     def hits_under(self, x: int, y: int) -> list:
         """Every object under display (x, y): the one a click picks first, then the
         others (the order Tab goes through)."""
+        hits = self.pick_all(x, y)  # (only what lies in the window's plane: a plan, the joint at its level)
         first = self.pick(x, y)
-        rest = [h for h in self.pick_all(x, y) if h != first]
-        return ([first] if first else []) + rest
+        if first in hits:
+            hits = [first] + [h for h in hits if h != first]
+        return hits
 
     def _cycle_ok(self) -> bool:
         """Tab cycles the objects under the cursor where a click selects objects."""
@@ -3075,7 +3077,7 @@ class ModelViewport(QtWidgets.QWidget):
                 self._window_select(p0, (x, y), True, crossing=x < p0[0])
                 st.keep_only(*picks)
             else:
-                hit = self.cycled_hit(x, y) or next((h for h in self.hits_under(x, y) if h[0] in picks), None)
+                hit = self.cycled_hit(x, y) or next((h for h in self.pick_all(x, y) if h[0] in picks), None)
                 if hit is not None and hit[0] in picks:
                     st.toggle(hit[0], hit[1], True)
             self.end_cycle()

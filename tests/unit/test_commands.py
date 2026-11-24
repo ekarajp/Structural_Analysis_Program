@@ -178,3 +178,35 @@ def test_change_labels_numbering_clashes_and_results(doc):
     assert doc.model.frames[first].label is None
     doc.undo()
     assert doc.model.frames[first].label == "2B010-a" and doc.results is res
+
+
+def test_auto_relabel_rules(doc):
+    """The label rules: prefixes, start corner, order, per story or one count, one count
+    over the types, story in the label, digits, which kinds; kept with the model and in
+    the file."""
+    from structstudio.model import Model
+    from structstudio.model.objects import LabelRules
+    m = doc.model
+    C.auto_relabel(doc)  # the defaults: as before
+    beams1 = [f for f in m.frames.values() if f.type == "Beam" and f.story == "Story1"]
+    first = min(beams1, key=lambda f: (round((m.points[f.point_i].y + m.points[f.point_j].y) / 2, 6),
+                                       round((m.points[f.point_i].x + m.points[f.point_j].x) / 2, 6)))
+    assert first.label == "B1"
+    r = LabelRules(prefixes={"Beam": "BM", "Column": "K", "Joint": "J"}, corner="top-right", digits=2,
+                   story_tag="number", story_sep=".")
+    C.auto_relabel(doc, r)
+    st_no = {st.name: k for k, st in enumerate(m.stories_bottom_up())}["Story1"]
+    last = max(beams1, key=lambda f: (round((m.points[f.point_i].y + m.points[f.point_j].y) / 2, 6),
+                                      round((m.points[f.point_i].x + m.points[f.point_j].x) / 2, 6)))
+    assert m.frames[last.name].label == f"{st_no}.BM01"  # top right first
+    assert all(p.label.startswith(f"{st_no}.J") for p in m.points.values() if p.story == "Story1")
+    assert m.label_rules.prefixes["Beam"] == "BM" and m.label_rules.corner == "top-right"
+    m2 = Model.from_json(m.to_json())
+    assert m2.label_rules == m.label_rules
+    # one count over all stories, one over the types
+    C.auto_relabel(doc, LabelRules(per_story=False, by_type=False, joints=False))
+    labs = [f.label for f in m.frames.values()] + [a.label for a in m.areas.values()]
+    nums = sorted(int("".join(ch for ch in s if ch.isdigit())) for s in labs)
+    assert nums == list(range(1, len(labs) + 1))
+    with pytest.raises(Exception):
+        C.auto_relabel(doc, LabelRules(corner="middle"))

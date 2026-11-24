@@ -19,7 +19,7 @@ from .base import ModelError, convert_dataclass, to_dict
 from .loads import (ComboItem, LinearBucklingCase, LinearStaticCase, LoadCombination, LoadPattern, MassSource,
                     ModalCase, PDeltaCase, ResponseSpectrumCase, ResponseSpectrumFunction, SpectrumLoad,
                     TimeHistoryFunction)
-from .objects import (Area, AreaLoad, DesignStrip, Diaphragm, Frame, FrameLoad, GridLine, GridSystem, GroundDisplacement, Group,
+from .objects import (Area, AreaLoad, DesignStrip, LabelRules, Diaphragm, Frame, FrameLoad, GridLine, GridSystem, GroundDisplacement, Group,
                       LineSpring, PanelLoad, PanelLoadCase, Point, PointLoad, Story, Tendon, TendonLoad,
                       TendonPoint, Tower, FREE)
 from .properties import FrameModifiers, FrameSection, Material, RebarSize, ShellModifiers, ShellSection
@@ -81,7 +81,7 @@ def _version_tuple(text) -> tuple:
 _KNOWN_KEYS = {"schema_version", "units", "display_units", "info", "options", "materials", "rebar_sizes",
                "frame_sections", "shell_sections", "stories", "towers", "grid_systems", "grid_lines", "diaphragms", "points",
                "frames", "areas", "groups", "line_springs", "tendons", "panel_loads", "design_strips", "load_patterns",
-               "mass_sources", "functions", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",
+               "mass_sources", "functions", "label_rules", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",
                "frame_nonlinear", "hinge_properties", "link_properties", "links", "design", "defaults"}
 
 _CASE_TYPES = {
@@ -97,7 +97,7 @@ _CASE_TYPES = {
 _TYPE_REGISTRY = {
     cls.__name__: cls for cls in (
         Material, RebarSize, FrameModifiers, FrameSection, ShellModifiers, ShellSection, Point, Frame, Area, PointLoad,
-        GroundDisplacement, Tendon, TendonLoad, TendonPoint, PanelLoad, PanelLoadCase, DesignStrip,
+        GroundDisplacement, Tendon, TendonLoad, TendonPoint, PanelLoad, PanelLoadCase, DesignStrip, LabelRules,
         FrameLoad, AreaLoad, Story, Tower, GridLine, GridSystem, Diaphragm, Group, LineSpring, LoadPattern, MassSource,
         ResponseSpectrumFunction, TimeHistoryFunction, LinearStaticCase, ModalCase, ResponseSpectrumCase,
         PDeltaCase, LinearBucklingCase, ComboItem, LoadCombination, SpectrumLoad,
@@ -249,6 +249,7 @@ class Model:
         self.links: Dict[str, LinkObject] = {}
         self.options = AnalysisOptions()
         self.design = DesignPreferences()  # Design menu preferences
+        self.label_rules = LabelRules()  # Edit > Auto Relabel All
         # units each kind of value is shown / typed in (Display Units form, e.g. Thai
         # legacy: section dimensions cm, areas cm^2, deflections mm, strengths ksc);
         # item -> unit label, missing = the consistent units above.  Display only.
@@ -1598,6 +1599,7 @@ class Model:
                           for g in self.grid_lines]
         out.options = dataclasses.replace(self.options)
         out.design = convert_dataclass(self.design, src, new_units)
+        out.label_rules = dataclasses.replace(self.label_rules, prefixes=dict(self.label_rules.prefixes))
         out.display_units = dict(self.display_units)
         ratio = src.factor("length") / new_units.factor("length")
         for name in ("floor_mesh_max_size", "wall_mesh_max_size", "fine_mesh_size_min", "fine_mesh_size_max"):
@@ -1674,6 +1676,7 @@ class Model:
             "link_properties": to_dict(self.link_properties),
             "links": to_dict(self.links),
             "design": to_dict(self.design),
+            "label_rules": to_dict(self.label_rules),
             **{k: v for k, v in (getattr(self, "unknown_data", None) or {}).items() if k not in _KNOWN_KEYS},
         }
 
@@ -1723,6 +1726,8 @@ class Model:
         m.options = AnalysisOptions(**_coerce_tuples(_strip(data.get("options", {}))))
         if isinstance(data.get("design"), dict):
             m.design = _from_dict(data["design"], "design")
+        if isinstance(data.get("label_rules"), dict):
+            m.label_rules = _from_dict(data["label_rules"], "label_rules")
         for attr in ("materials", "rebar_sizes", "frame_sections", "shell_sections", "stories", "towers", "grid_systems", "diaphragms",
                      "points", "frames", "areas", "groups", "line_springs", "tendons", "panel_loads", "design_strips",
                      "load_patterns", "mass_sources", "functions", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",

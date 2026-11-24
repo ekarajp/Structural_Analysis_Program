@@ -1512,41 +1512,98 @@ def add_grid_lines_at_points(doc: Document, points: Sequence[str]) -> int:
 # ------------------------------------------------------------ labels (Edit)
 LABEL_PREFIX = {"Beam": "B", "Column": "C", "Brace": "D", "Null": "N", "Rigid": "RL", "Floor": "F", "Wall": "W",
                 "Ramp": "R", "Opening": "O"}
+CORNERS = ("bottom-left", "top-left", "bottom-right", "top-right")
 
 
-def auto_relabel(doc: Document) -> int:
-    """*Edit > Auto Relabel All*: plan labels per story in X-then-Y order
-    (B1, B2 ... C1 ... F1 ... W1 ..., joints 1, 2, ...).  Labels are display
-    names: the analysis does not use them, so the results and the lock stay
-    (one undo step that keeps them too)."""
-    def mutate(model: Model):
-        pts = model.points
+def _plan_key(rules, x: float, y: float, tol: float):
+    """Sort key of a plan position under the label rules: rows (or columns) from the
+    start corner."""
+    sx = -1.0 if "right" in rules.corner else 1.0
+    sy = -1.0 if "top" in rules.corner else 1.0
 
-        def key_frame(f):
+    def r(v):
+        return round(v / tol)
+    return (r(sy * y), r(sx * x)) if rules.order != "XY" else (r(sx * x), r(sy * y))
+
+
+def relabel_plan(model: Model, rules=None) -> Dict[Tuple[str, str], str]:
+    """The labels Auto Relabel All gives under ``rules`` (default: the model's):
+    {(kind, name): label} for kind point / frame / area."""
+    rules = rules or model.label_rules
+    pts = model.points
+    tol = max(model.options.merge_tolerance, 1e-6)
+    pre = dict(DEFAULT_PREFIXES)
+    pre.update({k: str(v) for k, v in (rules.prefixes or {}).items()})
+    order_st = {st.name: k for k, st in enumerate(model.stories_bottom_up())}
+    if model.multi_tower:  # the story number within its tower
+        for t in model.tower_names():
+            for k, st in enumerate(model.stories_of(t)):
+                order_st[st.name] = k
+
+    def tag(story):
+        if rules.story_tag == "name" and story:
+            return f"{story}{rules.story_sep}"
+        if rules.story_tag == "number" and story in order_st:
+            return f"{order_st[story]}{rules.story_sep}"
+        return ""
+
+    def num(n):
+        v = int(rules.start) + n * int(rules.step)
+        return str(v).zfill(int(rules.digits)) if rules.digits else str(v)
+
+    items = []  # (story, type key, kind, name, plan key)
+    if rules.frames:
+        for f in model.frames.values():
             a, b = pts[f.point_i], pts[f.point_j]
-            return (round((a.y + b.y) / 2, 6), round((a.x + b.x) / 2, 6))
+            items.append((f.story, f.type if f.type in LABEL_PREFIX else "Beam", "frame", f.name,
+                          _plan_key(rules, (a.x + b.x) / 2, (a.y + b.y) / 2, tol)))
+    if rules.shells:
+        for ar in model.areas.values():
+            P = [pts[q] for q in ar.points]
+            items.append((ar.story, ar.type if ar.type in LABEL_PREFIX else "Floor", "area", ar.name,
+                          _plan_key(rules, sum(q.x for q in P) / len(P), sum(q.y for q in P) / len(P), tol)))
+    if rules.joints:
+        for p in pts.values():
+            items.append((p.story, "Joint", "point", p.name, _plan_key(rules, p.x, p.y, tol)))
+    stories = [None] + [st.name for st in model.stories_bottom_up()]
+    rank = {s: k for k, s in enumerate(stories)}
+    items.sort(key=lambda it: (rank.get(it[0], len(stories)), it[4], it[2], it[1]))
+    counters: Dict[tuple, int] = {}
+    out = {}
+    for story, typ, kind, name, _ in items:
+        # one count per prefix (B1, C1 ...) or one over the types; joints count on their own
+        group = typ if rules.by_type else ("Joint" if kind == "point" else "all")
+        key = (story if rules.per_story else None, group)
+        n = counters.get(key, 0)
+        counters[key] = n + 1
+        out[(kind, name)] = f"{tag(story)}{pre.get(typ, '')}{num(n)}"
+    return out
 
-        def key_area(a):
-            xs = [pts[p] for p in a.points]
-            return (round(sum(p.y for p in xs) / len(xs), 6), round(sum(p.x for p in xs) / len(xs), 6))
 
-        for story in [None] + list(model.stories):
-            counters: Dict[str, int] = {}
-            for f in sorted((f for f in model.frames.values() if f.story == story), key=key_frame):
-                pre = LABEL_PREFIX.get(f.type, "B")
-                counters[pre] = counters.get(pre, 0) + 1
-                f.label = f"{pre}{counters[pre]}"
-            for a in sorted((a for a in model.areas.values() if a.story == story), key=key_area):
-                pre = LABEL_PREFIX.get(a.type, "F")
-                counters[pre] = counters.get(pre, 0) + 1
-                a.label = f"{pre}{counters[pre]}"
-            k = 0
-            for p in sorted((p for p in pts.values() if p.story == story), key=lambda p: (round(p.y, 6), round(p.x, 6))):
-                k += 1
-                p.label = str(k)
+DEFAULT_PREFIXES = dict(LABEL_PREFIX, Joint="")
+
+
+def auto_relabel(doc: Document, rules=None) -> int:
+    """*Edit > Auto Relabel All*: labels from the label rules (Edit > Auto Relabel All
+    form; default B1, B2 ... C1 ... F1 ... W1 ..., joints 1, 2, ... per story in rows
+    from the bottom-left).  ``rules`` given: kept as the model's rules.  Labels are
+    display names: the analysis does not use them, so the results and the lock stay
+    (one undo step that keeps them too)."""
+    import dataclasses as _dc
+    rules = _dc.replace(rules, prefixes=dict(rules.prefixes)) if rules is not None else None
+    if rules is not None and rules.corner not in CORNERS:
+        raise ModelError("BAD_OPTION", f"Start corner {rules.corner!r}: use {', '.join(CORNERS)}")
+    plan = relabel_plan(doc.model, rules)
+    tables = {"point": "points", "frame": "frames", "area": "areas"}
+
+    def mutate(model: Model):
+        if rules is not None:
+            model.label_rules = rules
+        for (kind, name), lab in plan.items():
+            getattr(model, tables[kind])[name].label = lab
 
     doc.edit_design(mutate, what="labels")
-    return len(doc.model.frames) + len(doc.model.areas) + len(doc.model.points)
+    return len(plan)
 
 
 # ------------------------------------------------------- Edit > Change Labels

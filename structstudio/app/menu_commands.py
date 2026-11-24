@@ -662,16 +662,12 @@ class MenuCommandsMixin:
                            (f"; {rep.removed} middle strip(s) made again" if rep.removed else ""))
 
     def edit_relabel(self):
-        m = self.doc.model
-        custom = sum(1 for t in (m.points, m.frames, m.areas) for o in t.values() if o.label)
-        text = ("Give every joint, frame and shell a new label, story by story in plan order "
-                "(beams B1, B2 ..., columns C1 ..., floors F1 ..., walls W1 ..., joints 1, 2 ...).")
-        if custom:
-            text += (f"\n\nThe {custom} label(s) the objects have now - also the ones you typed yourself - "
-                     "are replaced.")
-        text += "\n\nThe analysis results are kept (labels are names only).  Undo brings the old labels back."
-        if QtWidgets.QMessageBox.question(self, "Auto Relabel All", text) == QtWidgets.QMessageBox.Yes:
-            C.auto_relabel(self.doc)
+        """Edit > Auto Relabel All: the label rules (prefixes, start corner, order,
+        per story ...) with a preview, then every object labelled by them."""
+        from .label_dialog import AutoRelabelDialog
+        d = AutoRelabelDialog(self.doc, self)
+        if d.exec():
+            self.statusBar().showMessage(f"Auto Relabel All: {getattr(d, 'count', 0)} object(s) labelled", 6000)
 
     def edit_change_labels(self):
         """Edit > Change Labels: new labels for the selected objects (a numbering or typed);

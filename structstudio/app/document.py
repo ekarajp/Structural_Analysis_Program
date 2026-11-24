@@ -237,7 +237,7 @@ class Document:
 
     # what the analysis does not depend on: design preferences, design strips, the
     # project information - undoing / redoing a change of these keeps the results
-    DESIGN_KEYS = ("design", "design_strips", "info")
+    DESIGN_KEYS = ("design", "design_strips", "info", "label_rules")
 
     def _analysis_part(self, model) -> dict:
         """The model as the analysis sees it: no design data, and no labels of joints /
