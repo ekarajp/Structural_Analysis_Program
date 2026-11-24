@@ -453,6 +453,18 @@ class MenuCommandsMixin:
         targets = [s.name for s in bottom_up[1:] if s.name not in own][::-1]
         z_own = max((m.stories[s].elevation for s in own), default=None)
         above = [n for n in targets if z_own is None or m.stories[n].elevation > z_own]
+        def why_not(kind, v):
+            """Why OK cannot make copies (the form stays open), or None."""
+            if kind == "linear" and abs(v["dx"]) + abs(v["dy"]) + abs(v["dz"]) <= 1e-12:
+                return "Give an offset (dx, dy or dz): with none the copies would lie on the originals."
+            if kind == "radial" and abs(math.remainder(v["angle"], 360.0)) <= 1e-9:
+                return "Give an angle that is not 0 or a whole turn: the copies would lie on the originals."
+            if kind == "story" and not v["stories"]:
+                return "Tick the stories to copy to."
+            if kind == "story" and not own:
+                return "The selected objects are not on a story: use the Linear tab (dz) instead."
+            return None
+
         # mirror copies: Edit > Mirror (MM) draws the axis in the window
         d = TabbedFormDialog("Array / Replicate to Stories", [
             ("linear", "Linear", [("dx", "dx", 0.0), ("dy", "dy", 0.0), ("dz", "dz", 0.0),
@@ -461,27 +473,10 @@ class MenuCommandsMixin:
                                   ("angle", "Angle (deg)", 90.0), ("n", "Number", 1, {"min": 1, "max": 360})]),
             ("story", "Story", [("stories", "Copy to stories" + (f" (from {', '.join(own)})" if own else ""),
                                  above, {"checks": targets})]),
-        ], self, extra=[("delete", "Delete original objects", False)])
-        while True:
-            if not d.exec():
-                return
-            try:
-                kind, v = d.result_values()
-            except ValueError as exc:
-                QtWidgets.QMessageBox.warning(self, "Replicate", f"Invalid number: {exc}")
-                continue
-            why = None
-            if kind == "linear" and abs(v["dx"]) + abs(v["dy"]) + abs(v["dz"]) <= 1e-12:
-                why = "Give an offset (dx, dy or dz): with none the copies would lie on the originals."
-            elif kind == "radial" and abs(math.remainder(v["angle"], 360.0)) <= 1e-9:
-                why = "Give an angle that is not 0 or a whole turn: the copies would lie on the originals."
-            elif kind == "story" and not v["stories"]:
-                why = "Tick the stories to copy to."
-            elif kind == "story" and not own:
-                why = "The selected objects are not on a story: use the Linear tab (dz) instead."
-            if why is None:
-                break
-            QtWidgets.QMessageBox.information(self, "Replicate", why)
+        ], self, extra=[("delete", "Delete original objects", False)], validate=why_not)
+        if not d.exec():
+            return
+        kind, v = d.result_values()
         sel = self._sel()
         strips = sorted(self.state.strips)
         if kind == "story":

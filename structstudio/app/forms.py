@@ -183,8 +183,12 @@ def ask(parent, title: str, fields: Sequence[tuple], note: Optional[str] = None)
 class TabbedFormDialog(QtWidgets.QDialog):
     """Several :class:`FormDialog`-style pages in tabs (e.g. Edit > Replicate)."""
 
-    def __init__(self, title: str, pages: Sequence[tuple], parent=None, extra: Sequence[tuple] = ()):
+    def __init__(self, title: str, pages: Sequence[tuple], parent=None, extra: Sequence[tuple] = (),
+                 validate=None):
+        """``validate(key, values) -> message or None``: OK with a message keeps the form
+        open (the message shown)."""
         super().__init__(parent)
+        self.validate = validate
         self.setWindowTitle(title)
         lay = QtWidgets.QVBoxLayout(self)
         self.tabs = QtWidgets.QTabWidget()
@@ -207,6 +211,18 @@ class TabbedFormDialog(QtWidgets.QDialog):
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
+
+    def accept(self):
+        if self.validate is not None:
+            try:
+                kind, vals = self.result_values()
+                why = self.validate(kind, vals)
+            except ValueError as exc:
+                why = f"Invalid number: {exc}"
+            if why:
+                QtWidgets.QMessageBox.information(self, self.windowTitle(), why)
+                return
+        super().accept()
 
     def result_values(self):
         i = self.tabs.currentIndex()

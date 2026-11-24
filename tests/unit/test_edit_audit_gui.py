@@ -105,20 +105,20 @@ def test_replicate_checks_and_story_list(app, tmp_path, monkeypatch):
 
         def fake_exec(dlg):
             runs["n"] += 1
-            if runs["n"] == 1:  # zero offset: refused, the form comes back
-                dlg.tabs.setCurrentIndex(0)
-                return 1
+            dlg.tabs.setCurrentIndex(0)
+            dlg.accept()  # zero offset: refused, the form stays open
+            assert said and "offset" in said[0] and dlg.result() != QtWidgets.QDialog.Accepted
             dlg.tabs.setCurrentIndex(2)
-            page = dlg.pages[2]
-            lst = page._widgets["stories"].list
+            lst = dlg.pages[2]._widgets["stories"].list
             names = [lst.item(i).text() for i in range(lst.count())]
             assert names == ["Story3", "Story2"]  # no Base, not its own story
             assert all(lst.item(i).checkState() == QtCore.Qt.Checked for i in range(lst.count()))
-            return 1
+            dlg.accept()
+            return dlg.result()
         monkeypatch.setattr(forms.TabbedFormDialog, "exec", fake_exec)
         n0 = len(m.frames)
         w.edit_replicate_tabs()
-        assert runs["n"] == 2 and said and "offset" in said[0]
+        assert runs["n"] == 1
         assert len(w.doc.model.frames) == n0 + 2
     finally:
         _close(w, app)
