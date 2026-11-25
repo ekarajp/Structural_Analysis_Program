@@ -489,13 +489,25 @@ class MenuCommandsMixin:
             return
         m = self.doc.model
         own = self._selection_stories()
-        tw = m.tower_of_story(own[0]) if (own and m.multi_tower) else None
-        bottom_up = m.stories_of(tw) if tw is not None else m.stories_bottom_up()
-        # Base (the lowest level) carries no story of objects; the selection's own story
-        # would only make copies on top of the originals
-        targets = [s.name for s in bottom_up[1:] if s.name not in own][::-1]
-        z_own = max((m.stories[s].elevation for s in own), default=None)
-        above = [n for n in targets if z_own is None or m.stories[n].elevation > z_own]
+        # a story takes the objects of its own tower: the list holds the stories of the
+        # towers the selection is in (each tower's own Base carries no objects; the
+        # selection's own story would only put copies on the originals)
+        if m.multi_tower and own:
+            tws = [t for t in m.towers if any(m.tower_of_story(st) == t for st in own)]
+        elif m.multi_tower:
+            tws = [m.default_tower() if self.doc.active_tower is None else self.doc.active_tower]
+        else:
+            tws = [None]
+        targets, above, labels = [], [], {}
+        for t in tws[::-1]:
+            bottom_up = m.stories_of(t) if t is not None else m.stories_bottom_up()
+            names = [s.name for s in bottom_up[1:] if s.name not in own][::-1]
+            mine = [st for st in own if t is None or m.tower_of_story(st) == t]
+            z_own = max((m.stories[st].elevation for st in mine), default=None)
+            targets += names
+            above += [n for n in names if z_own is None or m.stories[n].elevation > z_own]
+            if len(tws) > 1:
+                labels.update({n: f"{n}  ({t})" for n in names})
         def why_not(kind, v):
             """Why OK cannot make copies (the form stays open), or None."""
             if kind == "linear" and abs(v["dx"]) + abs(v["dy"]) + abs(v["dz"]) <= 1e-12:
@@ -529,8 +541,9 @@ class MenuCommandsMixin:
             ("radial", "Radial", [("cx", "Rotate about point  X", 0.0, {"item": "coordinates"}),
                                   ("cy", "Y", 0.0, {"item": "coordinates"}),
                                   ("angle", "Angle (deg)", 90.0), ("n", "Number", 1, {"min": 1, "max": 360})]),
-            ("story", "Story", [("stories", "Copy to stories" + (f" (from {', '.join(own)})" if own else ""),
-                                 above, {"checks": targets})]),
+            ("story", "Story", [("stories", "Copy to stories" + (f" (from {', '.join(own)})" if own else "")
+                                 + (" - each object to the stories of its own tower" if len(tws) > 1 else ""),
+                                 above, {"checks": targets, "labels": labels})]),
         ], self, extra=[("delete", "Delete original objects", False)], validate=why_not)
         if not d.exec():
             return
@@ -540,7 +553,9 @@ class MenuCommandsMixin:
         if kind == "story":
             from .tools import replicate_to_stories
             base = None
-            if len(own) > 1:  # several stories: what "copy to L3" means is the user's choice
+            # several stories of one tower: what "copy to L3" means is the user's choice (a
+            # selection in several towers goes object by object: a block cannot cross towers)
+            if len(own) > 1 and len(tws) == 1:
                 each = "Each object onto the ticked stories (at its height above its own story)"
                 blocks = {f"As one block, {st} onto the ticked stories (the others keep their place above it)": st
                           for st in own}

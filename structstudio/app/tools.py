@@ -2336,9 +2336,24 @@ def replicate_to_stories(doc: Document, frames: Sequence[str], areas: Sequence[s
     from .strip_commands import transform_strips
     notes: List[str] = []
 
+    multi = m.multi_tower
+    base_tw = m.tower_of_story(base_story) if base_story is not None else None
+
     def level_of(obj_story: Optional[str]) -> Optional[float]:
         st = base_story if base_story is not None else obj_story
         return m.stories[st].elevation if st in m.stories else None
+
+    def tower_of(kind: str, name: str) -> Optional[str]:
+        """The tower an object belongs to (None with one tower)."""
+        if not multi:
+            return None
+        if kind == "strip":
+            return m.tower_of_story(m.design_strips[name].story)
+        return m.tower_of_object(kind, name)
+
+    sel = [("strip", n) for n in strips] + [("point", n) for n in points] + \
+        [("frame", n) for n in frames] + [("area", n) for n in areas]
+    obj_tower = {key: tower_of(*key) for key in sel}
 
     def mutate(model: Model):
         kept = []
@@ -2346,66 +2361,120 @@ def replicate_to_stories(doc: Document, frames: Sequence[str], areas: Sequence[s
         src_frames = receiver_ends(model, [p for p in model.panel_loads.values() if p.area in sel_areas])
         sources = {base_story} if base_story is not None else set(own)
         targets = [st for st in stories if st in model.stories and not (len(sources) == 1 and st in sources)]
-        for st in targets:
-            zt = model.stories[st].elevation
-            cache: Dict[Tuple[str, float], Point] = {}
-            fmap: Dict[str, str] = {}
+        copied = set()  # the selected objects that got at least one copy
+        between = []
+        if multi and base_story is not None:
+            off = [st for st in targets if model.tower_of_story(st) != base_tw]
+            if off:
+                notes.append(f"{', '.join(off)}: not in tower {base_tw} of the base story {base_story} - "
+                             "nothing copied there (a block moves within its own tower)")
+            targets = [st for st in targets if st not in off]
+            other = sorted({t for key, t in obj_tower.items() if t != base_tw})
+            if other:
+                notes.append(f"{sum(1 for t in obj_tower.values() if t != base_tw)} selected object(s) of tower(s) "
+                             f"{', '.join(other)} not copied: the base story {base_story} is in tower {base_tw}")
+        if multi and base_story is None:
+            tws = {model.tower_of_story(st) for st in targets}
+            for t in sorted(set(obj_tower.values()) - tws):
+                k = sum(1 for v in obj_tower.values() if v == t)
+                notes.append(f"{k} selected object(s) of tower {t} not copied: no ticked story of tower {t} "
+                             "(objects go only to the stories of their own tower)")
+            for st in targets:
+                t = model.tower_of_story(st)
+                if t not in obj_tower.values():
+                    notes.append(f"{st} (tower {t}): no selected object is in tower {t} - nothing copied there")
+        saved_tower = getattr(model, "active_tower", None)
+        try:
+            for st in targets:
+                zt = model.stories[st].elevation
+                tw = model.tower_of_story(st) if multi else None
+                # new joints and members take the stories of the target's tower (a story of
+                # another tower at the same level - a tower on a podium - is not theirs)
+                model.active_tower = tw if multi else saved_tower
+                cache: Dict[Tuple[str, float], Point] = {}
+                fmap: Dict[str, str] = {}
 
-            def moved(name: str, dz: float) -> Point:
-                key = (name, round(dz, 9))
-                if key not in cache:
-                    p = model.points[name]
-                    existing = model.find_point(p.x, p.y, p.z + dz)
-                    q = existing or model.add_point(p.x, p.y, p.z + dz)
-                    if existing is None:
-                        clone_assignments(p, q)
-                    elif has_assignments(p) and existing.name != name:
-                        kept.append(existing.name)
-                    cache[key] = q
-                return cache[key]
+                def moved(name: str, dz: float) -> Point:
+                    key = (name, round(dz, 9))
+                    if key not in cache:
+                        p = model.points[name]
+                        existing = model.find_point(p.x, p.y, p.z + dz)
+                        q = existing or model.add_point(p.x, p.y, p.z + dz)
+                        if existing is None:
+                            clone_assignments(p, q)
+                        elif has_assignments(p) and existing.name != name:
+                            kept.append(existing.name)
+                        cache[key] = q
+                    return cache[key]
 
-            def shift(story: Optional[str]) -> Optional[float]:
-                z0 = level_of(story)
-                return None if z0 is None else zt - z0
+                def shift(kind: str, name: str, story: Optional[str]) -> Optional[float]:
+                    if multi and obj_tower[(kind, name)] != (base_tw if base_story is not None else tw):
+                        return None  # another tower's object
+                    z0 = level_of(story)
+                    return None if z0 is None else zt - z0
 
-            for n in strips:
-                dz = shift(model.design_strips[n].story)
-                if dz:
-                    created.extend(transform_strips(model, [n], lambda p, dz=dz: p + np.array([0.0, 0.0, dz]),
-                                                    copy=True, notes=notes))
-            for n in points:
-                dz = shift(model.points[n].story)
-                if dz:
-                    created.append(moved(n, dz).name)
-            for n in frames:
-                f = model.frames[n]
-                dz = shift(f.story)
-                if not dz:
-                    continue
-                g = _copy_frame(model, f, moved(f.point_i, dz), moved(f.point_j, dz), None)
-                g.story = model.story_for(g, "frame") or st
-                fmap[n] = g.name
-                created.append(g.name)
-            for n in areas:
-                a = model.areas[n]
-                dz = shift(a.story)
-                if not dz:
-                    continue
-                T = (lambda p, dz=dz: np.asarray(p, float) + np.array([0.0, 0.0, dz]))
-                b = _copy_area(model, a, [moved(p, dz) for p in a.points], None, T, fmap, src_frames, notes)
-                b.story = model.story_for(b, "area") or st
-                created.append(b.name)
+                def story_of(obj, kind: str) -> Optional[str]:
+                    if base_story is None:
+                        return st  # each object keeps its place: same height above its story
+                    s = model.story_for(obj, kind)
+                    if s is None:
+                        between.append(obj.name)
+                    return s
+
+                for n in strips:
+                    dz = shift("strip", n, model.design_strips[n].story)
+                    if dz:
+                        created.extend(transform_strips(model, [n], lambda p, dz=dz: p + np.array([0.0, 0.0, dz]),
+                                                        copy=True, notes=notes))
+                        copied.add(("strip", n))
+                for n in points:
+                    dz = shift("point", n, model.points[n].story)
+                    if dz:
+                        q = moved(n, dz)
+                        if base_story is None and q.story is None:
+                            q.story = st
+                        created.append(q.name)
+                        copied.add(("point", n))
+                for n in frames:
+                    f = model.frames[n]
+                    dz = shift("frame", n, f.story)
+                    if not dz:
+                        continue
+                    g = _copy_frame(model, f, moved(f.point_i, dz), moved(f.point_j, dz), None)
+                    g.story = story_of(g, "frame")
+                    fmap[n] = g.name
+                    created.append(g.name)
+                    copied.add(("frame", n))
+                for n in areas:
+                    a = model.areas[n]
+                    dz = shift("area", n, a.story)
+                    if not dz:
+                        continue
+                    T = (lambda p, dz=dz: np.asarray(p, float) + np.array([0.0, 0.0, dz]))
+                    b = _copy_area(model, a, [moved(p, dz) for p in a.points], None, T, fmap, src_frames, notes)
+                    b.story = story_of(b, "area")
+                    created.append(b.name)
+                    copied.add(("area", n))
+        finally:
+            model.active_tower = saved_tower
         if kept:
             notes.append(f"{len(set(kept))} copied joint(s) landed on existing joints ({', '.join(sorted(set(kept))[:6])}): "
                          "those joints keep their own supports, springs and loads")
-        if delete_original and targets:
-            _delete_originals(model, frames, areas, points, created)
+        if between:
+            notes.append(f"{len(between)} copied member(s) are between story levels ({', '.join(between[:6])}): "
+                         "they are on no story")
+        if delete_original and copied:
+            # only what was copied goes (an object with no target in its tower stays)
+            _delete_originals(model, [n for n in frames if ("frame", n) in copied],
+                              [n for n in areas if ("area", n) in copied],
+                              [n for n in points if ("point", n) in copied], created)
             for n in strips:
-                model.design_strips.pop(n, None)
+                if ("strip", n) in copied:
+                    model.design_strips.pop(n, None)
 
     (doc.edit_design if strips and not (frames or areas or points) else doc.edit)(mutate)
     for t in dict.fromkeys(notes):
-        doc.note(t, "info")
+        doc.note(t, "info" if created else "warning")  # nothing copied: say why in a message
     return created
 
 

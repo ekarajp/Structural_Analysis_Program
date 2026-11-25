@@ -9,6 +9,7 @@
     ("size", "Max size", None, {"optional": True})          # float or blank = None
     ("name", "Label", "P1")                                # text
     ("st", "Stories", ["S2"], {"checks": ["S2", "S3"]})     # names to tick (a list)
+    ("st", "Stories", [], {"checks": ["S2"], "labels": {"S2": "S2 (T1)"}})  # shown text per name
 
 ``values()`` returns {key: value}.  Groups of fields can be separated with
 ``("-", "Group title")``.
@@ -86,8 +87,10 @@ class FormDialog(QtWidgets.QDialog):
             v.setContentsMargins(0, 0, 0, 0)
             lst = QtWidgets.QListWidget()
             on = set(default or ())
+            labels = opts.get("labels") or {}
             for name in opts["checks"]:
-                it = QtWidgets.QListWidgetItem(str(name))
+                it = QtWidgets.QListWidgetItem(str(labels.get(name, name)))
+                it.setData(QtCore.Qt.UserRole, name)  # the value (the text may carry more)
                 it.setFlags(it.flags() | QtCore.Qt.ItemIsUserCheckable)
                 it.setCheckState(QtCore.Qt.Checked if name in on else QtCore.Qt.Unchecked)
                 lst.addItem(it)
@@ -126,6 +129,11 @@ class FormDialog(QtWidgets.QDialog):
         w = QtWidgets.QLineEdit("" if default is None else str(default))
         return w, "text"
 
+    @staticmethod
+    def _check_name(it) -> str:
+        v = it.data(QtCore.Qt.UserRole)
+        return it.text() if v is None else v
+
     def values(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {}
         for key, w in self._widgets.items():
@@ -133,7 +141,7 @@ class FormDialog(QtWidgets.QDialog):
             if kind == "bool":
                 out[key] = w.isChecked()
             elif kind == "checks":
-                out[key] = [w.list.item(i).text() for i in range(w.list.count())
+                out[key] = [self._check_name(w.list.item(i)) for i in range(w.list.count())
                             if w.list.item(i).checkState() == QtCore.Qt.Checked]
             elif kind == "int":
                 out[key] = w.value()
@@ -157,7 +165,7 @@ class FormDialog(QtWidgets.QDialog):
             on = set(value or ())
             for i in range(w.list.count()):
                 it = w.list.item(i)
-                it.setCheckState(QtCore.Qt.Checked if it.text() in on else QtCore.Qt.Unchecked)
+                it.setCheckState(QtCore.Qt.Checked if self._check_name(it) in on else QtCore.Qt.Unchecked)
         elif kind == "int":
             w.setValue(int(value))
         elif kind == "choice":
