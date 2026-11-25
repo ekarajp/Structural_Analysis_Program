@@ -395,26 +395,69 @@ class MenuCommandsMixin:
         self.dock_results.raise_()
 
     # --------------------------------------------------------------- Edit
-    def edit_copy(self):
-        if self._need_any():
-            strips = sorted(self.state.strips)
-            self.state.clipboard = C.copy_objects(self.doc.model, *self._sel(), strips=strips)
-            f, a, p = self._sel()
-            parts = [f"{len(f)} frame(s)", f"{len(a)} shell(s)", f"{len(p)} joint(s)"]
-            if strips:
-                parts.append(f"{len(strips)} design strip(s)")
-            self._info(f"Copied {', '.join(parts)} - Ctrl+V to place them")
+    def _free_panels(self) -> List[str]:
+        """The selected drawn load panels (an area load goes with its shell)."""
+        m = self.doc.model
+        return sorted(n for n in self.state.panels if n in m.panel_loads and not m.panel_loads[n].area)
+
+    def edit_copy(self) -> bool:
+        if not self._need_any():
+            return False
+        strips = sorted(self.state.strips)
+        panels = self._free_panels()
+        self.state.clipboard = C.copy_objects(self.doc.model, *self._sel(), strips=strips, panels=panels)
+        f, a, p = self._sel()
+        parts = [f"{len(f)} frame(s)", f"{len(a)} shell(s)", f"{len(p)} joint(s)"]
+        if panels:
+            parts.append(f"{len(panels)} load panel(s)")
+        if strips:
+            parts.append(f"{len(strips)} design strip(s)")
+        self._info(f"Copied {', '.join(parts)} - Ctrl+V to place them")
+        return True
 
     def edit_cut(self):
-        if self._need_any():
-            self.edit_copy()
-            self.state.delete_selected()
+        """Edit > Cut: what is on the clipboard goes from the model - nothing else.  An
+        area load selected without its shell stays (it belongs to the shell)."""
+        if not self.edit_copy():
+            return
+        st, m = self.state, self.doc.model
+        clip = st.clipboard
+        free = {p.name for p in clip.free_panels}
+        left = sorted(n for n in st.panels if n not in free and n in m.panel_loads)
+        from .tools import delete_objects
+        n = delete_objects(self.doc, list(st.frames), list(st.areas), list(st.points), panels=sorted(free),
+                           strips=sorted(st.strips))
+        st.set_selection()
+        j = getattr(delete_objects, "last_joints", 0)
+        st.status.emit(f"Cut {n} object(s)" + (f" and {j} joint(s)" if j else ""))
+        if left:
+            QtWidgets.QMessageBox.information(
+                self, "Cut", f"Area load(s) {', '.join(left[:6])} stay: an area load belongs to its shell "
+                "(cut the shell to take its loads with it).")
 
     def edit_paste(self):
         """Ctrl+V: the copied objects follow the cursor; click where they go (CAD paste)."""
         if not self.state.clipboard or self.state.clipboard.empty:
             QtWidgets.QMessageBox.information(self, "Paste", "Nothing to paste - use Edit > Copy first.")
             return
+        self.state.paste_conflict = None
+        clash = C.definition_conflicts(self.doc.model, self.state.clipboard)
+        if clash:  # the same name, a different definition (copied from another model)
+            names = ", ".join(f"{C.CONFLICT_WORDS[t]} {n}" for t, n in clash)
+            box = QtWidgets.QMessageBox(self)
+            box.setWindowTitle("Paste")
+            box.setIcon(QtWidgets.QMessageBox.Question)
+            box.setText(f"This model has {names} under the same name as the copied objects, but different.")
+            box.setInformativeText("Use this model's definitions (the pasted objects take its values), or bring "
+                                   "the copied definitions in under new names (the pasted objects keep theirs)?")
+            use = box.addButton("Use this model's", QtWidgets.QMessageBox.AcceptRole)
+            ren = box.addButton("Bring in under new names", QtWidgets.QMessageBox.AcceptRole)
+            box.addButton(QtWidgets.QMessageBox.Cancel)
+            box.setDefaultButton(ren)
+            box.exec()
+            if box.clickedButton() not in (use, ren):
+                return
+            self.state.paste_conflict = "existing" if box.clickedButton() is use else "rename"
         self.state.set_tool("paste")
 
     @property
@@ -459,6 +502,17 @@ class MenuCommandsMixin:
                 return "Give an offset (dx, dy or dz): with none the copies would lie on the originals."
             if kind == "radial" and abs(math.remainder(v["angle"], 360.0)) <= 1e-9:
                 return "Give an angle that is not 0 or a whole turn: the copies would lie on the originals."
+            if kind == "radial":  # a copy that comes round onto the originals (90 deg x 4)
+                k = next((k for k in range(1, int(v["n"]) + 1)
+                          if abs(math.remainder(k * v["angle"], 360.0)) <= 1e-6), None)
+                if k is not None and QtWidgets.QMessageBox.question(
+                        self, "Replicate", f"Copy {k} of {int(v['n'])} comes round onto the originals "
+                        f"({k} x {v['angle']:g} deg = a whole turn): it would lie on them and double their "
+                        f"stiffness and loads.\n\nMake the copies anyway?  (No: change the number - "
+                        f"{k - 1} copies make a full ring.)",
+                        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                        QtWidgets.QMessageBox.No) != QtWidgets.QMessageBox.Yes:
+                    return ""
             if kind == "story" and not v["stories"]:
                 return "Tick the stories to copy to."
             if kind == "story" and not own:
@@ -467,9 +521,13 @@ class MenuCommandsMixin:
 
         # mirror copies: Edit > Mirror (MM) draws the axis in the window
         d = TabbedFormDialog("Array / Replicate to Stories", [
-            ("linear", "Linear", [("dx", "dx", 0.0), ("dy", "dy", 0.0), ("dz", "dz", 0.0),
+            # (lengths in the display units of coordinates, shown by each field)
+            ("linear", "Linear", [("dx", "dx", 0.0, {"item": "coordinates"}),
+                                  ("dy", "dy", 0.0, {"item": "coordinates"}),
+                                  ("dz", "dz", 0.0, {"item": "coordinates"}),
                                   ("n", "Number", 1, {"min": 1, "max": 1000})]),
-            ("radial", "Radial", [("cx", "Rotate about point  X", 0.0), ("cy", "Y", 0.0),
+            ("radial", "Radial", [("cx", "Rotate about point  X", 0.0, {"item": "coordinates"}),
+                                  ("cy", "Y", 0.0, {"item": "coordinates"}),
                                   ("angle", "Angle (deg)", 90.0), ("n", "Number", 1, {"min": 1, "max": 360})]),
             ("story", "Story", [("stories", "Copy to stories" + (f" (from {', '.join(own)})" if own else ""),
                                  above, {"checks": targets})]),
@@ -481,9 +539,21 @@ class MenuCommandsMixin:
         strips = sorted(self.state.strips)
         if kind == "story":
             from .tools import replicate_to_stories
+            base = None
+            if len(own) > 1:  # several stories: what "copy to L3" means is the user's choice
+                each = "Each object onto the ticked stories (at its height above its own story)"
+                blocks = {f"As one block, {st} onto the ticked stories (the others keep their place above it)": st
+                          for st in own}
+                how = ask(self, "Replicate to Stories", [
+                    ("how", f"The selection is on {', '.join(own)}", each, {"choices": [each] + list(blocks)})],
+                    note="One block: every object moves by the same height, so objects of the upper stories "
+                         "land above the ticked stories.")
+                if not how:
+                    return
+                base = blocks.get(how["how"])
             made = self._try("Replicate", lambda: replicate_to_stories(self.doc, *sel, v["stories"],
                                                                        delete_original=v.get("delete", False),
-                                                                       strips=strips))
+                                                                       strips=strips, base_story=base))
         else:
             if kind == "linear":
                 T, rev = C.linear_transforms(v["dx"], v["dy"], v["dz"], v["n"]), False

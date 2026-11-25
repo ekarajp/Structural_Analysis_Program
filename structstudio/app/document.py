@@ -25,6 +25,13 @@ class Document:
         self.command_name: Optional[str] = None
         self.name_hint: Optional[Callable[[], Optional[str]]] = None
         self._names: Dict[int, str] = {}
+        # which state of the model is on screen, and which one is in the file: Undo / Redo
+        # back to the saved state clear the star (id of a snapshot -> its state)
+        self._state = 0
+        self._state_count = 0
+        self._saved_state: Optional[int] = 0
+        self._state_before = 0
+        self._states: Dict[int, int] = {}
         self._redo: List[str] = []
         self._listeners: List[Callable[[str], None]] = []
         # ETABS: after an analysis the model is locked (the results belong to it); an edit asks
@@ -120,6 +127,10 @@ class Document:
         if len(self._undo) > self.MAX_UNDO:
             self._undo.pop(0)
         self._redo.clear()
+        self._states[id(snap)] = self._state
+        self._state_before = self._state
+        self._state_count += 1
+        self._state = self._state_count
         name = self.command_name
         if not name and self.name_hint is not None:
             try:
@@ -203,6 +214,7 @@ class Document:
                 # nothing changed: no undo step, the redo history, the results and the
                 # "saved" state stay as they were
                 self._undo, self._redo = undo, redo
+                self._state = self._state_before
                 self._geometry_before = None
                 return
             if locked:
@@ -236,6 +248,7 @@ class Document:
         self.model.__dict__.clear()
         self.model.__dict__.update(restored.__dict__)
         self._undo, self._redo = undo, redo
+        self._state = self._state_before
 
     def edit_design(self, func: Callable[[Model], None], what: str = "design"):
         """A change of design data only (design preferences, Cd / Ie of the load cases,
@@ -253,6 +266,7 @@ class Document:
                 raise ModelError("NONFINITE_COORDINATE", "A coordinate is not a finite number; nothing was changed")
             if self._unchanged(self._undo[-1], thorough=True):
                 self._undo, self._redo = undo, redo  # nothing changed: no undo step
+                self._state = self._state_before
                 self._geometry_before = None
                 return
         except BaseException:
@@ -342,6 +356,8 @@ class Document:
         name = self._names.get(id(source[-1]), "Edit")
         target.append(snap)
         self._names[id(snap)] = name
+        self._states[id(snap)] = self._state
+        back = self._states.get(id(source[-1]))
         source.pop()
         self.model = other
         self.results = res if keep else None
@@ -350,7 +366,11 @@ class Document:
                 res.model = other  # (the results read the model they belong to)
             except Exception:
                 pass
-        self.dirty = True
+        if back is None:  # (a step from before the states were kept)
+            self._state_count += 1
+            back = self._state_count
+        self._state = back
+        self.dirty = self._state != self._saved_state  # back at what is in the file: no star
         self._emit("model")
         return True
 
@@ -368,6 +388,7 @@ class Document:
         self.locked = False
         self.path = None
         self.dirty = False
+        self._mark_saved()
         self.results = None
         self._undo.clear()
         self._redo.clear()
@@ -383,6 +404,7 @@ class Document:
             self.locked = False
             self.path = path
             self.dirty = False
+            self._mark_saved()
             report = ""
             self.results = None
             self._undo.clear()
@@ -401,6 +423,9 @@ class Document:
         self.locked = False
         self.path = None
         self.dirty = True
+        self._state_count += 1
+        self._state = self._state_count
+        self._saved_state = None  # (an imported model is not in any file of ours)
         self.results = None
         self._undo.clear()
         self._redo.clear()
@@ -415,7 +440,15 @@ class Document:
         self.model.to_json(path)
         self.path = path
         self.dirty = False
+        self._mark_saved()
         self._emit("file")
+
+    def _mark_saved(self):
+        """The model on screen is the one in the file."""
+        self._saved_state = self._state
+        if len(self._states) > 4 * self.MAX_UNDO + 50:
+            live = {id(x) for x in self._undo} | {id(x) for x in self._redo}
+            self._states = {k: v for k, v in self._states.items() if k in live}
 
     # ------------------------------------------------------------- results
     def set_results(self, results: Results, lock: bool = True):

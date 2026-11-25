@@ -186,7 +186,7 @@ class TabbedFormDialog(QtWidgets.QDialog):
     def __init__(self, title: str, pages: Sequence[tuple], parent=None, extra: Sequence[tuple] = (),
                  validate=None):
         """``validate(key, values) -> message or None``: OK with a message keeps the form
-        open (the message shown)."""
+        open (the message shown; an empty message: open without one)."""
         super().__init__(parent)
         self.validate = validate
         self.setWindowTitle(title)
@@ -219,8 +219,9 @@ class TabbedFormDialog(QtWidgets.QDialog):
                 why = self.validate(kind, vals)
             except ValueError as exc:
                 why = f"Invalid number: {exc}"
-            if why:
-                QtWidgets.QMessageBox.information(self, self.windowTitle(), why)
+            if why is not None:
+                if why:
+                    QtWidgets.QMessageBox.information(self, self.windowTitle(), why)
                 return
         super().accept()
 

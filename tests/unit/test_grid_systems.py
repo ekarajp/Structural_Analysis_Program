@@ -172,6 +172,17 @@ def test_gui_grid_systems_dialog(tmp_path, monkeypatch):
     assert len([g for g in mm.grid_lines if g.system == "C1" and g.direction == "T"]) == 8
     assert mm.grid_systems["G2"].rotation == 45.0
     assert [g.name for g in mm.grid_lines if g.system == "G1"] == ["A", "B", "C", "1", "2"]
+    # Cancel: the form changes nothing; Undo takes the systems added back to G1 only
+    k = len(w.doc._undo)
+    d2 = GridStoriesDialog(w.doc, w)
+    d2._add_system("Cylindrical")
+    d2.reject()
+    assert set(w.doc.model.grid_systems) == {"G1", "C1", "G2"} and len(w.doc._undo) == k
+    w.doc.undo()
+    assert set(w.doc.model.grid_systems) == {"G1"}
+    assert [g.name for g in w.doc.model.grid_lines] == ["A", "B", "C", "1", "2"]
+    w.doc.redo()
+    assert set(w.doc.model.grid_systems) == {"G1", "C1", "G2"}
     app.processEvents()
     for vp in w.views.viewports:
         vp.render()

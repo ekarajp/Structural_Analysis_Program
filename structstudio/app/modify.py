@@ -28,6 +28,7 @@ moved / copied members connect to the structure they are placed on.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import math
 import re
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
@@ -182,9 +183,15 @@ def transform_in_place(doc: Document, frames: Sequence[str], areas: Sequence[str
         if reverse_areas:
             for n in areas:
                 model.areas[n].points = model.areas[n].points[::-1]
-        for n in panels:
+        from ..model.area_panels import carry_panel
+        for n in panels:  # drawn panels: the polygon, span and X / Y loads turn with them
             pl = model.panel_loads[n]
             pl.points = [tuple(float(v) for v in T(np.array(q, float))) for q in pl.points]
+            carry_panel(model, pl, T)
+        moved_areas = set(areas)
+        for pl in model.panel_loads.values():  # area loads: their area's polygon comes by sync
+            if pl.area in moved_areas:
+                carry_panel(model, pl, T)
         if merge:
             _merge_points(model, names, max(model.options.merge_tolerance, 1e-6))
         _restory(model)
@@ -208,12 +215,19 @@ def copy_transformed(doc: Document, frames, areas, points, T: Transform, reverse
     s_before = set(doc.model.design_strips)
     copy_transformed.last_strips = []
 
+    from ..model.area_panels import carry_panel, receiver_ends
+    src_frames = receiver_ends(doc.model, [doc.model.panel_loads[n] for n in free])
+
     def panels_too(model: Model):  # in the same undo step as the objects
+        fmaps = getattr(replicate_transform, "last_fmaps", None) or [{}]
+        fmap = fmaps[-1] if (frames or areas or points or strips) else {}
         for n in free:
             pl = copy.deepcopy(model.panel_loads[n])
             pl.name = model._next_name("PL", model.panel_loads)
             pl.points = [tuple(float(v) for v in T(np.array(q, float))) for q in pl.points]
+            carry_panel(model, pl, T, fmap, src_frames, panel_notes)
             model.panel_loads[pl.name] = pl
+    panel_notes: List[str] = []
     if frames or areas or points or strips:
         created = replicate_transform(doc, list(frames), list(areas), list(points), [T], reverse_areas=reverse_areas,
                                       extra=panels_too if free else None, strips=strips)
@@ -221,6 +235,8 @@ def copy_transformed(doc: Document, frames, areas, points, T: Transform, reverse
         created = []
         if free:
             doc.edit(panels_too)
+    for t in dict.fromkeys(panel_notes):
+        doc.note(t, "info")
     m = doc.model
     copy_transformed.last_strips = [n for n in m.design_strips if n not in s_before]
     fr = [n for n in created if n in m.frames and n not in before[0]]
@@ -329,6 +345,49 @@ def trim_plan(model: Model, frame: str, plane: Plane, click: XYZ) -> Optional[Tu
     return (0.0 if lo is None else lo, 1.0 if hi is None else hi)
 
 
+def _trimmed_piece(g, src, L: float, lo: float, hi: float, piece_loads) -> None:
+    """Frame ``g`` is the part [lo, hi] (relative) of ``src`` (length L): the loads that
+    act on that part (a point load once, a distributed load cut where the frame was cut,
+    in its own relative / absolute convention), the hinges on it, and the end conditions
+    of the original ends it keeps - a cut end is a plain (continuous, unreleased) end."""
+    free3 = (0.0, 0.0, 0.0)
+    g.loads = piece_loads(src.loads, L, L * lo, L * hi, last=True)
+    span = (hi - lo) or 1.0
+    g.hinges = [dataclasses.replace(h, relative_distance=(h.relative_distance - lo) / span)
+                for h in src.hinges if lo - 1e-9 <= h.relative_distance <= hi + 1e-9]
+    if lo > 0.0:  # a cut end I
+        g.releases_i, g.fixity_i_trans, g.fixity_i_rot = (False,) * 6, free3, free3
+        g.end_offset_i, g.joint_offset_i = 0.0, free3
+    else:
+        g.releases_i, g.fixity_i_trans, g.fixity_i_rot = src.releases_i, src.fixity_i_trans, src.fixity_i_rot
+        g.end_offset_i, g.joint_offset_i = src.end_offset_i, src.joint_offset_i
+    if hi < 1.0:  # a cut end J
+        g.releases_j, g.fixity_j_trans, g.fixity_j_rot = (False,) * 6, free3, free3
+        g.end_offset_j, g.joint_offset_j = 0.0, free3
+    else:
+        g.releases_j, g.fixity_j_trans, g.fixity_j_rot = src.releases_j, src.fixity_j_trans, src.fixity_j_rot
+        g.end_offset_j, g.joint_offset_j = src.end_offset_j, src.joint_offset_j
+
+
+def _extended_loads(f, L0: float, L1: float, end: str) -> None:
+    """Frame ``f`` was lengthened from L0 to L1 at end ``end``: its loads (and hinges) stay
+    where they act along the member (the new part carries none; self weight and
+    temperature act on the whole member as before)."""
+    from ..model.frame_ops import _put, span
+    if L1 <= 1e-12 or abs(L1 - L0) <= 1e-12:
+        return
+    d = (L1 - L0) if end == "i" else 0.0
+    out = []
+    for ld in f.loads:
+        if ld.kind in ("gravity", "temperature"):
+            out.append(ld)
+            continue
+        xa, xb = span(ld, L0)
+        out.append(_put(ld, xa + d, xb + d, ld.value_a, ld.value_b, L1))
+    f.loads = out
+    f.hinges = [dataclasses.replace(h, relative_distance=(h.relative_distance * L0 + d) / L1) for h in f.hinges]
+
+
 def trim_frame(doc: Document, frame: str, plane: Plane, click: XYZ) -> str:
     """Quick trim (AutoCAD TRIM / Revit split-trim): cut away the part of the
     frame between the two cutting edges around the click (frames, shell edges,
@@ -339,19 +398,27 @@ def trim_frame(doc: Document, frame: str, plane: Plane, click: XYZ) -> str:
     t0, t1 = span
 
     def mutate(model: Model):
+        from ..model.frame_ops import piece_loads
         f = model.frames[frame]
+        old_i, old_j = f.point_i, f.point_j
         a, b = np.array(model.points[f.point_i].xyz), np.array(model.points[f.point_j].xyz)
+        L = float(np.linalg.norm(b - a))
+        src = copy.deepcopy(f)  # (loads, hinges and end conditions as they were)
         if t0 <= 0.0:
-            f.point_i = model.add_point(*(a + (b - a) * t1)).name
+            pieces = [(t1, 1.0)]
         elif t1 >= 1.0:
-            f.point_j = model.add_point(*(a + (b - a) * t0)).name
+            pieces = [(0.0, t0)]
         else:
-            pj = f.point_j
-            f.point_j = model.add_point(*(a + (b - a) * t0)).name
-            g = model.add_frame(model.add_point(*(a + (b - a) * t1)), pj, f.section, type=f.type,
-                                **_frame_kwargs(f))
-            g.loads = copy.deepcopy(f.loads)
-        for n in _unused_points(model):
+            pieces = [(0.0, t0), (t1, 1.0)]
+        for k, (lo, hi) in enumerate(pieces):
+            pi = old_i if lo <= 0.0 else model.add_point(*(a + (b - a) * lo)).name
+            pj = old_j if hi >= 1.0 else model.add_point(*(a + (b - a) * hi)).name
+            g = f if k == 0 else model.add_frame(model.points[pi], model.points[pj], f.section, type=f.type,
+                                                 **_frame_kwargs(src))
+            g.point_i, g.point_j = pi, pj
+            _trimmed_piece(g, src, L, lo, hi, piece_loads)
+        # only the old ends the trim left free go (not joints the user put elsewhere)
+        for n in _unused_points(model, {old_i, old_j}):
             model.points.pop(n, None)
         _restory(model)
 
@@ -396,11 +463,15 @@ def extend_frame(doc: Document, frame: str, plane: Plane, click: XYZ) -> str:
     def mutate(model: Model):
         f = model.frames[frame]
         q = model.add_point(*p).name
+        old = f.point_i if end == "i" else f.point_j
+        L0 = math.dist(model.points[f.point_i].xyz, model.points[f.point_j].xyz)
         if end == "i":
             f.point_i = q
         else:
             f.point_j = q
-        for n in _unused_points(model):
+        L1 = math.dist(model.points[f.point_i].xyz, model.points[f.point_j].xyz)
+        _extended_loads(f, L0, L1, end)
+        for n in _unused_points(model, {old}):  # (only the old end, if nothing else uses it)
             model.points.pop(n, None)
         _restory(model)
 
@@ -839,7 +910,8 @@ class PasteTool(ModifyTool):
             return None
         if getattr(clip, "base", None) is not None:
             return np.array(clip.base, float)
-        xyz = [p.xyz for p in clip.points.values()] + [q for ds in getattr(clip, "strips", ()) for q in ds.points]
+        xyz = [p.xyz for p in clip.points.values()] + [q for ds in getattr(clip, "strips", ()) for q in ds.points] \
+            + [q for pl in getattr(clip, "free_panels", ()) for q in pl.points]
         return np.array(xyz, float).min(axis=0)
 
     def step_hint(self) -> str:
@@ -854,7 +926,8 @@ class PasteTool(ModifyTool):
         p = self._p3(pt)
         d = self._offset(p)
         clip = self.state.clipboard
-        fr, ar, pts = paste_objects(self.doc, clip, float(d[0]), float(d[1]), float(d[2]))
+        fr, ar, pts = paste_objects(self.doc, clip, float(d[0]), float(d[1]), float(d[2]),
+                                    on_conflict=getattr(self.state, "paste_conflict", None))
         strips = list(getattr(paste_objects, "last_strips", []))
         self.state.status.emit(f"Pasted {len(fr)} frame(s), {len(ar)} shell(s)"
                                + (f", {len(strips)} design strip(s)" if strips else ""))
@@ -863,6 +936,10 @@ class PasteTool(ModifyTool):
         self.state.set_selection(fr, ar, () if (fr or ar) else pts)
         if strips:
             self.state.add_strips(strips)
+        panels = [n for n in getattr(paste_objects, "last_panels", []) if n in self.doc.model.panel_loads]
+        if panels:
+            self.state.panels |= set(panels)
+            self.state.selection_changed.emit()
         return True
 
     def preview(self, cursor) -> Preview:
@@ -882,6 +959,9 @@ class PasteTool(ModifyTool):
         for ds in getattr(clip, "strips", ())[:4000]:
             q = [tuple(np.add(p, d)) for p in ds.points]
             out += [(q[k], q[k + 1]) for k in range(len(q) - 1)]
+        for pl in getattr(clip, "free_panels", ())[:4000]:
+            q = [tuple(np.add(p, d)) for p in pl.points]
+            out += [(q[k], q[(k + 1) % len(q)]) for k in range(len(q))]
         pv.lines = out
         return pv
 

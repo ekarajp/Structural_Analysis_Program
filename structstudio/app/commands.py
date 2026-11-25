@@ -113,7 +113,8 @@ def _restory(model: Model) -> None:
         a.story = model.story_for(a, "area") or a.story
 
 
-def _unused_points(model: Model) -> List[str]:
+def _used_points(model: Model) -> set:
+    """Joints something refers to: frames, shells, line springs, links."""
     used = set()
     for f in model.frames.values():
         used |= {f.point_i, f.point_j}
@@ -121,9 +122,19 @@ def _unused_points(model: Model) -> List[str]:
         used |= set(a.points)
     for s in getattr(model, "line_springs", {}).values():
         used |= {s.point_i, s.point_j}
-    return [n for n, p in model.points.items()
-            if n not in used and not any(p.restraints) and not p.loads and not any(p.springs)
-            and not any(p.mass)]
+    for lk in getattr(model, "links", {}).values():
+        used |= {lk.point_i, lk.point_j}
+    return used
+
+
+def _unused_points(model: Model, candidates=None) -> List[str]:
+    """Joints nothing uses and with nothing assigned (supports, springs - rotational too -,
+    masses, loads, a diaphragm ...).  ``candidates``: only among these (a command tidies
+    up the joints it made free, not joints the user put elsewhere)."""
+    from ..model.point_ops import has_assignments
+    used = _used_points(model)
+    pool = model.points if candidates is None else {n: model.points[n] for n in candidates if n in model.points}
+    return [n for n, p in pool.items() if n not in used and not has_assignments(p)]
 
 
 # ------------------------------------------------------- copy / paste (Edit)
@@ -142,10 +153,12 @@ class Clipboard:
     units: object = None  # UnitSystem of the copied values
     definitions: Dict[str, dict] = field(default_factory=dict)  # table -> {name: definition}
     strips: list = field(default_factory=list)  # design strips (copies)
+    free_panels: list = field(default_factory=list)  # drawn load panels (no area of their own)
+    receiver_ends: Dict[str, tuple] = field(default_factory=dict)  # receiver frame -> (I, J) xyz
 
     @property
     def empty(self) -> bool:
-        return not (self.points or self.frames or self.areas or self.strips)
+        return not (self.points or self.frames or self.areas or self.strips or self.free_panels)
 
     def in_units(self, units) -> "Clipboard":
         """The same objects expressed in ``units``."""
@@ -167,6 +180,12 @@ class Clipboard:
                 q.points = [tuple(v * r for v in pt) for pt in getattr(q, "points", [])]
                 new.append(q)
             out.panels[k] = new
+        out.free_panels = []
+        for pl in self.free_panels:
+            q = cv(pl)
+            q.points = [tuple(v * r for v in pt) for pt in getattr(q, "points", [])]
+            out.free_panels.append(q)
+        out.receiver_ends = {k: tuple(tuple(v * r for v in e) for e in ends) for k, ends in self.receiver_ends.items()}
         out.definitions = {t: {n: cv(d) for n, d in table.items()} for t, table in self.definitions.items()}
         return out
 
@@ -208,9 +227,14 @@ def _definitions(model: Model, frames: Sequence[Frame], areas: Sequence[Area], p
 
 
 def copy_objects(model: Model, frames: Sequence[str], areas: Sequence[str], points: Sequence[str],
-                 strips: Sequence[str] = ()) -> Clipboard:
+                 strips: Sequence[str] = (), panels: Sequence[str] = ()) -> Clipboard:
+    """The selection on the clipboard: joints, frames, shells (with their area loads),
+    drawn load panels, design strips and the definitions they use."""
+    from ..model.area_panels import receiver_ends
     clip = Clipboard(units=model.units)
     clip.strips = [copy.deepcopy(model.design_strips[n]) for n in strips if n in model.design_strips]
+    clip.free_panels = [copy.deepcopy(model.panel_loads[n]) for n in panels
+                        if n in model.panel_loads and not model.panel_loads[n].area]
     for n in _sel_points(model, frames, areas, points):
         clip.points[n] = copy.deepcopy(model.points[n])
     clip.frames = [copy.deepcopy(model.frames[n]) for n in frames if n in model.frames]
@@ -218,7 +242,8 @@ def copy_objects(model: Model, frames: Sequence[str], areas: Sequence[str], poin
     for a in clip.areas:
         clip.panels[a.name] = [copy.deepcopy(p) for p in model.panel_loads.values() if p.area == a.name]
     clip.definitions = _definitions(model, clip.frames, clip.areas, list(clip.points.values()))
-    for lst in clip.panels.values():
+    clip.receiver_ends = receiver_ends(model, [p for lst in clip.panels.values() for p in lst] + clip.free_panels)
+    for lst in list(clip.panels.values()) + [clip.free_panels]:
         for pl in lst:
             for ld in getattr(pl, "loads", None) or []:
                 pat = getattr(ld, "pattern", None)
@@ -251,7 +276,7 @@ def _missing_definitions(model: Model, clip: Clipboard) -> Tuple[Dict[str, List[
             need("materials", getattr(clip.definitions[t][n], "material", None), "material")
     pats = {ld.pattern for f in clip.frames for ld in f.loads} | {ld.pattern for a in clip.areas for ld in a.loads}
     pats |= {ld.pattern for p in clip.points.values() for ld in list(p.loads) + list(p.ground_displacements)}
-    for lst in clip.panels.values():
+    for lst in list(clip.panels.values()) + [clip.free_panels]:
         for pl in lst:
             pats |= {getattr(ld, "pattern", None) for ld in getattr(pl, "loads", None) or []}
     for pat in sorted(x for x in pats if x):
@@ -262,7 +287,100 @@ def _missing_definitions(model: Model, clip: Clipboard) -> Tuple[Dict[str, List[
     return add, lost
 
 
-def paste_objects(doc: Document, clip: Clipboard, dx: float, dy: float, dz: float) -> Selection:
+def _same_definition(a, b, rel: float = 1e-9) -> bool:
+    """Two definitions alike in value (numbers to a relative ``rel``: a clipboard
+    converted to the model's units can differ in the last digits)."""
+    import dataclasses as _dc
+
+    def norm(v):
+        if _dc.is_dataclass(v) and not isinstance(v, type):
+            return {f.name: norm(getattr(v, f.name)) for f in _dc.fields(v)}
+        if isinstance(v, dict):
+            return {k: norm(x) for k, x in v.items()}
+        if isinstance(v, (list, tuple)):
+            return [norm(x) for x in v]
+        return v
+
+    def same(x, y):
+        if isinstance(x, bool) or isinstance(y, bool):
+            return x == y
+        if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+            return abs(float(x) - float(y)) <= rel * max(abs(float(x)), abs(float(y)), 1e-300)
+        if isinstance(x, dict) and isinstance(y, dict):
+            return x.keys() == y.keys() and all(same(x[k], y[k]) for k in x)
+        if isinstance(x, list) and isinstance(y, list):
+            return len(x) == len(y) and all(same(p, q) for p, q in zip(x, y))
+        return x == y
+    return same(norm(a), norm(b))
+
+
+def definition_conflicts(model: Model, clip: Clipboard) -> List[Tuple[str, str]]:
+    """(table, name) of the definitions the copied objects use that the model has under
+    the same name but different in value (a section B 0.30 deep copied into a model
+    whose B is 0.60 deep) - compared in the model's units."""
+    clip = clip.in_units(model.units)
+    out = []
+    for table in DEFINITION_TABLES:
+        mine = getattr(model, table, {})
+        for name, d in clip.definitions.get(table, {}).items():
+            if name in mine and not _same_definition(mine[name], d):
+                out.append((table, name))
+    return out
+
+
+def renamed_clipboard(model: Model, clip: Clipboard, names: Sequence[Tuple[str, str]]) -> Clipboard:
+    """A copy of ``clip`` in which the definitions ``names`` ((table, name)) get free
+    names in ``model`` ("B (2)"), with every reference to them changed (frames, shells,
+    section materials, loads of joints / frames / shells / panels, diaphragms)."""
+    out = copy.deepcopy(clip)
+    new: Dict[Tuple[str, str], str] = {}
+    for table, name in names:
+        k = 2
+        taken = set(getattr(model, table, {})) | set(out.definitions.get(table, {}))
+        while f"{name} ({k})" in taken:
+            k += 1
+        new[(table, name)] = f"{name} ({k})"
+
+    def ren(table, name):
+        return new.get((table, name), name)
+    for (table, name), nn in new.items():
+        d = out.definitions[table].pop(name)
+        if hasattr(d, "name"):
+            d.name = nn
+        out.definitions[table][nn] = d
+    for t in ("frame_sections", "shell_sections"):
+        for d in out.definitions.get(t, {}).values():
+            if getattr(d, "material", None):
+                d.material = ren("materials", d.material)
+            for g in getattr(d, "geometry", None) or []:
+                if isinstance(g, dict) and g.get("material"):
+                    g["material"] = ren("materials", g["material"])
+    for f in out.frames:
+        f.section = ren("frame_sections", f.section)
+        for ld in f.loads:
+            ld.pattern = ren("load_patterns", ld.pattern)
+    for a in out.areas:
+        if a.section:
+            a.section = ren("shell_sections", a.section)
+        a.diaphragm = ren("diaphragms", a.diaphragm) if a.diaphragm else a.diaphragm
+        for ld in a.loads:
+            ld.pattern = ren("load_patterns", ld.pattern)
+    for p in out.points.values():
+        p.diaphragm = ren("diaphragms", p.diaphragm) if p.diaphragm else p.diaphragm
+        for ld in list(p.loads) + list(p.ground_displacements):
+            ld.pattern = ren("load_patterns", ld.pattern)
+    for pl in [q for lst in out.panels.values() for q in lst] + out.free_panels:
+        for c in pl.loads:
+            c.pattern = ren("load_patterns", c.pattern)
+    return out
+
+
+CONFLICT_WORDS = {"materials": "material", "frame_sections": "frame section", "shell_sections": "shell section",
+                  "load_patterns": "load pattern", "diaphragms": "diaphragm"}
+
+
+def paste_objects(doc: Document, clip: Clipboard, dx: float, dy: float, dz: float,
+                  on_conflict: Optional[str] = None) -> Selection:
     """Paste a clipboard at an offset; returns the new (frames, areas, points).
 
     Definitions the objects need that the model does not have (a section copied
@@ -272,6 +390,8 @@ def paste_objects(doc: Document, clip: Clipboard, dx: float, dy: float, dz: floa
     before changing the model."""
     out: Selection = ([], [], [])
     paste_objects.last_strips = []
+    out_panels: List[str] = []
+    paste_objects.last_panels = out_panels
     if clip.empty:
         return out
     clip = clip.in_units(doc.model.units)
@@ -294,12 +414,19 @@ def paste_objects(doc: Document, clip: Clipboard, dx: float, dy: float, dz: floa
         for n in names:
             model.design_strips.pop(n, None)
 
-    if clip.strips and not (clip.points or clip.frames or clip.areas):
+    if clip.strips and not (clip.points or clip.frames or clip.areas or clip.free_panels):
         notes: List[str] = []
         doc.edit_design(strips_too)
         for t in dict.fromkeys(notes):
             doc.note(t, "info")
         return out
+    conflicts = definition_conflicts(doc.model, clip)
+    if conflicts and on_conflict not in ("existing", "rename"):
+        raise ModelError("DEFINITION_CONFLICT", "Cannot paste: this model has " + ", ".join(
+            f"{CONFLICT_WORDS[t]} {n!r}" for t, n in conflicts) + " under the same name but different - "
+            "choose to use this model's definitions or to bring the copied ones under new names")
+    if conflicts and on_conflict == "rename":
+        clip = renamed_clipboard(doc.model, clip, conflicts)
     add, lost = _missing_definitions(doc.model, clip)
     if lost:
         raise ModelError("MISSING_DEFINITION", "Cannot paste: the copied objects use " + ", ".join(lost) +
@@ -313,6 +440,9 @@ def paste_objects(doc: Document, clip: Clipboard, dx: float, dy: float, dz: floa
         added = [f"{t.replace('_', ' ')[:-1]} {n}" for t in DEFINITION_TABLES for n in add[t]]
         if added:
             notes.append("Paste added the definitions the objects use: " + ", ".join(added))
+        if conflicts and on_conflict == "existing":
+            notes.append("Paste used this model's " + ", ".join(f"{CONFLICT_WORDS[t]} {n}" for t, n in conflicts) +
+                         " (the copied ones of the same name were different)")
         new_pts: Dict[str, Point] = {}
         kept = []
         for n, p in clip.points.items():
@@ -327,18 +457,36 @@ def paste_objects(doc: Document, clip: Clipboard, dx: float, dy: float, dz: floa
         if kept:
             notes.append(f"{len(kept)} pasted joint(s) landed on existing joints ({', '.join(kept[:6])}"
                          f"{'...' if len(kept) > 6 else ''}): those joints keep their own supports, springs and loads")
+        from ..model.area_panels import area_polygon, carry_panel
+        fmap: Dict[str, str] = {}
         for f in clip.frames:
             g = model.add_frame(new_pts[f.point_i], new_pts[f.point_j], f.section, type=f.type, **_frame_kwargs(f))
             g.loads = copy.deepcopy(f.loads)
             out[0].append(g.name)
+            fmap[f.name] = g.name
+        shift = np.array([dx, dy, dz], float)
+
+        def T(p):
+            return np.asarray(p, float) + shift
         for a in clip.areas:
             b = model.add_area([new_pts[p] for p in a.points], a.section, type=a.type, **_area_kwargs(a))
             b.loads = copy.deepcopy(a.loads)
             for panel in clip.panels.get(a.name, []):
                 q = model.add_area_panel(b.name, copy.deepcopy(panel.loads), distribution=panel.distribution,
                                          span_dir=panel.span_dir)
-                q.receivers = panel.receivers
+                q.receivers = None if panel.receivers is None else list(panel.receivers)
+                q.label = panel.label
+                q.points = list(panel.points)
+                carry_panel(model, q, T, fmap, clip.receiver_ends, notes)
+                q.points = area_polygon(model, b)
             out[1].append(b.name)
+        for panel in clip.free_panels:  # drawn load panels (Cut / Copy keep them too)
+            q = copy.deepcopy(panel)
+            q.name = model._next_name("PL", model.panel_loads)
+            q.points = [tuple(float(v) for v in T(np.array(c, float))) for c in panel.points]
+            carry_panel(model, q, T, fmap, clip.receiver_ends, notes)
+            model.panel_loads[q.name] = q
+            out_panels.append(q.name)
         _restory_new(model, out)
         if clip.strips:
             strips_too(model)
@@ -379,6 +527,7 @@ def replicate_transform(doc: Document, frames: Sequence[str], areas: Sequence[st
     created: List[str] = []
     frames, areas, points = list(frames), list(areas), list(points)
     strips = [n for n in strips if n in doc.model.design_strips]
+    replicate_transform.last_fmaps = []  # per transform: original frame -> copy (``extra`` may use it)
     if not transforms or not (frames or areas or points or strips):
         return created
     notes: List[str] = []
@@ -396,11 +545,15 @@ def replicate_transform(doc: Document, frames: Sequence[str], areas: Sequence[st
         return created
 
     def mutate(model: Model):
+        from ..model.area_panels import receiver_ends
         kept: List[str] = []
         turned = False  # a copy kept directional values as assigned (not a plan rotation / mirror)
         tilted: List[str] = []
+        sel_areas = set(areas)
+        src_frames = receiver_ends(model, [p for p in model.panel_loads.values() if p.area in sel_areas])
         for T in transforms:
             cache: Dict[str, Point] = {}
+            fmap: Dict[str, str] = {}  # original frame -> its copy (load panels: receivers)
             rigid = _is_translation(T)
             A = None if rigid else plan_map(T)  # rotation about Z / mirror in a vertical plane
 
@@ -433,6 +586,7 @@ def replicate_transform(doc: Document, frames: Sequence[str], areas: Sequence[st
                     pi, pj = model.points[g.point_i], model.points[g.point_j]
                     turn_frame(g, A, vertical=math.hypot(pi.x - pj.x, pi.y - pj.y) <= model.options.merge_tolerance)
                 created.append(g.name)
+                fmap[n] = g.name
             for n in areas:
                 a = model.areas[n]
                 pts = [moved(p) for p in a.points]
@@ -442,8 +596,9 @@ def replicate_transform(doc: Document, frames: Sequence[str], areas: Sequence[st
                 b.loads = copy.deepcopy(a.loads)
                 if A is not None:
                     b.loads = turn_loads(b.loads, A, "area")
-                copy_area_panels(model, n, b.name)
+                copy_area_panels(model, n, b.name, T, fmap, src_frames, notes)
                 created.append(b.name)
+            replicate_transform.last_fmaps.append(dict(fmap))
             if strips:
                 created.extend(transform_strips(model, strips, T, copy=True, notes=notes))
         if tilted:

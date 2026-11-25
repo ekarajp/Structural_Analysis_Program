@@ -61,6 +61,7 @@ class ViewState(QtCore.QObject):
         self.panels: Set[str] = set()  # selected load panels
         self.strips: Set[str] = set()  # selected design strips
         self.clipboard = None  # Edit > Copy (commands.Clipboard); Ctrl+V pastes it at the cursor
+        self.paste_conflict = None  # Paste: "existing" | "rename" for definitions that clash (asked)
         # selection (shared by every window)
         self.frames: Set[str] = set()
         self.areas: Set[str] = set()
@@ -400,6 +401,8 @@ class ViewState(QtCore.QObject):
             return
         if self.nav_mode:
             self.set_nav_mode(None)
+        elif self.tool.name == "paste":
+            self.set_tool("select")  # Esc before the click: nothing is pasted (the preview goes)
         elif self.tool.points:
             self.tool.cancel()  # first Esc ends the current chain
         elif getattr(self.tool, "picks", None) and self.count:
@@ -491,10 +494,28 @@ class ViewState(QtCore.QObject):
         if self.grid_mode:  # Grid Mode: Delete removes the selected grid lines
             return self.delete_grid_selection()
         # one undo step; design strips alone: the analysis results stay
-        n = delete_objects(self.doc, self.frames, self.areas, self.points, panels=self.panels, strips=self.strips)
+        from .tools import deleted_joint_users
+        users = deleted_joint_users(self.doc.model, self.frames, self.areas, self.points)
+        with_users = True
+        if users["line_springs"] or users["links"]:
+            from PySide6 import QtWidgets
+            what = [f"line spring(s) {', '.join(users['line_springs'][:6])}" if users["line_springs"] else "",
+                    f"link(s) {', '.join(users['links'][:6])}" if users["links"] else ""]
+            b = QtWidgets.QMessageBox.question(
+                self.parent() if isinstance(self.parent(), QtWidgets.QWidget) else None, "Delete",
+                f"Selected joints are the ends of {' and '.join(w for w in what if w)}.\n\n"
+                "Yes: delete them with the joints.\nNo: keep those joints (and what ends on them).",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No | QtWidgets.QMessageBox.Cancel,
+                QtWidgets.QMessageBox.Yes)
+            if b == QtWidgets.QMessageBox.Cancel:
+                return 0
+            with_users = b == QtWidgets.QMessageBox.Yes
+        n = delete_objects(self.doc, self.frames, self.areas, self.points, panels=self.panels, strips=self.strips,
+                           with_users=with_users)
         self.frames, self.areas, self.points, self.panels = set(), set(), set(), set()
         self.strips = set()
-        self.status.emit(f"Deleted {n} object(s)")
+        j = getattr(delete_objects, "last_joints", 0)
+        self.status.emit(f"Deleted {n} object(s)" + (f" and {j} joint(s)" if j else ""))
         self.selection_changed.emit()
         return n
 

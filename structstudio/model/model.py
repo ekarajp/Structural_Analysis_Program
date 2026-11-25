@@ -1572,6 +1572,11 @@ class Model:
             for mat in (sec.core_material, sec.cover_material, sec.steel_material):
                 if mat and mat not in self.nonlinear_materials:
                     err("UNKNOWN_NL_MATERIAL", f"Fiber section {sname!r}: unknown material {mat!r}")
+        for sname, ls in getattr(self, "line_springs", {}).items():
+            for pt in (ls.point_i, ls.point_j):
+                if pt not in self.points:
+                    err("UNKNOWN_POINT", f"Line spring {sname!r} references unknown point {pt!r}",
+                        f"line_springs.{sname}")
         for lname, lk in self.links.items():
             if lk.property not in self.link_properties:
                 err("UNKNOWN_LINK_PROPERTY", f"Link {lname!r}: unknown property {lk.property!r}")

@@ -2125,20 +2125,52 @@ TOOLS: Dict[str, type] = {
 
 
 # ------------------------------------------------------------- selection ops
+def deleted_joint_users(model: Model, frames: Sequence[str] = (), areas: Sequence[str] = (),
+                        points: Sequence[str] = ()) -> Dict[str, List[str]]:
+    """Line springs and links that end on a selected joint that Delete would remove
+    ({"line_springs": [...], "links": [...]}) - they would be left without an end."""
+    frames, areas = set(frames), set(areas)
+    used = set()
+    for f in model.frames.values():
+        if f.name not in frames:
+            used |= {f.point_i, f.point_j}
+    for a in model.areas.values():
+        if a.name not in areas:
+            used |= set(a.points)
+    gone = {n for n in points if n in model.points and n not in used and _deletable_joint(model.points[n])}
+    return {"line_springs": sorted(n for n, ls in getattr(model, "line_springs", {}).items()
+                                   if ls.point_i in gone or ls.point_j in gone),
+            "links": sorted(n for n, lk in getattr(model, "links", {}).items()
+                            if lk.point_i in gone or lk.point_j in gone)}
+
+
+def _deletable_joint(p: Point) -> bool:
+    """A selected joint Delete removes: not a support and without loads (those stay)."""
+    return not any(p.restraints) and not p.loads
+
+
 def delete_objects(doc: Document, frames: Sequence[str] = (), areas: Sequence[str] = (),
-                   points: Sequence[str] = (), panels: Sequence[str] = (), strips: Sequence[str] = ()) -> int:
+                   points: Sequence[str] = (), panels: Sequence[str] = (), strips: Sequence[str] = (),
+                   with_users: bool = True) -> int:
     """Delete objects; points are only removed when nothing references them.  Load
     panels and design strips with them, in the same undo step (design strips alone:
-    a design edit - the analysis results stay)."""
+    a design edit - the analysis results stay).  A selected joint that a line spring
+    or a link ends on: with ``with_users`` they go with it, else the joint stays
+    (nothing is left pointing at a joint that is gone).  Returns the number of objects
+    deleted (frames, shells, load panels, strips, line springs, links); the joints
+    deleted: ``delete_objects.last_joints``."""
     frames, areas, points = set(frames), set(areas), set(points)
     panels = {n for n in panels if n in doc.model.panel_loads}
     strips = {n for n in strips if n in doc.model.design_strips}
-    count = len(frames) + len(areas)
     if strips and not (frames or areas or points or panels):
         doc.edit_design(lambda m: [m.design_strips.pop(n, None) for n in strips])
         return len(strips)
+    count = [0]
 
     def mutate(model: Model):
+        n0 = (len(model.frames), len(model.areas), len(model.points), len(model.panel_loads),
+              len(model.design_strips), len(getattr(model, "line_springs", {})), len(getattr(model, "links", {})))
+        users = deleted_joint_users(model, frames, areas, points)
         for n in panels:
             model.panel_loads.pop(n, None)
         for n in strips:
@@ -2149,21 +2181,31 @@ def delete_objects(doc: Document, frames: Sequence[str] = (), areas: Sequence[st
             model.areas.pop(n, None)
         for pn in [p.name for p in model.panel_loads.values() if p.area in areas]:
             del model.panel_loads[pn]  # area loads (panels made from the areas) go with them
-        used = {f.point_i for f in model.frames.values()} | {f.point_j for f in model.frames.values()}
-        for a in model.areas.values():
-            used |= set(a.points)
+        if with_users:
+            for n in users["line_springs"]:
+                model.line_springs.pop(n, None)
+            for n in users["links"]:
+                model.links.pop(n, None)
+        from .commands import _used_points
+        used = _used_points(model)
         for n in points:
             p = model.points.get(n)
-            if p is not None and n not in used and not any(p.restraints) and not p.loads:
+            if p is not None and n not in used and _deletable_joint(p):
                 model.points.pop(n)
         for g in model.groups.values():
             g.frames = [f for f in g.frames if f in model.frames]
             g.areas = [a for a in g.areas if a in model.areas]
             g.points = [p for p in g.points if p in model.points]
+        n1 = (len(model.frames), len(model.areas), len(model.points), len(model.panel_loads),
+              len(model.design_strips), len(getattr(model, "line_springs", {})), len(getattr(model, "links", {})))
+        diff = [a - b for a, b in zip(n0, n1)]
+        delete_objects.last_joints = diff[2]
+        count[0] = sum(diff) - diff[2]
 
-    if count or points or panels or strips:
+    delete_objects.last_joints = 0
+    if frames or areas or points or panels or strips:
         doc.edit(mutate)
-    return count + len(panels) + len(strips)
+    return count[0]
 
 
 def objects_in_window(model: Model, inside, story: Optional[str] = None) -> Tuple[List[str], List[str], List[str]]:
@@ -2182,25 +2224,24 @@ def objects_in_window(model: Model, inside, story: Optional[str] = None) -> Tupl
 
 # ------------------------------------------------------------ edit commands
 def _copy_frame(model: Model, f: Frame, pi: Point, pj: Point, story: Optional[str]) -> Frame:
-    import dataclasses
-    kw = {k: v for k, v in dataclasses.asdict(f).items()
-          if k not in ("name", "point_i", "point_j", "section", "type", "story", "loads", "label")}
-    # dataclass children need real objects, not dicts
-    kw["releases_i"], kw["releases_j"] = f.releases_i, f.releases_j
-    kw["modifiers"] = copy.deepcopy(f.modifiers)
-    kw["hinges"] = copy.deepcopy(f.hinges)
-    new = model.add_frame(pi, pj, f.section, type=f.type, story=story, **kw)
-    new.loads = [dataclasses.replace(ld) for ld in f.loads]
+    """A copy of frame ``f`` between ``pi`` and ``pj`` with every assignment it has
+    (releases, offsets, modifiers, hinges, insertion point, loads ...)."""
+    from .commands import _frame_kwargs
+    new = model.add_frame(pi, pj, f.section, type=f.type, story=story, **_frame_kwargs(f))
+    new.loads = copy.deepcopy(f.loads)
     return new
 
 
-def _copy_area(model: Model, a: Area, pts: List[Point], story: Optional[str]) -> Area:
-    import dataclasses
-    new = model.add_area(pts, a.section, type=a.type, story=story, diaphragm=a.diaphragm, angle=a.angle,
-                         modifiers=a.modifiers, mass_per_area=a.mass_per_area)
-    new.loads = [dataclasses.replace(ld) for ld in a.loads]
+def _copy_area(model: Model, a: Area, pts: List[Point], story: Optional[str], T=None, fmap=None,
+               src_frames=None, notes=None) -> Area:
+    """A copy of shell ``a`` on ``pts`` with every property it has (area spring, mesh
+    settings, pier / spandrel, modifiers, diaphragm, mass ...) and its area loads (load
+    panels; with the transform ``T`` of the copy the receivers go to the copies)."""
+    from .commands import _area_kwargs
+    new = model.add_area(pts, a.section, type=a.type, story=story, **_area_kwargs(a))
+    new.loads = copy.deepcopy(a.loads)
     from ..model.area_panels import copy_area_panels
-    copy_area_panels(model, a.name, new.name)  # its area loads (panels) come along
+    copy_area_panels(model, a.name, new.name, T, fmap, src_frames, notes)  # its area loads (panels) come along
     return new
 
 
@@ -2255,70 +2296,105 @@ def replicate_linear(doc: Document, frames: Sequence[str], areas: Sequence[str],
     return replicate_transform(doc, frames, areas, points, linear_transforms(dx, dy, dz, count))
 
 
+def selection_stories(model: Model, frames: Sequence[str], areas: Sequence[str], points: Sequence[str],
+                      strips: Sequence[str] = ()) -> List[str]:
+    """The stories the objects are on (bottom up); joints count only without members."""
+    out = {model.frames[n].story for n in frames if n in model.frames} | \
+        {model.areas[n].story for n in areas if n in model.areas}
+    if not out:
+        out = {model.points[n].story for n in points if n in model.points}
+    out |= {model.design_strips[n].story for n in strips if n in model.design_strips}
+    out = [st for st in out if st in model.stories]
+    return sorted(out, key=lambda st: model.stories[st].elevation)
+
+
 def replicate_to_stories(doc: Document, frames: Sequence[str], areas: Sequence[str], points: Sequence[str],
                          stories: Sequence[str], delete_original: bool = False,
-                         strips: Sequence[str] = ()) -> List[str]:
+                         strips: Sequence[str] = (), base_story: Optional[str] = None) -> List[str]:
     """Copy the selection to other stories (ETABS "Replicate > Story"): joints
-    with all their assignments, members with theirs, design strips; ``delete_original``
-    removes the copied objects afterwards (one undo step; strips only: a design edit)."""
+    with all their assignments, members and shells with all theirs (springs, mesh
+    settings, pier labels ...), area loads with their receivers, design strips;
+    ``delete_original`` removes the copied objects afterwards (one undo step; strips
+    only: a design edit).
+
+    Each object goes onto each target story at its height above its own story (a
+    selection on several stories puts each object on the target story).  With
+    ``base_story`` the selection moves as one block: every object by (target level -
+    level of ``base_story``), each object then on the story where it lands."""
     created: List[str] = []
     frames, areas, points = list(frames), list(areas), list(points)
     m = doc.model
     strips = [n for n in strips if n in m.design_strips]
-    src_story = None
-    for n in frames + areas:
-        obj = m.frames.get(n) or m.areas.get(n)
-        if obj is not None and obj.story:
-            src_story = obj.story
-            break
-    if src_story is None:
-        for n in points:
-            if m.points[n].story:
-                src_story = m.points[n].story
-                break
-    if src_story is None:
-        for n in strips:
-            if m.design_strips[n].story:
-                src_story = m.design_strips[n].story
-                break
-    if src_story is None or src_story not in m.stories:
+    own = selection_stories(m, frames, areas, points, strips)
+    if base_story is not None and base_story not in m.stories:
+        raise ModelError("UNKNOWN_STORY", f"There is no story {base_story!r}")
+    if not own and base_story is None:
         return created
-    z0 = m.stories[src_story].elevation
+    from ..model.area_panels import receiver_ends
     from ..model.point_ops import clone_assignments, has_assignments
     from .commands import _delete_originals
     from .strip_commands import transform_strips
     notes: List[str] = []
 
+    def level_of(obj_story: Optional[str]) -> Optional[float]:
+        st = base_story if base_story is not None else obj_story
+        return m.stories[st].elevation if st in m.stories else None
+
     def mutate(model: Model):
         kept = []
-        targets = [st for st in stories if st != src_story and st in model.stories]
+        sel_areas = set(areas)
+        src_frames = receiver_ends(model, [p for p in model.panel_loads.values() if p.area in sel_areas])
+        sources = {base_story} if base_story is not None else set(own)
+        targets = [st for st in stories if st in model.stories and not (len(sources) == 1 and st in sources)]
         for st in targets:
-            dz = model.stories[st].elevation - z0
-            if strips:
-                created.extend(transform_strips(model, strips, lambda p, dz=dz: p + np.array([0.0, 0.0, dz]),
-                                                copy=True, notes=notes))
-            cache: Dict[str, Point] = {}
+            zt = model.stories[st].elevation
+            cache: Dict[Tuple[str, float], Point] = {}
+            fmap: Dict[str, str] = {}
 
-            def moved(name: str) -> Point:
-                if name not in cache:
+            def moved(name: str, dz: float) -> Point:
+                key = (name, round(dz, 9))
+                if key not in cache:
                     p = model.points[name]
                     existing = model.find_point(p.x, p.y, p.z + dz)
                     q = existing or model.add_point(p.x, p.y, p.z + dz)
                     if existing is None:
                         clone_assignments(p, q)
-                    elif has_assignments(p):
+                    elif has_assignments(p) and existing.name != name:
                         kept.append(existing.name)
-                    cache[name] = q
-                return cache[name]
+                    cache[key] = q
+                return cache[key]
 
+            def shift(story: Optional[str]) -> Optional[float]:
+                z0 = level_of(story)
+                return None if z0 is None else zt - z0
+
+            for n in strips:
+                dz = shift(model.design_strips[n].story)
+                if dz:
+                    created.extend(transform_strips(model, [n], lambda p, dz=dz: p + np.array([0.0, 0.0, dz]),
+                                                    copy=True, notes=notes))
             for n in points:
-                created.append(moved(n).name)
+                dz = shift(model.points[n].story)
+                if dz:
+                    created.append(moved(n, dz).name)
             for n in frames:
                 f = model.frames[n]
-                created.append(_copy_frame(model, f, moved(f.point_i), moved(f.point_j), st).name)
+                dz = shift(f.story)
+                if not dz:
+                    continue
+                g = _copy_frame(model, f, moved(f.point_i, dz), moved(f.point_j, dz), None)
+                g.story = model.story_for(g, "frame") or st
+                fmap[n] = g.name
+                created.append(g.name)
             for n in areas:
                 a = model.areas[n]
-                created.append(_copy_area(model, a, [moved(p) for p in a.points], st).name)
+                dz = shift(a.story)
+                if not dz:
+                    continue
+                T = (lambda p, dz=dz: np.asarray(p, float) + np.array([0.0, 0.0, dz]))
+                b = _copy_area(model, a, [moved(p, dz) for p in a.points], None, T, fmap, src_frames, notes)
+                b.story = model.story_for(b, "area") or st
+                created.append(b.name)
         if kept:
             notes.append(f"{len(set(kept))} copied joint(s) landed on existing joints ({', '.join(sorted(set(kept))[:6])}): "
                          "those joints keep their own supports, springs and loads")

@@ -58,9 +58,55 @@ def _panels_of(m: Model, area: str):
 
 
 # ------------------------------------------------------------- Merge Shells
+_SHAPE_FIELDS = ("name", "points", "label", "story", "mesh_divisions", "edge_releases")
+_FIELD_WORDS = {"spring": "area spring", "loads": "loads", "diaphragm": "diaphragm", "modifiers": "modifiers",
+                "lateral_modifiers": "lateral modifiers", "mass_per_area": "added mass", "angle": "local axes",
+                "pier": "pier", "spandrel": "spandrel", "max_mesh_size": "mesh size", "fine_mesh": "fine mesh",
+                "auto_mesh": "auto mesh", "mesh_type": "mesh type"}
+
+
+def _panel_key(p) -> tuple:
+    """What a load panel does (not its name, polygon or area)."""
+    return (p.distribution, None if p.span_dir is None else tuple(round(float(c), 9) for c in p.span_dir),
+            repr(p.loads), None if p.receivers is None else tuple(sorted(p.receivers)))
+
+
+def _merge_differences(m, a: str, b: str) -> List[str]:
+    """What shells ``a`` and ``b`` have differently that one merged shell cannot keep:
+    properties, area springs, loads (load panels, by pattern, value, direction and
+    distribution), groups, edge releases.  Empty: they merge into an equal shell."""
+    import dataclasses
+    A, B = m.areas[a], m.areas[b]
+    out = []
+    for fl in dataclasses.fields(A):
+        if fl.name in _SHAPE_FIELDS:
+            continue
+        va, vb = getattr(A, fl.name), getattr(B, fl.name)
+        if fl.name == "diaphragm" and (va is None or vb is None):
+            continue  # one floor: the merged shell is in the diaphragm (as its level's floors are)
+        if va != vb:
+            word = _FIELD_WORDS.get(fl.name, fl.name.replace("_", " "))
+            if fl.name in ("spring", "mass_per_area", "max_mesh_size") and va is not None and vb is not None:
+                word += f" ({va:g} / {vb:g})"
+            out.append(word)
+    if sorted(map(_panel_key, (p for p in m.panel_loads.values() if p.area == a))) != \
+            sorted(map(_panel_key, (p for p in m.panel_loads.values() if p.area == b))):
+        out.append("area loads")
+    ga = sorted(g for g, grp in m.groups.items() if a in grp.areas)
+    gb = sorted(g for g, grp in m.groups.items() if b in grp.areas)
+    if ga != gb:
+        out.append("groups")
+    if any(A.edge_releases or ()) or any(B.edge_releases or ()):
+        out.append("edge releases")
+    return out
+
+
 def merge_shells(doc: Document, areas: Sequence[str]) -> Result:
     """Selected coplanar shells with the same section and type that share edges
-    become one shell (the first selected keeps its name, properties and loads).
+    become one shell (the first in the model keeps its name).  Only shells that are
+    alike merge: the same properties, area springs, loads and groups (a merged shell
+    has one of each, so the loads and supports of the floor stay as they were); shells
+    that differ are left as they are and the difference is reported.
 
     Edges that only partly coincide (a T-junction) are handled: the joints of the
     neighbours on an edge are inserted first.  Joints left in the middle of a
@@ -69,7 +115,8 @@ def merge_shells(doc: Document, areas: Sequence[str]) -> Result:
     """
     m = doc.model
     tol = _tol(m)
-    names = [n for n in dict.fromkeys(areas) if n in m.areas]
+    chosen = set(areas)
+    names = [n for n in m.areas if n in chosen]  # (model order: the result never hangs on click order)
     notes: List[str] = []
     groups: List[dict] = []
     for n in names:
@@ -151,6 +198,9 @@ def merge_shells(doc: Document, areas: Sequence[str]) -> Result:
             if any(len(v) > 1 for v in nxt.values()):
                 notes.append(f"{label}: the shells only touch at a corner - not merged")
                 continue
+            if not nxt:  # every edge shared twice: the shells lie on each other
+                notes.append(f"{label}: the shells lie on each other (the same edges) - not merged")
+                continue
             start = polys[comp[0]][0] if polys[comp[0]][0] in nxt else next(iter(nxt))
             loop, cur = [start], nxt[start][0]
             while cur is not None and cur != start and len(loop) <= len(nxt):
@@ -182,9 +232,14 @@ def merge_shells(doc: Document, areas: Sequence[str]) -> Result:
             if flipped[comp[0]]:
                 loop = [loop[0]] + loop[1:][::-1]
             keep = comp[0]
-            for n in comp[1:]:
-                if m.areas[n].loads != m.areas[keep].loads or _panels_of(m, n) != _panels_of(m, keep):
-                    notes.append(f"{n}: its loads differ from {keep}'s - the merged shell has {keep}'s loads")
+            # one shell carries one set of properties and loads: shells that differ would
+            # change the loads / supports of part of the floor - left as they are
+            diff = [(n, _merge_differences(m, keep, n)) for n in comp[1:]]
+            diff = [(n, d) for n, d in diff if d]
+            if diff:
+                notes.append(f"{label}: not merged - " + "; ".join(
+                    f"{n} differs from {keep} in {', '.join(d)}" for n, d in diff))
+                continue
             plans.append((keep, loop, comp[1:]))
 
     if not plans:
@@ -199,6 +254,8 @@ def merge_shells(doc: Document, areas: Sequence[str]) -> Result:
             a.points = list(loop)
             if len(loop) != 4:
                 a.mesh_divisions = None
+            if a.diaphragm is None:  # (alike but for a diaphragm one of them had)
+                a.diaphragm = next((model.areas[n].diaphragm for n in removed if model.areas[n].diaphragm), None)
             for n in removed:
                 model.areas.pop(n)
             a.story = model.story_for(a, "area") or a.story
