@@ -66,16 +66,26 @@ def _line_key(a: np.ndarray, b: np.ndarray, tol: float):
     return (tuple(np.round(d, 6)), tuple(np.round(foot / q).astype(int)))
 
 
-def _frame_index(model, tol: float):
+def _frame_index(model, tol: float, only: Optional[Set[str]] = None):
     """(frames by their two joints, frames by the line they lie on: (name, t0, t1) along
     the line).  All frames at once (this runs after every command that makes or moves a
-    member): the keys are those of :func:`_line_key`."""
+    member): the keys are those of :func:`_line_key`.  ``only``: just the entries of
+    these frames - the frames on their joints and on their lines (the lines of every
+    frame are worked out as arrays; the dictionaries, the slow part in a large model,
+    hold what the frames asked about need)."""
     pairs: Dict[frozenset, List[str]] = {}
     lines: Dict[tuple, List[Tuple[str, float, float]]] = {}
     pts = model.points
     frames = [f for f in model.frames.values() if f.point_i in pts and f.point_j in pts]
-    for f in frames:
-        pairs.setdefault(frozenset((f.point_i, f.point_j)), []).append(f.name)
+    if only is not None:
+        wanted = {frozenset((f.point_i, f.point_j)) for f in frames if f.name in only}
+        for f in frames:
+            key = frozenset((f.point_i, f.point_j))
+            if key in wanted:
+                pairs.setdefault(key, []).append(f.name)
+    else:
+        for f in frames:
+            pairs.setdefault(frozenset((f.point_i, f.point_j)), []).append(f.name)
     if not frames:
         return pairs, lines
     A = np.array([pts[f.point_i].xyz for f in frames], float)
@@ -97,12 +107,17 @@ def _frame_index(model, tol: float):
         Fk = np.round(foot / q)
     T0, T1 = np.einsum("ij,ij->i", A, Dk), np.einsum("ij,ij->i", B, Dk)
     lo, hi = np.minimum(T0, T1), np.maximum(T0, T1)
+    rows = np.flatnonzero(ok)
+    if only is not None:
+        # the frames on the lines of the frames asked about: rows with the same key
+        K = np.ascontiguousarray(np.hstack([Dk, Fk]) + 0.0)  # (+ 0.0: -0.0 is 0.0, as in a tuple key)
+        V = K.view([("", K.dtype)] * K.shape[1]).ravel()
+        mine = np.array([f.name in only for f in frames], bool) & ok
+        rows = np.flatnonzero(ok & np.isin(V, V[mine])) if mine.any() else rows[:0]
     Dl, Fl = Dk.tolist(), Fk.tolist()
-    for k, f in enumerate(frames):
-        if not ok[k]:
-            continue
+    for k in rows.tolist():
         key = (tuple(Dl[k]), tuple(int(v) for v in Fl[k]))
-        lines.setdefault(key, []).append((f.name, float(lo[k]), float(hi[k])))
+        lines.setdefault(key, []).append((frames[k].name, float(lo[k]), float(hi[k])))
     return pairs, lines
 
 
@@ -143,8 +158,8 @@ def duplicates_of(model, frames: Iterable[str] = (), areas: Iterable[str] = ()) 
     areas = [n for n in areas if n in model.areas]
     out: List[GeometryIssue] = []
     if frames:
-        pairs, lines = _frame_index(model, tol)
         mine = set(frames)
+        pairs, lines = _frame_index(model, tol, mine if len(mine) < len(model.frames) else None)
         seen: Set[frozenset] = set()
         for n in frames:
             f = model.frames[n]
@@ -293,28 +308,38 @@ def _near_misses(model, tol, only: Optional[Set[str]] = None) -> List[GeometryIs
     frames = [g for g in model.frames.values() if g.type != "Null" and g.point_i in model.points and g.point_j in model.points]
     A = np.array([model.points[g.point_i].xyz for g in frames], float)
     B = np.array([model.points[g.point_j].xyz for g in frames], float)
+    if len(frames):
+        ab = B - A
+        L2 = np.maximum(np.einsum("ij,ij->i", ab, ab), 1e-30)
+        flo, fhi = np.minimum(A, B) - near, np.maximum(A, B) + near
     out = []
     for f, q in ends:
         x = np.array(model.points[q].xyz, float)
         other = f.point_j if q == f.point_i else f.point_i
-        d = np.linalg.norm(X - x, axis=1)
+        # the joints / members within ``near`` of the end, nearest first (the nearest six,
+        # as before; only what is inside the box around the end is measured - a copy with
+        # hundreds of free ends in a large model measured every joint and member for each)
+        box = np.flatnonzero(np.all(np.abs(X - x) <= near, axis=1))
+        d = np.linalg.norm(X[box] - x, axis=1)
+        box, d = box[d <= near], d[d <= near]
         best = None
-        for k in np.argsort(d)[:6]:
-            if names[k] in (q, other) or not (tol < d[k] <= near):
+        for j in np.argsort(d, kind="stable")[:6]:
+            k = box[j]
+            if names[k] in (q, other) or not (tol < d[j] <= near):
                 continue
-            best = (float(d[k]), f"joint {names[k]}")
+            best = (float(d[j]), f"joint {names[k]}")
             break
         if best is None and len(frames):
-            ab = B - A
-            L2 = np.maximum(np.einsum("ij,ij->i", ab, ab), 1e-30)
-            t = np.clip(np.einsum("ij,ij->i", x - A, ab) / L2, 0.0, 1.0)
-            dist = np.linalg.norm(A + t[:, None] * ab - x, axis=1)
-            for k in np.argsort(dist)[:6]:
-                g = frames[k]
+            box = np.flatnonzero(np.all((flo <= x) & (fhi >= x), axis=1))
+            t = np.clip(np.einsum("ij,ij->i", x - A[box], ab[box]) / L2[box], 0.0, 1.0)
+            dist = np.linalg.norm(A[box] + t[:, None] * ab[box] - x, axis=1)
+            box, dist = box[dist <= near], dist[dist <= near]
+            for j in np.argsort(dist, kind="stable")[:6]:
+                g = frames[box[j]]
                 if g.name == f.name or q in (g.point_i, g.point_j) or other in (g.point_i, g.point_j):
                     continue
-                if tol < dist[k] <= near:
-                    best = (float(dist[k]), f"{g.type.lower()} {g.name}")
+                if tol < dist[j] <= near:
+                    best = (float(dist[j]), f"{g.type.lower()} {g.name}")
                 break
         if best is not None:
             out.append(GeometryIssue(
@@ -381,16 +406,29 @@ def _area_overlaps(model, tol, only: Optional[Set[str]] = None) -> List[Geometry
             if a.type in ("Floor", "Wall") and len(a.points) >= 3 and all(q in model.points for q in a.points)]
     if only is not None and cand:
         # only the areas whose box meets the box of one of the areas asked about can overlap
-        # it (the others are not looked at: this runs after every command)
+        # it (the others are not looked at: this runs after every command).  Boxes as
+        # arrays: a story copied in a 50 000 object model took 2.3 s here as Python loops
         pts = model.points
-        boxes = {}
-        for a in cand:
+        lo = np.empty((len(cand), 3))
+        hi = np.empty((len(cand), 3))
+        for k, a in enumerate(cand):
             X = [pts[q].xyz for q in a.points]
-            boxes[a.name] = (tuple(min(c) for c in zip(*X)), tuple(max(c) for c in zip(*X)))
-        mine = [boxes[n] for n in only if n in boxes]
+            lo[k] = [min(c) for c in zip(*X)]
+            hi[k] = [max(c) for c in zip(*X)]
+        mine = np.array([a.name in only for a in cand], bool)
         e = max(tol, 1e-9)
-        cand = [a for a in cand if any(all(boxes[a.name][0][k] <= hi[k] + e and boxes[a.name][1][k] >= lo[k] - e
-                                           for k in range(3)) for lo, hi in mine)]
+        keep = np.zeros(len(cand), bool)
+        if mine.any():
+            mlo, mhi = lo[mine], hi[mine]
+            # first the box of all of them (most of a large model is nowhere near) ...
+            near = np.flatnonzero(np.all((lo <= mhi.max(axis=0) + e) & (hi >= mlo.min(axis=0) - e), axis=1))
+            # ... then box against box, in blocks (memory)
+            step = max(1, 2_000_000 // max(len(mlo), 1))
+            for s0 in range(0, len(near), step):
+                idx = near[s0:s0 + step]
+                meet = np.all((lo[idx, None, :] <= mhi[None, :, :] + e) & (hi[idx, None, :] >= mlo[None, :, :] - e), axis=2)
+                keep[idx] = meet.any(axis=1)
+        cand = [a for a, k in zip(cand, keep) if k]
     for a in cand:
         n, P = _plane_key(model, a, tol)
         if n is None:
@@ -408,34 +446,41 @@ def _area_overlaps(model, tol, only: Optional[Set[str]] = None) -> List[Geometry
         u = u / np.linalg.norm(u)
         v = np.cross(n, u)
         polys = [(a, [(float(p @ u), float(p @ v)) for p in P]) for a, _, P in items]
-        boxes = [(min(x for x, _ in pg), min(y for _, y in pg), max(x for x, _ in pg), max(y for _, y in pg))
-                 for _, pg in polys]
-        for i in range(len(polys)):
-            for j in range(i + 1, len(polys)):
-                bi, bj = boxes[i], boxes[j]
-                if bi[0] >= bj[2] - eps or bj[0] >= bi[2] - eps or bi[1] >= bj[3] - eps or bj[1] >= bi[3] - eps:
-                    continue
-                (a, pa), (b, pb) = polys[i], polys[j]
-                if only is not None and a.name not in only and b.name not in only:
-                    continue
-                if set(a.points) == set(b.points):
-                    continue  # (drawn twice: the duplicate check says so)
-                hit = any(_inside_2d(p, pb, eps) == 1 for p in pa) or any(_inside_2d(p, pa, eps) == 1 for p in pb)
-                if not hit:
-                    ca = (sum(x for x, _ in pa) / len(pa), sum(y for _, y in pa) / len(pa))
-                    cb = (sum(x for x, _ in pb) / len(pb), sum(y for _, y in pb) / len(pb))
-                    hit = (_inside_2d(ca, pb, eps) == 1 and _inside_2d(ca, pa, eps) == 1) or \
-                          (_inside_2d(cb, pa, eps) == 1 and _inside_2d(cb, pb, eps) == 1)
-                if not hit:
-                    hit = any(_cross_properly(pa[k], pa[(k + 1) % len(pa)], pb[l], pb[(l + 1) % len(pb)], 1e-9)
-                              for k in range(len(pa)) for l in range(len(pb)))
-                if hit:
-                    what = "floors" if a.type == "Floor" else "walls"
-                    out.append(GeometryIssue(
-                        "warning", "AREAS_OVERLAP",
-                        f"{what} {a.name} and {b.name} overlap: where they overlap the {a.type.lower()} is there twice "
-                        f"- its weight, loads and stiffness counted twice. Reshape one so they only meet at their edges",
-                        areas=[a.name, b.name]))
+        B = np.array([(min(x for x, _ in pg), min(y for _, y in pg), max(x for x, _ in pg), max(y for _, y in pg))
+                      for _, pg in polys], float)
+        # the pairs whose boxes meet, with at least one of the areas asked about (each
+        # pair once, lower index first: the order of the plain double loop)
+        asked = np.array([only is None or a.name in only for a, _ in polys], bool)
+        order = np.arange(len(polys))
+        pairs = []
+        for i in np.flatnonzero(asked):
+            meet = ~((B[i, 0] >= B[:, 2] - eps) | (B[:, 0] >= B[i, 2] - eps) |
+                     (B[i, 1] >= B[:, 3] - eps) | (B[:, 1] >= B[i, 3] - eps))
+            meet &= (order > i) | ~asked  # (a pair of two asked about: from the lower one)
+            meet[i] = False
+            pairs += [(min(i, int(j)), max(i, int(j))) for j in np.flatnonzero(meet)]
+        for i, j in sorted(pairs):
+            (a, pa), (b, pb) = polys[i], polys[j]
+            if only is not None and a.name not in only and b.name not in only:
+                continue
+            if set(a.points) == set(b.points):
+                continue  # (drawn twice: the duplicate check says so)
+            hit = any(_inside_2d(p, pb, eps) == 1 for p in pa) or any(_inside_2d(p, pa, eps) == 1 for p in pb)
+            if not hit:
+                ca = (sum(x for x, _ in pa) / len(pa), sum(y for _, y in pa) / len(pa))
+                cb = (sum(x for x, _ in pb) / len(pb), sum(y for _, y in pb) / len(pb))
+                hit = (_inside_2d(ca, pb, eps) == 1 and _inside_2d(ca, pa, eps) == 1) or \
+                      (_inside_2d(cb, pa, eps) == 1 and _inside_2d(cb, pb, eps) == 1)
+            if not hit:
+                hit = any(_cross_properly(pa[k], pa[(k + 1) % len(pa)], pb[l], pb[(l + 1) % len(pb)], 1e-9)
+                          for k in range(len(pa)) for l in range(len(pb)))
+            if hit:
+                what = "floors" if a.type == "Floor" else "walls"
+                out.append(GeometryIssue(
+                    "warning", "AREAS_OVERLAP",
+                    f"{what} {a.name} and {b.name} overlap: where they overlap the {a.type.lower()} is there twice "
+                    f"- its weight, loads and stiffness counted twice. Reshape one so they only meet at their edges",
+                    areas=[a.name, b.name]))
     return out
 
 

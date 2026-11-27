@@ -52,6 +52,11 @@ class ModelTree(QtWidgets.QTreeWidget):
         self.customContextMenuRequested.connect(self._context_menu)
         self.doc.on_change(lambda what: self.refresh() if what == "model" else None)
         self._filter = ""
+        # the objects of a story are listed when its heading is opened (a tall building has
+        # tens of thousands: making an item for each took most of a second after every
+        # command that adds or deletes an object) - {heading key: (collection, names)}
+        self._pending: Dict[str, tuple] = {}
+        self.itemExpanded.connect(self._fill)
         self.refresh()
 
     # ------------------------------------------------------------ building
@@ -117,8 +122,18 @@ class ModelTree(QtWidgets.QTreeWidget):
         m = self.doc.model
         return [s.name for s in reversed(m.stories_bottom_up())]
 
-    def _by_story(self, parent, attr: str, names: List[str], text) -> None:
-        """Objects under per-story sub-headings (top story first), like ETABS."""
+    def _leaf_text(self, attr: str, name: str) -> str:
+        obj = getattr(self.doc.model, attr).get(name)
+        if attr == "frames" and obj is not None:
+            return f"{name}    {obj.section}"
+        if attr == "areas" and obj is not None:
+            return f"{name}    {obj.section or ''}".rstrip()
+        return name
+
+    def _by_story(self, parent, attr: str, names: List[str], text=None, opened=()) -> None:
+        """Objects under per-story sub-headings (top story first), like ETABS.  The
+        objects themselves are listed when the heading is opened (:meth:`_fill`); a
+        heading that was open (``opened``: the keys) is listed right away."""
         m = self.doc.model
         table = getattr(m, attr)
         groups: Dict[str, List[str]] = {}
@@ -128,10 +143,41 @@ class ModelTree(QtWidgets.QTreeWidget):
         for st in order:
             members = groups[st]
             sn = self._node(parent, st, len(members), data=("set", {attr: list(members)}), key=st)
-            for n in members[:_OBJECT_LIMIT]:
-                self._node(sn, text(n), data=(attr, n), key=n)
-            if len(members) > _OBJECT_LIMIT:
-                self._node(sn, f"... {len(members) - _OBJECT_LIMIT} more (use Select / tables)")
+            sn.setChildIndicatorPolicy(QtWidgets.QTreeWidgetItem.ShowIndicator)
+            self._pending[self._key(sn)] = (attr, members)
+            if self._filter or self._key(sn) in opened:
+                self._fill(sn)
+
+    def _fill(self, item) -> None:
+        """List the objects of a story heading (once: when it is opened, searched or
+        an object under it is asked for)."""
+        entry = self._pending.pop(self._key(item), None) if self._pending else None
+        if entry is None:
+            return
+        attr, members = entry
+        for n in members[:_OBJECT_LIMIT]:
+            self._node(item, self._leaf_text(attr, n), data=(attr, n), key=n)
+        if len(members) > _OBJECT_LIMIT:
+            self._node(item, f"... {len(members) - _OBJECT_LIMIT} more (use Select / tables)")
+        item.setChildIndicatorPolicy(QtWidgets.QTreeWidgetItem.DontShowIndicatorWhenChildless)
+
+    def _fill_all(self, attr: Optional[str] = None, name: Optional[str] = None) -> None:
+        """List every story heading not listed yet (the find box searches the objects), or
+        only the one that holds object ``name`` of collection ``attr``."""
+        if not self._pending:
+            return
+        want = {k for k, (a, members) in self._pending.items()
+                if attr is None or (a == attr and name in members)}
+        if not want:
+            return
+        it = QtWidgets.QTreeWidgetItemIterator(self)
+        todo = []
+        while it.value():
+            if self._key(it.value()) in want:
+                todo.append(it.value())
+            it += 1
+        for item in todo:
+            self._fill(item)
 
     def refresh(self):
         try:
@@ -142,8 +188,10 @@ class ModelTree(QtWidgets.QTreeWidget):
             return  # nothing the tree shows has changed
         self._shown_signature = sig
         expanded = self._expanded_keys() if self.topLevelItemCount() else None
+        opened = expanded or ()
         self.setUpdatesEnabled(False)
         self.clear()
+        self._pending = {}
         m = self.doc.model
         root = self._node(None, f"{m.info.name}  [{m.units.force}-{m.units.length}]", data=("model", ""), key="model")
         # --- Structure Layout
@@ -176,22 +224,22 @@ class ModelTree(QtWidgets.QTreeWidget):
         # --- Structural Objects
         obj = self._node(None, "Structural Objects", key="objects")
         pts = self._node(obj, "Joints", len(m.points), data=("set", {"points": list(m.points)}), key="joints")
-        self._by_story(pts, "points", list(m.points), lambda n: n)
+        self._by_story(pts, "points", list(m.points), opened=opened)
         fr = self._node(obj, "Frames", len(m.frames), data=("set", {"frames": list(m.frames)}), key="frames")
         for title, t in _FRAME_GROUPS:
             names = [n for n, f in m.frames.items() if f.type == t]
             if names:
                 g = self._node(fr, title, len(names), data=("set", {"frames": names}), key=title)
-                self._by_story(g, "frames", names, lambda n: f"{n}    {m.frames[n].section}")
+                self._by_story(g, "frames", names, opened=opened)
         sh = self._node(obj, "Shells", len(m.areas), data=("set", {"areas": list(m.areas)}), key="shells")
         for title, t in _SHELL_GROUPS:
             names = [n for n, a in m.areas.items() if a.type == t]
             if names:
                 g = self._node(sh, title, len(names), data=("set", {"areas": names}), key=title)
-                self._by_story(g, "areas", names, lambda n: f"{n}    {m.areas[n].section or ''}".rstrip())
+                self._by_story(g, "areas", names, opened=opened)
         if m.panel_loads:
             pl = self._node(obj, "Load panels", len(m.panel_loads), key="panels")
-            self._by_story(pl, "panel_loads", list(m.panel_loads), lambda n: n)
+            self._by_story(pl, "panel_loads", list(m.panel_loads), opened=opened)
         # --- Groups
         if m.groups:
             gr = self._node(None, "Groups", len(m.groups), key="groups")
@@ -229,6 +277,8 @@ class ModelTree(QtWidgets.QTreeWidget):
     def set_filter(self, text: str):
         """Show only the objects whose text contains ``text`` (and their headings)."""
         self._filter = text.strip().lower()
+        if self._filter:
+            self._fill_all()  # (the objects are searched: every story lists its own)
 
         def walk(item) -> bool:
             own = not self._filter or self._filter in item.text(0).lower()
@@ -297,6 +347,7 @@ class ModelTree(QtWidgets.QTreeWidget):
             self.object_action.emit(actions[chosen], attr, name)
 
     def find_item(self, attr: str, name: str):
+        self._fill_all(attr, name)  # (its story lists its objects now, if it had not yet)
         it = QtWidgets.QTreeWidgetItemIterator(self)
         while it.value():
             if it.value().data(0, QtCore.Qt.UserRole) == (attr, name):

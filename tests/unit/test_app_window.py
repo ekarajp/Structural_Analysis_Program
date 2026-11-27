@@ -2070,9 +2070,36 @@ def test_wheel_zoom_hides_many_labels_and_shows_them_after_a_pause(window, app, 
     assert not actor.GetVisibility()
     vp._on_wheel(-1)
     assert not actor.GetVisibility()
-    QtTest.QTest.qWait(150)
+    # back after the pause: waited for (a fixed wait fails on a loaded machine whenever
+    # one frame or some other work in the event loop takes longer than the wait)
+    import time
+    t0 = time.perf_counter()
+    while not actor.GetVisibility() and time.perf_counter() - t0 < 5.0:
+        QtTest.QTest.qWait(10)
     assert actor.GetVisibility()
+    assert not vp.interacting
     vp.renderer.RemoveViewProp(actor)
+
+
+@gui
+def test_find_box_flash_goes_with_the_window(app, monkeypatch):
+    """The red flash of the Find box (nothing found) ends 0.9 s later: a window closed
+    before that left a call on the deleted box ("Internal C++ object already deleted")."""
+    from structstudio.app.mainwindow import MainWindow
+    w = MainWindow(Document(new_building(x_spacings=(6,), y_spacings=(5,), story_heights=(3.5,))))
+    w.show()
+    app.processEvents()
+    errors = []
+    monkeypatch.setattr(sys, "excepthook", lambda *a: errors.append(a[1]))
+    w.find_box._flash_bad()
+    assert w.find_box.styleSheet()
+    w.doc.dirty = False
+    w.views.finalize()
+    w.close()
+    w.deleteLater()
+    QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+    QtTest.QTest.qWait(1100)
+    assert not errors, errors
 
 
 @gui

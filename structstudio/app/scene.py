@@ -509,6 +509,16 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
     vis_f = vis[0] if vis else None
     vis_a = vis[1] if vis else None
     vis_p = vis[2] if vis else None
+    # the colour group of an object follows its section (and the colour-by option, the
+    # same for the whole build): worked out once per section, not once per object
+    color_memo: Dict[tuple, tuple] = {}
+
+    def group_color(obj, kind: str, default_key: str):
+        k = (kind, obj.section, default_key)
+        got = color_memo.get(k)
+        if got is None:
+            got = color_memo[k] = _group_color(model, obj, kind, default_key)
+        return got
     # ---- frames (lines, coloured by type / section / material) --------------
     for ftype, color_key in (("Beam", "beam"), ("Column", "column"), ("Brace", "brace"), ("Null", "null_line"), ("Rigid", "rigid_link")):
         groups: Dict[str, Tuple[tuple, List[str]]] = {}
@@ -516,7 +526,7 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
             continue
         for f in model.frames.values():
             if f.type == ftype and (vis_f is None or f.name in vis_f):
-                gkey, color = _group_color(model, f, "frame", color_key) if ftype not in ("Null", "Rigid") else (color_key, COLORS[color_key])
+                gkey, color = group_color(f, "frame", color_key) if ftype not in ("Null", "Rigid") else (color_key, COLORS[color_key])
                 groups.setdefault(gkey, (color, []))[1].append(f.name)
         for gkey, (color, names) in groups.items():
             key = f"frames_{ftype}" if gkey == color_key else f"frames_{ftype}_{gkey}"
@@ -592,7 +602,7 @@ def build_model_actors(model: Model, show_labels: bool = False, extruded: bool =
             continue
         for a in model.areas.values():
             if a.type == atype and (vis_a is None or a.name in vis_a):
-                gkey, color = (_group_color(model, a, "area", color_key) if color_key != "opening"
+                gkey, color = (group_color(a, "area", color_key) if color_key != "opening"
                                else (color_key, COLORS[color_key]))
                 groups.setdefault(gkey, (color, []))[1].append(a)
         for gkey, (color, areas) in groups.items():
@@ -1248,6 +1258,8 @@ def _release_dots(model: Model, frames) -> Optional[vtk.vtkPropAssembly]:
     pinned at its start shows one ring by its start joint), drawn over the model."""
     pts = []
     for f in frames:
+        if not (any(f.releases_i) or any(f.releases_j)):
+            continue  # (most members: nothing to work out)
         a, b = np.array(model.points[f.point_i].xyz), np.array(model.points[f.point_j].xyz)
         L = float(np.linalg.norm(b - a))
         if L <= 0:

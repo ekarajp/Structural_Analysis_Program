@@ -104,13 +104,50 @@ def regroup_areas(groups: list, old: str, new: Sequence[str]) -> None:
 
 
 def _restory(model: Model) -> None:
-    # (each object stays in its tower)
-    for p in model.points.values():
-        p.story = model.story_for(p, "point") or p.story
+    """Every object on the story of its present elevation (see ``Model.story_for``; each
+    object stays in its tower).  This runs after every command that moves or copies
+    objects, over the whole model: the story at an elevation is worked out once per level
+    (and per tower), not once per object - 50 000 objects took 0.7 s per command."""
+    tol = model.options.merge_tolerance
+    stories, P = model.stories, model.points
+    multi = model.multi_tower
+    cache: dict = {}
+    tower_of: dict = {}
+    active = getattr(model, "active_tower", None)
+    active = active if active in model.towers else None
+
+    def tower(story):
+        if story not in tower_of:
+            tower_of[story] = model.tower_of_story(story) if story in stories else None
+        return tower_of[story]
+
+    def at(z, hint, xy):
+        """story_at(z, tol, tower=hint, xy=xy).name: with a tower the answer depends on
+        (z, tower) only; one tower: on z only."""
+        if multi and hint is None and active is None:
+            s = model.story_at(z, tol, tower=None, xy=xy() if callable(xy) else xy)  # (by plan position)
+            return s.name if s else None
+        key = (z, hint)
+        if key not in cache:
+            s = model.story_at(z, tol, tower=hint, xy=None)
+            cache[key] = s.name if s else None
+        return cache[key]
+
+    for p in P.values():
+        p.story = at(p.z, tower(p.story) if multi else None, (p.x, p.y)) or p.story
     for f in model.frames.values():
-        f.story = model.story_for(f, "frame") or f.story
+        pi, pj = P[f.point_i], P[f.point_j]
+        hint = None
+        if multi:
+            hint = tower(f.story) if f.story in stories else model._tower_hint([pi, pj])
+        f.story = at(pi.z if pi.z >= pj.z else pj.z, hint, ((pi.x + pj.x) / 2, (pi.y + pj.y) / 2)) or f.story
     for a in model.areas.values():
-        a.story = model.story_for(a, "area") or a.story
+        pts = [P[n] for n in a.points]
+        hint = None
+        if multi:
+            hint = tower(a.story) if a.story in stories else model._tower_hint(pts)
+        a.story = at(max(q.z for q in pts), hint,
+                     lambda pts=pts: (sum(q.x for q in pts) / len(pts), sum(q.y for q in pts) / len(pts))) or a.story
 
 
 def _used_points(model: Model) -> set:
@@ -445,15 +482,16 @@ def paste_objects(doc: Document, clip: Clipboard, dx: float, dy: float, dz: floa
                          " (the copied ones of the same name were different)")
         new_pts: Dict[str, Point] = {}
         kept = []
-        for n, p in clip.points.items():
-            existing = model.find_point(p.x + dx, p.y + dy, p.z + dz)
-            q = existing or model.add_point(p.x + dx, p.y + dy, p.z + dz)
-            if existing is None:
-                clone_assignments(p, q)
-            elif has_assignments(p):
-                kept.append(q.name)
-            new_pts[n] = q
-            out[2].append(q.name)
+        with model.point_index():  # (a scan of every joint per pasted joint is slow in a large model)
+            for n, p in clip.points.items():
+                existing = model.find_point(p.x + dx, p.y + dy, p.z + dz)
+                q = existing or model.add_point(p.x + dx, p.y + dy, p.z + dz)
+                if existing is None:
+                    clone_assignments(p, q)
+                elif has_assignments(p):
+                    kept.append(q.name)
+                new_pts[n] = q
+                out[2].append(q.name)
         if kept:
             notes.append(f"{len(kept)} pasted joint(s) landed on existing joints ({', '.join(kept[:6])}"
                          f"{'...' if len(kept) > 6 else ''}): those joints keep their own supports, springs and loads")
@@ -551,56 +589,59 @@ def replicate_transform(doc: Document, frames: Sequence[str], areas: Sequence[st
         tilted: List[str] = []
         sel_areas = set(areas)
         src_frames = receiver_ends(model, [p for p in model.panel_loads.values() if p.area in sel_areas])
-        for T in transforms:
-            cache: Dict[str, Point] = {}
-            fmap: Dict[str, str] = {}  # original frame -> its copy (load panels: receivers)
-            rigid = _is_translation(T)
-            A = None if rigid else plan_map(T)  # rotation about Z / mirror in a vertical plane
+        # (the joints of the copies are looked up in a spatial index: a scan of every joint
+        # per copied joint took seconds in a large model)
+        with model.point_index():
+            for T in transforms:
+                cache: Dict[str, Point] = {}
+                fmap: Dict[str, str] = {}  # original frame -> its copy (load panels: receivers)
+                rigid = _is_translation(T)
+                A = None if rigid else plan_map(T)  # rotation about Z / mirror in a vertical plane
 
-            def moved(name: str) -> Point:
-                nonlocal turned
-                if name not in cache:
-                    p = model.points[name]
-                    x, y, z = (float(v) for v in T(np.array([p.x, p.y, p.z], float)))
-                    existing = model.find_point(x, y, z)
-                    q = existing or model.add_point(x, y, z)
-                    if existing is None:
-                        clone_assignments(p, q)
-                        if A is not None:
-                            if not turn_assignments(q, A):
-                                tilted.append(q.name)
-                        elif not rigid and turns_directions(p):
-                            turned = True
-                    elif has_assignments(p) and existing.name != name:
-                        kept.append(existing.name)
-                    cache[name] = q
-                return cache[name]
+                def moved(name: str) -> Point:
+                    nonlocal turned
+                    if name not in cache:
+                        p = model.points[name]
+                        x, y, z = (float(v) for v in T(np.array([p.x, p.y, p.z], float)))
+                        existing = model.find_point(x, y, z)
+                        q = existing or model.add_point(x, y, z)
+                        if existing is None:
+                            clone_assignments(p, q)
+                            if A is not None:
+                                if not turn_assignments(q, A):
+                                    tilted.append(q.name)
+                            elif not rigid and turns_directions(p):
+                                turned = True
+                        elif has_assignments(p) and existing.name != name:
+                            kept.append(existing.name)
+                        cache[name] = q
+                    return cache[name]
 
-            for n in points:
-                created.append(moved(n).name)
-            for n in frames:
-                f = model.frames[n]
-                g = model.add_frame(moved(f.point_i), moved(f.point_j), f.section, type=f.type, **_frame_kwargs(f))
-                g.loads = copy.deepcopy(f.loads)
-                if A is not None:
-                    pi, pj = model.points[g.point_i], model.points[g.point_j]
-                    turn_frame(g, A, vertical=math.hypot(pi.x - pj.x, pi.y - pj.y) <= model.options.merge_tolerance)
-                created.append(g.name)
-                fmap[n] = g.name
-            for n in areas:
-                a = model.areas[n]
-                pts = [moved(p) for p in a.points]
-                if reverse_areas:
-                    pts = pts[::-1]
-                b = model.add_area(pts, a.section, type=a.type, **_area_kwargs(a))
-                b.loads = copy.deepcopy(a.loads)
-                if A is not None:
-                    b.loads = turn_loads(b.loads, A, "area")
-                copy_area_panels(model, n, b.name, T, fmap, src_frames, notes)
-                created.append(b.name)
-            replicate_transform.last_fmaps.append(dict(fmap))
-            if strips:
-                created.extend(transform_strips(model, strips, T, copy=True, notes=notes))
+                for n in points:
+                    created.append(moved(n).name)
+                for n in frames:
+                    f = model.frames[n]
+                    g = model.add_frame(moved(f.point_i), moved(f.point_j), f.section, type=f.type, **_frame_kwargs(f))
+                    g.loads = copy.deepcopy(f.loads)
+                    if A is not None:
+                        pi, pj = model.points[g.point_i], model.points[g.point_j]
+                        turn_frame(g, A, vertical=math.hypot(pi.x - pj.x, pi.y - pj.y) <= model.options.merge_tolerance)
+                    created.append(g.name)
+                    fmap[n] = g.name
+                for n in areas:
+                    a = model.areas[n]
+                    pts = [moved(p) for p in a.points]
+                    if reverse_areas:
+                        pts = pts[::-1]
+                    b = model.add_area(pts, a.section, type=a.type, **_area_kwargs(a))
+                    b.loads = copy.deepcopy(a.loads)
+                    if A is not None:
+                        b.loads = turn_loads(b.loads, A, "area")
+                    copy_area_panels(model, n, b.name, T, fmap, src_frames, notes)
+                    created.append(b.name)
+                replicate_transform.last_fmaps.append(dict(fmap))
+                if strips:
+                    created.extend(transform_strips(model, strips, T, copy=True, notes=notes))
         if tilted:
             notes.append(f"Joints {', '.join(tilted[:6])}: tilted local axes could not be turned with the copy - "
                          "their supports / springs are kept as assigned")

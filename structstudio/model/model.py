@@ -807,7 +807,7 @@ class Model:
         for a in self.areas.values():
             if name in a.points and a.story in self.stories:
                 return self.tower_of_story(a.story)
-        t = self.tower_at(p.x, p.y)
+        t = self.tower_near(p.x, p.y)
         return t if t is not None else self.default_tower()
 
     def tower_of_object(self, kind: str, name: str) -> str:
@@ -847,6 +847,27 @@ class Model:
         found = [t for t, ext in self._tower_extents().items()
                  if ext is not None and ext[0] <= x <= ext[1] and ext[2] <= y <= ext[3]]
         return found[0] if len(found) == 1 else None
+
+    def tower_near(self, x: float, y: float) -> Optional[str]:
+        """The tower a plan point belongs to by its position: the tower whose grid covers
+        it (:meth:`tower_at`); outside every grid, the tower whose grid is nearest (a
+        cantilever, a facade line 0.1 m beyond the last grid line: part of that tower,
+        not of the first tower of the model).  None with one tower, when several grids
+        cover it (a tower on a podium) or when the nearest is not one tower."""
+        if not self.multi_tower:
+            return None
+        best, dist, tie = None, None, False
+        for t, ext in self._tower_extents().items():
+            if ext is None:
+                continue
+            dx = max(ext[0] - x, 0.0, x - ext[1])
+            dy = max(ext[2] - y, 0.0, y - ext[3])
+            d = math.hypot(dx, dy)
+            if dist is None or d < dist - 1e-9:
+                best, dist, tie = t, d, False
+            elif abs(d - dist) <= 1e-9:
+                tie = True
+        return None if tie else best
 
     def _tower_extents(self) -> Dict[str, Optional[Tuple[float, float, float, float]]]:
         """Plan extent of the grid of each tower (cached on the grid data)."""
@@ -986,7 +1007,8 @@ class Model:
     def story_at(self, z: float, tol: float = 1e-6, tower: Optional[str] = None,
                  xy: Optional[Tuple[float, float]] = None) -> Optional[Story]:
         """The story at elevation z: of ``tower`` when given; with several towers having a
-        story there, the one whose grid covers plan point ``xy`` (else the first tower's)."""
+        story there, the one whose grid covers plan point ``xy`` - outside every grid the
+        tower whose grid is nearest (:meth:`tower_near`) - else the first tower's."""
         hits = [s for s in self.stories.values() if abs(s.elevation - z) <= tol]
         if not hits:
             return None
@@ -1000,13 +1022,13 @@ class Model:
             own = self._tower(hits[0].tower)
             if tower is not None:
                 return hits[0] if own == self._tower(tower) else None
-            t = self.tower_at(*xy) if xy is not None else None
-            return hits[0] if t is None or t == own else None  # inside another tower: between its levels
+            t = self.tower_near(*xy) if xy is not None else None
+            return hits[0] if t is None or t == own else None  # in / at another tower: between its levels
         if tower is not None:
             t = self._tower(tower)
             mine = [s for s in hits if self._tower(s.tower) == t]
             return mine[0] if mine else None
-        t = self.tower_at(*xy) if xy is not None else None
+        t = self.tower_near(*xy) if xy is not None else None
         if t is not None:
             mine = [s for s in hits if self._tower(s.tower) == t]
             if mine:

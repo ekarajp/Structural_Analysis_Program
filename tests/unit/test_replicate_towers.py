@@ -153,6 +153,43 @@ def test_a_block_that_lands_between_levels_is_on_no_story():
     assert "between story levels" in _notes(d)
 
 
+@pytest.mark.skipif(CHILD, reason="parent only")
+def test_a_plan_point_beside_a_grid_belongs_to_the_nearest_tower():
+    # T1 / T2: grids 0..12 and 0..6 over each other; T3: 40..48 x 0..8 (a grid reaches its
+    # bubbles: T1 to 13.2, T3 from 39 to 49)
+    m = _three_towers().model
+    assert m.tower_at(44.0, 4.0) == "T3" and m.tower_near(44.0, 4.0) == "T3"
+    assert m.tower_at(49.5, 4.0) is None and m.tower_near(49.5, 4.0) == "T3"  # 1.5 m beyond T3's last line
+    assert m.tower_near(60.0, -5.0) == "T3" and m.tower_near(30.0, 4.0) == "T3" and m.tower_near(20.0, 4.0) == "T1"
+    assert m.tower_near(3.0, 3.0) is None  # under the tower on the podium: the plan does not tell
+    assert m.tower_near(26.1, 4.0) is None  # as far from T1's grid as from T3's
+    # a joint there is on T3's story (it was on the first tower's: Story1)
+    assert m.story_at(3.5, xy=(49.5, 4.0)).name == "T3-Story1"
+    assert m.story_at(3.5, xy=(3.0, 3.0)).name == "Story1"  # (over each other: the first tower's, as before)
+    assert m.story_at(10.0, xy=(49.5, 4.0)) is None  # T2's level beside T3: between T3's levels
+    p = m.add_point(49.5, 4.0, 7.0)
+    assert p.story == "T3-Story2" and m.tower_of_point(p.name) == "T3"
+
+
+@pytest.mark.skipif(CHILD, reason="parent only")
+def test_a_copy_put_at_another_tower_is_that_towers_also_just_outside_its_grid():
+    from structstudio.app.tools import replicate_linear
+    d = _doc()
+    m = d.model
+    sec = next(n for n in m.frame_sections if n.startswith("B"))
+    # a T1 beam whose copy, 41.5 m further, ends 1.5 m beyond T3's last grid line (x = 48)
+    b = m.add_frame((0.0, 4.0, 3.5), (8.0, 4.0, 3.5), sec, name="EDGE")
+    assert b.story == "Story1"
+    made = replicate_linear(d, ["EDGE"], ["P1"], [], 41.5, 0.0, 0.0, 1)
+    m = d.model
+    g = m.frames[next(n for n in made if n in m.frames)]
+    assert (m.points[g.point_i].x, m.points[g.point_j].x) == (41.5, 49.5)
+    assert g.story == "T3-Story1" and m.tower_of_object("frame", g.name) == "T3"
+    assert {m.points[g.point_i].story, m.points[g.point_j].story} == {"T3-Story1"}
+    a = m.areas[next(n for n in made if n in m.areas)]
+    assert a.story == "T3-Story1" and {m.points[p].story for p in a.points} == {"T3-Story1"}
+
+
 # ------------------------------------------------------------------------ the window
 @pytest.mark.skipif(CHILD, reason="parent only")
 def test_gui_in_subprocess():

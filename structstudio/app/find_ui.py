@@ -105,7 +105,14 @@ class FindBox(QtWidgets.QLineEdit):
 
     def _flash_bad(self):
         self.setStyleSheet("QLineEdit { border: 2px solid #d03030; }")
-        QtCore.QTimer.singleShot(900, lambda: self.setStyleSheet(""))
+        # a timer of the box itself: it goes with the box (a window closed within the
+        # 0.9 s ran the lambda on the deleted box: "Internal C++ object already deleted")
+        t = getattr(self, "_flash_timer", None)
+        if t is None:
+            t = self._flash_timer = QtCore.QTimer(self)
+            t.setSingleShot(True)
+            t.timeout.connect(lambda: self.setStyleSheet(""))
+        t.start(900)
 
     def focus_for_typing(self):
         self.setFocus(QtCore.Qt.ShortcutFocusReason)

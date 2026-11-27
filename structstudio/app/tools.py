@@ -2384,6 +2384,8 @@ def replicate_to_stories(doc: Document, frames: Sequence[str], areas: Sequence[s
                 if t not in obj_tower.values():
                     notes.append(f"{st} (tower {t}): no selected object is in tower {t} - nothing copied there")
         saved_tower = getattr(model, "active_tower", None)
+        index = model.point_index()  # (the joints of the copies: looked up, not scanned for)
+        index.__enter__()
         try:
             for st in targets:
                 zt = model.stories[st].elevation
@@ -2456,6 +2458,7 @@ def replicate_to_stories(doc: Document, frames: Sequence[str], areas: Sequence[s
                     created.append(b.name)
                     copied.add(("area", n))
         finally:
+            index.__exit__(None, None, None)
             model.active_tower = saved_tower
         if kept:
             notes.append(f"{len(set(kept))} copied joint(s) landed on existing joints ({', '.join(sorted(set(kept))[:6])}): "
