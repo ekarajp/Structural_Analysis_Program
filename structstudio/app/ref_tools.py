@@ -8,11 +8,14 @@
   cursor, ``dx,dy``).
 * **Rotate** - a centre, a start direction and an end direction (or the angle typed).
 * **Scale by a Known Length** - two points of the drawing whose real distance is known,
-  then that distance typed: the drawing is resized about the first point.
+  then that distance typed: the drawing is resized about the first point.  (Only the
+  typed length resizes: a stray third click does nothing.)
 
 Each tool works in the plan / elevation window that shows the reference.  With several
 references in the window the first click chooses the one whose line is clicked.  A
 pinned reference asks before it is moved, and is pinned again when it is in place.
+When the reference is changed under a command that is half done (Undo, the Manage
+form), the command starts again rather than go on from points that no longer fit.
 """
 from __future__ import annotations
 
@@ -37,15 +40,41 @@ class RefTool(Tool):
         self.state = state
         self.ref: Optional[str] = None
         self._confirmed = False
+        self._seen = None
+        self._generation = getattr(self.doc, "generation", None)
         want = getattr(state, "reference_target", None)
         if want in cadref.references_of(self.model):
             self.ref = want
         state.reference_target = None
 
+    # ---- the reference as this command last left it
+    def _stamp(self):
+        ref = cadref.references_of(self.model).get(self.ref) if self.ref else None
+        if ref is None:
+            return None
+        return (tuple(ref.base), tuple(ref.origin), ref.rotation, ref.scale, ref.unit, ref.view, ref.level,
+                getattr(ref, "page", 1))
+
+    def _mark(self) -> None:
+        self._seen = self._stamp()
+
+    def _fresh(self) -> bool:
+        """False: the reference was moved / deleted by something else since the last
+        click of this command (Undo ...) - the command starts again (said in the status)."""
+        if not self.points or self._seen == self._stamp():
+            return True
+        self.points = []
+        self._raw_last = None
+        self._confirmed = False
+        if self.ref not in cadref.references_of(self.model):
+            self.ref = None
+        self.state.status.emit(f"{self.title}: the reference was changed meanwhile - start again: {self.step()}")
+        return False
+
     # ---- which reference
     def _shown(self) -> List[str]:
         pl = self.plane
-        if pl.kind == "3d":
+        if pl.kind == "3d" or getattr(self.state, "references_hidden_here", False):
             return []
         return [r.name for r in cadref.shown_in(self.model, pl.kind, pl.value, pl.story)]
 
@@ -58,7 +87,10 @@ class RefTool(Tool):
             raise ModelError("REFERENCE_NOT_HERE", f"Reference {self.ref} is not shown in this window - click in a "
                                                    "window of its story / elevation")
         if not shown:
-            raise ModelError("NO_REFERENCE", "This window shows no reference (References > Place DXF Drawing, or "
+            if getattr(self.state, "references_hidden_here", False) and self.plane.kind != "3d":
+                raise ModelError("NO_REFERENCE", "The references are hidden in this window - References > Show in "
+                                                 "This Window")
+            raise ModelError("NO_REFERENCE", "This window shows no reference (References > Place Drawing, or "
                                              "switch to the story / elevation it is on)")
         if len(shown) == 1:
             self.ref = shown[0]
@@ -143,11 +175,14 @@ class MoveRefTool(RefTool):
 
     def click(self, pt, snap: Optional[SnapResult] = None) -> bool:
         p = self._p3(pt)
+        if not self._fresh():
+            return False
         if not self.points:
             if not self._choose(p) or not self._unpin():
                 return False
             self.points = [p]
             self._raw_last = p
+            self._mark()
             return False
         a = self.points[0]
         cadref.move_reference(self.doc, self.ref, self._uv(a), self._uv(p), force=True, pin=True)
@@ -181,12 +216,13 @@ class AlignRefTool(RefTool):
         return "click where the second point is in the model"
 
     def cancel(self):
-        if len(getattr(self, "points", ())) >= 2 and getattr(self, "ref", None):
+        if len(getattr(self, "points", ())) >= 2 and getattr(self, "ref", None) and \
+                self._generation == getattr(self.doc, "generation", None) and self._seen == self._stamp():
             self._pin()  # the first pair is done: it is in place
         super().cancel()
 
     def finish(self) -> bool:
-        if len(self.points) >= 2:
+        if len(self.points) >= 2 and self._fresh():
             self._pin()
             return self._done(f"Reference {self.ref} moved (pinned in place)")
         return False
@@ -212,15 +248,19 @@ class AlignRefTool(RefTool):
 
     def click(self, pt, snap: Optional[SnapResult] = None) -> bool:
         p = self._p3(pt)
+        if not self._fresh():
+            return False
         n = len(self.points)
         if n == 0:
             if not self._choose(p) or not self._unpin():
                 return False
             self.points = [p]
+            self._mark()
             return False
         if n == 1:
             cadref.move_reference(self.doc, self.ref, self._uv(self.points[0]), self._uv(p), force=True)
             self.points = [p, p]  # (the drawing's first point is now at p)
+            self._mark()
             return False
         if n == 2:
             if math.dist(self._uv(p), self._uv(self.points[1])) <= 1e-9:
@@ -288,10 +328,13 @@ class RotateRefTool(RefTool):
 
     def click(self, pt, snap: Optional[SnapResult] = None) -> bool:
         p = self._p3(pt)
+        if not self._fresh():
+            return False
         if not self.points:
             if not self._choose(p) or not self._unpin():
                 return False
             self.points = [p]
+            self._mark()
             return False
         if len(self.points) == 1:
             self.points.append(p)
@@ -299,7 +342,7 @@ class RotateRefTool(RefTool):
         return self._turn(self._angle(p) - self._angle(self.points[1]))
 
     def typed(self, text: str, toward=None):
-        if not self.points:
+        if not self._fresh() or not self.points:
             raise ValueError("Click the centre of rotation first")
         self._turn(float(text.replace("°", "").strip()))
         return None
@@ -341,18 +384,23 @@ class ScaleRefTool(RefTool):
 
     def click(self, pt, snap: Optional[SnapResult] = None) -> bool:
         p = self._p3(pt)
+        if not self._fresh():
+            return False
         if not self.points:
             if not self._choose(p) or not self._unpin():
                 return False
             self.points = [p]
+            self._mark()
             return False
         if len(self.points) == 1:
             if math.dist(self._uv(p), self._uv(self.points[0])) <= 1e-9:
                 raise ModelError("BAD_VALUE", "That is the same point - click the other end of the line")
             self.points.append(p)
             return False
-        # a third click: the real length shown by a point (from the first point)
-        return self._scale(math.dist(self._uv(self.points[0]), self._uv(p)))
+        # (a third click resizes nothing: a click meant for the window would give the
+        # drawing a chance size; Align (2 Points) fits it to points of the model)
+        self.state.status.emit(f"{self.title}: {self.step()}")
+        return False
 
     def _scale(self, real: float) -> bool:
         if len(self.points) < 2:
@@ -362,9 +410,15 @@ class ScaleRefTool(RefTool):
         return self._done(f"Reference {self.ref} resized x {f:.6g} (pinned in place)")
 
     def typed(self, text: str, toward=None):
+        if not self._fresh():
+            raise ValueError("Click the two ends of a line of the drawing first")
         if len(self.points) < 2:
             return super().typed(text, toward)
-        self._scale(float(text.strip()))
+        try:
+            real = float(text.strip())
+        except ValueError:
+            raise ValueError("Type the real length of the line as one number") from None
+        self._scale(real)
         return None
 
     def preview(self, cursor) -> Preview:
@@ -377,11 +431,7 @@ class ScaleRefTool(RefTool):
             pv.text = f"L = {self._shown_length(math.dist(self._uv(self.points[0]), self._uv(c)))}"
         else:
             pv.lines = [(self.points[0], self.points[1])]
-            L0 = math.dist(self._uv(self.points[0]), self._uv(self.points[1]))
-            L1 = math.dist(self._uv(self.points[0]), self._uv(c))
-            pv.guides = [(self.points[0], c)]
-            if L0 > 0:
-                pv.text = f"type the real length + Enter   (or click: x {L1 / L0:.4g})"
+            pv.text = "type the real length + Enter"
         return pv
 
 

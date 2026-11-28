@@ -17,6 +17,7 @@ says what to do (save as ASCII DXF).
 """
 from __future__ import annotations
 
+import itertools
 import math
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -62,6 +63,9 @@ def aci_rgb(index: int) -> Tuple[int, int, int]:
     return (int(round((r + m) * 255)), int(round((g + m) * 255)), int(round((b + m) * 255)))
 
 
+_SERIAL = itertools.count(1)
+
+
 class DxfError(Exception):
     """The file cannot be read as a drawing (the message says why, for the user)."""
 
@@ -85,6 +89,13 @@ class Drawing:
     version: str = ""
     skipped: Dict[str, int] = field(default_factory=dict)  # entity type -> how many were not drawn
     counts: Dict[str, int] = field(default_factory=dict)
+    # a page of a PDF (see pdf_read): the coordinates are millimetres on the sheet
+    source: str = "dxf"  # "dxf" | "pdf"
+    pages: int = 1
+    page: int = 1
+    sheet: Optional[Tuple[float, float]] = None  # the sheet, mm (PDF)
+    plot_scale: Optional[float] = None  # 1 : n as the PDF states it; None: it does not say
+    serial: int = field(default_factory=lambda: next(_SERIAL))  # (one number per drawing read, for caches)
 
     @property
     def extents(self) -> Optional[Tuple[float, float, float, float]]:
@@ -129,6 +140,13 @@ def _decode(data: bytes) -> str:
     if data[:6] in (b"AC1012", b"AC1014", b"AC1015", b"AC1018", b"AC1021", b"AC1024", b"AC1027", b"AC1032") or \
             data[:2] == b"AC" and data[2:6].isdigit():
         raise DxfError("This is a DWG file. Save it from the CAD program as DXF (Save As > DXF) and try again.")
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):  # (a UTF-16 text file, as some editors save it)
+        try:
+            return data.decode("utf-16")
+        except UnicodeDecodeError:
+            pass
+    if data[:3] == b"\xef\xbb\xbf":  # (a UTF-8 byte order mark)
+        data = data[3:]
     try:
         return data.decode("utf-8")
     except UnicodeDecodeError:
@@ -396,7 +414,9 @@ def read_dxf(source) -> Drawing:
         W = _ocs((_f(d, 210, 0.0), _f(d, 220, 0.0), _f(d, 230, 1.0)))
         return pts if W is None else pts @ W.T
 
-    def polyline(g: _Group, d, verts: np.ndarray, bulges: Sequence[float], closed: bool, lay: int, col: int):
+    def polyline(g: _Group, d, verts: np.ndarray, bulges: Sequence[float], closed: bool, lay: int, col: int,
+                 smooth: bool = False):
+        # smooth: the vertices are points along a curve (a spline-fit polyline), its chords no straight edges
         if len(verts) < 2:
             return
         verts = to_world(d, verts)
@@ -427,7 +447,13 @@ def read_dxf(source) -> Drawing:
         if not pts:
             return
         P = np.vstack(pts + [verts[last % m][None, :]])
-        g.add(P, lay, col, np.concatenate(curve))
+        cv = np.concatenate(curve)
+        if smooth:
+            cv[:] = True
+            if not closed:
+                g.point(verts[0], PT_END, lay)
+                g.point(verts[-1], PT_END, lay)
+        g.add(P, lay, col, cv)
 
     for a, b in zip(starts, ends):
         etype = vals[a].strip().upper()
@@ -504,7 +530,10 @@ def read_dxf(source) -> Drawing:
         if etype == "VERTEX":
             if poly is not None:
                 d = record(a + 1, b)
-                if not _i(d, 70, 0) & 128 or _i(d, 70, 0) & 64:  # (not a face record of a polyface mesh)
+                vf = _i(d, 70, 0)
+                if vf & 16:
+                    pass  # a control point of the frame of a spline-fit polyline: not on the curve
+                elif not vf & 128 or vf & 64:  # (not a face record of a polyface mesh)
                     poly[3].append((_f(d, 10), _f(d, 20)))
                     poly[4].append(_f(d, 42))
             continue
@@ -515,7 +544,7 @@ def read_dxf(source) -> Drawing:
                 if not flags & (16 | 64):  # (a polygon / polyface mesh is not line work)
                     lay = layer_id((pd.get(8) or ["0"])[0])
                     polyline(pg, pd if not flags & 8 else {}, np.array(verts, float).reshape(-1, 2), bulges,
-                             bool(flags & 1), lay, color_of(pd))
+                             bool(flags & 1), lay, color_of(pd), smooth=bool(flags & 4))
             skip_seq = False
             continue
         if skip_seq:
@@ -629,8 +658,6 @@ def read_dxf(source) -> Drawing:
             counts[etype] -= 1
 
     # ---- blocks put in place
-    total = [0]
-
     def flatten(g: _Group, depth: int, chain: Tuple[int, ...]):
         """(seg, curve, layer, colour, pts, pkind, player) of a container with its blocks."""
         if g.flat is not None:
@@ -642,6 +669,7 @@ def read_dxf(source) -> Drawing:
         pts = [np.array(g.pts, float).reshape(-1, 2)] if g.pts else []
         pkind = [np.array(g.pkind, np.uint8)] if g.pkind else []
         player = [np.array(g.player, np.int32)] if g.player else []
+        held = len(seg[0]) if seg else 0  # the segments of this container so far (each counted once)
         for (name, ix, iy, sx, sy, rot, rows, cols, dr, dc, ilay, icol, W, mark) in g.inserts:
             blk = blocks.get(name)
             if blk is None or depth >= MAX_DEPTH or id(blk) in chain:
@@ -657,8 +685,8 @@ def read_dxf(source) -> Drawing:
                     if W is not None:
                         M, t = W @ A, W @ t
                     if len(bs):
-                        total[0] += len(bs)
-                        if total[0] > MAX_SEGMENTS:
+                        held += len(bs)
+                        if held > MAX_SEGMENTS:
                             raise DxfError("The drawing holds more line work than can be shown as a reference "
                                            f"(over {MAX_SEGMENTS:,} segments). Save a simpler copy (fewer layers, "
                                            "no hatches exploded into lines) and try again.")

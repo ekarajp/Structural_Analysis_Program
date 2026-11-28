@@ -1,4 +1,4 @@
-"""CAD references (DXF drawings to draw over) in the application.
+"""CAD references (DXF drawings and PDF sheets to draw over) in the application.
 
 * the drawing of a reference: read from the linked file or from the copy embedded in the
   model (:func:`drawing_of`), kept until the file is reloaded;
@@ -19,11 +19,47 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from ..io.dxf_read import PT_CENTER, PT_END, PT_INSERT, Drawing, DxfError, read_dxf
+from ..io.pdf_read import is_pdf, read_pdf
 from ..model import Model, ModelError
 from ..model.references import Blob, CadReference, align_two_points
 
 EMBED_LIMIT = 60 * 1024 * 1024  # bytes: a larger drawing stays linked
 _CACHE: Dict[tuple, Tuple[Optional[Drawing], str]] = {}
+_STAMPS: Dict[tuple, Tuple[int, int]] = {}
+
+
+def read_drawing(source, page: int = 1) -> Drawing:
+    """A drawing file (a path, or its bytes): a DXF file, or page ``page`` of a PDF - told
+    by what the file holds, not by its name.  Raises DxfError with a message for the user."""
+    if isinstance(source, (bytes, bytearray)):
+        data = bytes(source)
+    else:
+        try:
+            with open(source, "rb") as fh:
+                data = fh.read()
+        except OSError as exc:
+            raise DxfError(f"The file cannot be read: {exc}") from None
+    return read_pdf(data, page) if is_pdf(data) else read_dxf(data)
+
+
+def _file_key(path: str, page: int = 1) -> tuple:
+    return ("file", os.path.normcase(os.path.abspath(path)), int(page))
+
+
+def _remember(path: str, page: int, dwg: Optional[Drawing], why: str = "") -> None:
+    key = _file_key(path, page)
+    _CACHE[key] = (dwg, why)
+    try:
+        st = os.stat(path)
+        _STAMPS[key] = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        _STAMPS.pop(key, None)
+
+
+def forget() -> None:
+    """Another model was opened: no drawing read for the last one is kept."""
+    _CACHE.clear()
+    _STAMPS.clear()
 
 
 # ----------------------------------------------------------------------- the drawing
@@ -54,28 +90,36 @@ def source_of(ref: CadReference, model: Model, model_path: Optional[str]) -> Tup
 
 def drawing_of(ref: CadReference, model: Model, model_path: Optional[str] = None) -> Tuple[Optional[Drawing], str]:
     """(drawing, "") or (None, why it cannot be shown).  A file is read once; see
-    :func:`reload`."""
+    :func:`reload`.  A linked file that cannot be read (damaged, being written) gives way
+    to the copy in the model, when there is one."""
     kind, where = source_of(ref, model, model_path)
     if kind == "missing":
         return None, f"the file is not found ({ref.path or ref.rel_path or 'no file'})"
-    key = (kind, os.path.normcase(os.path.abspath(where)) if kind == "file" else where)
+    page = int(getattr(ref, "page", 1) or 1)
+    if kind == "file":
+        key = _file_key(where, page)
+        got = _CACHE.get(key)
+        if got is None:
+            try:
+                got = (read_drawing(where, page), "")
+            except DxfError as exc:
+                got = (None, str(exc))
+            _remember(where, page, *got)
+        if got[0] is not None:
+            return got
+        blob = model.attachments.get(ref.embedded) if ref.embedded else None
+        if blob is None or not blob.stored_size:
+            return got
+        where = blob.key  # (the linked file cannot be read: the copy in the model)
+    key = ("embedded", where, page)
     got = _CACHE.get(key)
     if got is None:
         try:
-            got = (read_dxf(where) if kind == "file" else read_dxf(model.attachments[where].data), "")
+            got = (read_drawing(model.attachments[where].data, page), "")
         except DxfError as exc:
             got = (None, str(exc))
-        if kind == "file":
-            try:
-                st = os.stat(where)
-                _STAMPS[key] = (st.st_mtime_ns, st.st_size)
-            except OSError:
-                pass
         _CACHE[key] = got
     return got
-
-
-_STAMPS: Dict[tuple, Tuple[int, int]] = {}
 
 
 def changed_on_disk(ref: CadReference, model: Model, model_path: Optional[str] = None) -> bool:
@@ -83,8 +127,7 @@ def changed_on_disk(ref: CadReference, model: Model, model_path: Optional[str] =
     kind, where = source_of(ref, model, model_path)
     if kind != "file":
         return False
-    key = (kind, os.path.normcase(os.path.abspath(where)))
-    old = _STAMPS.get(key)
+    old = _STAMPS.get(_file_key(where, int(getattr(ref, "page", 1) or 1)))
     if old is None:
         return False
     try:
@@ -102,7 +145,51 @@ def reload(ref: Optional[CadReference] = None, model: Optional[Model] = None, mo
         return
     kind, where = source_of(ref, model, model_path)
     if kind == "file":
-        _CACHE.pop((kind, os.path.normcase(os.path.abspath(where))), None)
+        path = os.path.normcase(os.path.abspath(where))
+        for k in [k for k in _CACHE if k[0] == "file" and k[1] == path]:
+            _CACHE.pop(k, None)
+
+
+def refresh_embedded(doc, names: Optional[Sequence[str]] = None, model_path: Optional[str] = None) -> List[str]:
+    """Reload of references that are linked *and* embedded: the copies in the model
+    follow their files (else the model sent alone would show the old drawing).  Returns
+    the names whose copy was replaced (one undo step for all)."""
+    m = doc.model
+    fresh: Dict[str, Blob] = {}
+    for name, ref in references_of(m).items():
+        if (names is not None and name not in names) or not ref.embedded:
+            continue
+        kind, where = source_of(ref, m, model_path)
+        if kind != "file":
+            continue
+        try:
+            with open(where, "rb") as fh:
+                data = fh.read()
+        except OSError:
+            continue
+        if len(data) > EMBED_LIMIT:
+            continue
+        blob = Blob(data, os.path.basename(where))
+        if blob.key == ref.embedded:
+            continue
+        page = int(getattr(ref, "page", 1) or 1)
+        drawing_of(ref, m, model_path)
+        dwg = (_CACHE.get(_file_key(where, page)) or (None, ""))[0]
+        if dwg is None:
+            continue  # (the file cannot be read now: the copy that can is kept)
+        _CACHE[("embedded", blob.key, page)] = (dwg, "")
+        fresh[name] = blob
+    if not fresh:
+        return []
+
+    def mutate(model: Model):
+        for name, blob in fresh.items():
+            model.attachments[blob.key] = blob
+            model.references[name].embedded = blob.key
+        _prune_attachments(model)
+
+    _edit(doc, mutate, "Reload Reference")
+    return sorted(fresh)
 
 
 def visible_layers(ref: CadReference, dwg: Drawing) -> np.ndarray:
@@ -400,10 +487,13 @@ def shown_in(model: Model, view: str, value: float, story: Optional[str]) -> Lis
 def add_reference(doc, path: str, view: str = "plan", stories: Sequence[str] = (), level: float = 0.0,
                   unit: Optional[str] = None, embed: bool = False, link: bool = True,
                   origin: Optional[Tuple[float, float]] = None, base: Optional[Tuple[float, float]] = None,
-                  layers_off: Optional[Sequence[str]] = None, name: Optional[str] = None) -> str:
-    """Place the drawing of file ``path`` as a reference; returns its name.  ``embed``: a
-    copy goes into the model file; ``link``: the file is read from where it is (and can be
-    reloaded).  Raises ModelError when the file cannot be read."""
+                  layers_off: Optional[Sequence[str]] = None, name: Optional[str] = None, page: int = 1,
+                  scale: Optional[float] = None) -> str:
+    """Place the drawing of file ``path`` (a DXF file, or page ``page`` of a PDF) as a
+    reference; returns its name.  ``embed``: a copy goes into the model file; ``link``:
+    the file is read from where it is (and can be reloaded).  ``scale``: the plot scale
+    of a PDF sheet (100 = 1:100; without it the scale the PDF states, else 100).  Raises
+    ModelError when the file cannot be read."""
     if not (embed or link):
         link = True
     path = os.path.abspath(path)
@@ -413,22 +503,21 @@ def add_reference(doc, path: str, view: str = "plan", stories: Sequence[str] = (
     except OSError as exc:
         raise ModelError("REFERENCE_FILE", f"The file cannot be read: {exc}") from None
     try:
-        dwg = read_dxf(data)
+        dwg = read_drawing(data, page)
     except DxfError as exc:
         raise ModelError("REFERENCE_FILE", str(exc)) from None
+    page = int(dwg.page)
+    if scale is None:
+        scale = (dwg.plot_scale or 100.0) if dwg.source == "pdf" else 1.0
+    if not (scale > 0 and math.isfinite(scale)):
+        raise ModelError("BAD_VALUE", "The scale must be a positive number")
     if embed and len(data) > EMBED_LIMIT:
         raise ModelError("REFERENCE_TOO_LARGE", f"The drawing is {len(data) / 1e6:.0f} MB - too large to keep a copy "
                                                  "in the model file. Link it instead.")
     blob = Blob(data, os.path.basename(path)) if embed else None
-    key = ("file", os.path.normcase(path))
-    _CACHE[key] = (dwg, "")
-    try:
-        st = os.stat(path)
-        _STAMPS[key] = (st.st_mtime_ns, st.st_size)
-    except OSError:
-        pass
+    _remember(path, page, dwg)
     if blob is not None:
-        _CACHE[("embedded", blob.key)] = (dwg, "")
+        _CACHE[("embedded", blob.key, page)] = (dwg, "")
     made = []
 
     def mutate(model: Model):
@@ -438,7 +527,8 @@ def add_reference(doc, path: str, view: str = "plan", stories: Sequence[str] = (
         off = list(layers_off) if layers_off is not None else list(dwg.layers_off)
         ref = CadReference(nm, path=path if link else "", embedded=blob.key if blob else None, view=view,
                            stories=[s for s in stories if s in model.stories] if view == "plan" else [],
-                           level=float(level), unit=unit or dwg.guess_unit(), layers_off=off)
+                           level=float(level), unit="mm" if dwg.source == "pdf" else (unit or dwg.guess_unit()),
+                           layers_off=off, page=page, scale=float(scale))
         if view == "plan" and ref.stories:
             ref.level = model.stories[ref.stories[0]].elevation
         # file point ``base`` goes to plane point ``origin`` (both (0, 0): the drawing's own
@@ -527,20 +617,62 @@ def set_storage(doc, name: str, link: bool, embed: bool, model_path: Optional[st
     _edit(doc, mutate, "Reference Storage")
 
 
-def relink(doc, name: str, path: str) -> None:
-    """Another file for a reference (its place, layers and look stay)."""
+def relink(doc, name: str, path: str, model_path: Optional[str] = None) -> None:
+    """Another file for a reference (its place, layers and look stay).  An embedded copy
+    becomes a copy of the new file."""
     path = os.path.abspath(path)
+    old = references_of(doc.model).get(name)
+    if old is None:
+        raise ModelError("UNKNOWN_REFERENCE", f"No reference {name!r}")
     try:
-        dwg = read_dxf(path)
+        with open(path, "rb") as fh:
+            data = fh.read()
+    except OSError as exc:
+        raise ModelError("REFERENCE_FILE", f"The file cannot be read: {exc}") from None
+    page = int(getattr(old, "page", 1) or 1)
+    try:
+        dwg = read_drawing(data, page)
     except DxfError as exc:
         raise ModelError("REFERENCE_FILE", str(exc)) from None
-    _CACHE[("file", os.path.normcase(path))] = (dwg, "")
+    page = int(dwg.page)
+    blob = None
+    if old.embedded:
+        if len(data) > EMBED_LIMIT:
+            raise ModelError("REFERENCE_TOO_LARGE", f"The drawing is {len(data) / 1e6:.0f} MB - too large to keep a "
+                                                     "copy in the model file. Untick Embedded first.")
+        blob = Blob(data, os.path.basename(path))
+        _CACHE[("embedded", blob.key, page)] = (dwg, "")
+    _remember(path, page, dwg)
 
     def mutate(model: Model):
         r = model.references[name]
-        r.path, r.rel_path = path, ""
+        r.path, r.rel_path, r.page = path, "", page
+        if blob is not None:
+            model.attachments[blob.key] = blob
+            r.embedded = blob.key
+            _prune_attachments(model)
 
     _edit(doc, mutate, "Relink Reference")
+    if model_path:
+        update_rel_paths(doc.model, model_path)
+
+
+def set_page(doc, name: str, page: int, model_path: Optional[str] = None) -> None:
+    """Another page of the PDF of a reference."""
+    ref = references_of(doc.model).get(name)
+    if ref is None:
+        raise ModelError("UNKNOWN_REFERENCE", f"No reference {name!r}")
+    probe = replace(ref, page=int(page))
+    dwg, why = drawing_of(probe, doc.model, model_path)
+    if dwg is None:
+        raise ModelError("REFERENCE_FILE", why)
+    if dwg.page != int(page):
+        raise ModelError("BAD_VALUE", f"The drawing has {dwg.pages} page(s)")
+
+    def mutate(model: Model):
+        model.references[name].page = int(page)
+
+    _edit(doc, mutate, "Reference Page")
 
 
 def _movable(model: Model, name: str, force: bool = False) -> CadReference:

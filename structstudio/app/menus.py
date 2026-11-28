@@ -243,7 +243,7 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
     # CAD drawings to draw over: placed after the materials and sections are defined, before
     # drawing - in the order they are used (place, put in place, what is shown, the files)
     ("Referen&ces", [
-        ("Place DXF Drawing...", "ref.place"),
+        ("Place Drawing (DXF / PDF)...", "ref.place"),
         "-",
         ("Align (2 Points)", "ref.align"),
         ("Scale by a Known Length", "ref.scale"),

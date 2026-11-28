@@ -973,6 +973,8 @@ class ModelViewport(QtWidgets.QWidget):
     # ------------------------------------------------------------- active
     def set_active(self, on: bool):
         self._active = on
+        if on:  # (the reference tools work on what this window shows)
+            self.state.references_hidden_here = bool(self.references_hidden)
         ui = theme.active().ui()
         color = ui["accent"] if on else ui["header_off"]
         fg = ui["accent_text"] if on else ui["header_off_text"]
@@ -1471,7 +1473,7 @@ class ModelViewport(QtWidgets.QWidget):
         pl = self.plane() if shown else None
         bg, ink = scene.COLORS["background_top"], scene.COLORS["text"]
         m = self.doc.model
-        sig = tuple((dataclasses.astuple(ref), id(dwg), pl.kind, float(pl.value), m.units.length, tuple(bg), tuple(ink))
+        sig = tuple((dataclasses.astuple(ref), getattr(dwg, "serial", None), pl.kind, float(pl.value), m.units.length, tuple(bg), tuple(ink))
                     for ref, dwg, _ in shown)
         if sig == getattr(self, "_ref_sig", None):
             return
@@ -1501,6 +1503,8 @@ class ModelViewport(QtWidgets.QWidget):
 
     def set_references_hidden(self, hidden: bool):
         self.references_hidden = bool(hidden)
+        if getattr(self, "_active", False):
+            self.state.references_hidden_here = self.references_hidden
         self._build_references()
         self.request_render()
 

@@ -1,5 +1,5 @@
-"""The References menu: CAD drawings (DXF) placed in plan and elevation windows to draw
-over.  The forms (place a drawing, its layers, the list of references) and the menu
+"""The References menu: CAD drawings (DXF files, PDF sheets plotted from CAD) placed in
+plan and elevation windows to draw over.  The forms (place a drawing, its layers, the list of references) and the menu
 commands of the main window (:class:`ReferenceCommandsMixin`)."""
 from __future__ import annotations
 
@@ -10,13 +10,16 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from . import cadref
 from . import ref_tools  # noqa: F401  (registers the tools)
-from ..io.dxf_read import UNIT_NAMES, UNIT_TO_M, Drawing, DxfError, read_dxf
+from .ref_preview import DrawingPreview
+from ..io.dxf_read import UNIT_NAMES, UNIT_TO_M, Drawing, DxfError
 from ..model import ModelError
 
 UNIT_LABELS = {"mm": "millimetres (mm)", "cm": "centimetres (cm)", "m": "metres (m)", "in": "inches (in)",
                "ft": "feet (ft)", "dm": "decimetres (dm)", "km": "kilometres (km)", "yd": "yards (yd)",
                "mi": "miles (mi)"}
-FILE_FILTER = "DXF drawings (*.dxf);;All files (*)"
+FILE_FILTER = "Drawings (*.dxf *.pdf);;DXF drawings (*.dxf);;PDF drawings (*.pdf);;All files (*)"
+PLACE_TITLE = "Place Drawing"
+SHEETS = (("A0", 841, 1189), ("A1", 594, 841), ("A2", 420, 594), ("A3", 297, 420), ("A4", 210, 297))
 
 
 def _du(model) -> Tuple[float, str]:
@@ -29,12 +32,35 @@ def _du(model) -> Tuple[float, str]:
         return 1.0, model.units.length
 
 
-def size_text(dwg: Drawing, unit: str) -> str:
+def size_text(dwg: Drawing, unit: str, scale: float = 1.0) -> str:
     """The size of the drawing in metres with ``unit`` as its drawing unit - what tells a
     wrong unit at a glance (a floor plan 42 km or 4 cm wide)."""
     w, h = dwg.size()
-    f = UNIT_TO_M.get(unit, 1.0)
+    f = UNIT_TO_M.get(unit, 1.0) * scale
     w, h = w * f, h * f
+
+    def fmt(v):
+        if v >= 1000:
+            return f"{v / 1000:,.2f} km"
+        if v < 1:
+            return f"{v * 100:,.1f} cm"
+        return f"{v:,.2f} m"
+    return f"{fmt(w)} x {fmt(h)}"
+
+
+def sheet_text(dwg: Drawing) -> str:
+    """The sheet of a PDF page: "841 x 594 mm (A1)"."""
+    if not dwg.sheet:
+        return ""
+    w, h = dwg.sheet
+    name = next((n for n, a, b in SHEETS if abs(min(w, h) - a) <= 2.0 and abs(max(w, h) - b) <= 2.0), "")
+    return f"{w:,.0f} x {h:,.0f} mm" + (f" ({name})" if name else "")
+
+
+def real_size_text(dwg: Drawing, scale: float) -> str:
+    """The size of what a PDF page shows at plot scale 1 : ``scale``."""
+    w, h = dwg.size()
+    w, h = w * scale / 1000.0, h * scale / 1000.0
 
     def fmt(v):
         if v >= 1000:
@@ -50,6 +76,7 @@ def drawing_text(dwg: Drawing) -> str:
     t = f"{n:,} line{'s' if n != 1 else ''} on {sum(1 for v in dwg.layer_counts().values() if v)} layer(s)"
     if dwg.skipped:
         words = {"TEXT": ("text", "texts"), "MTEXT": ("text", "texts"), "HATCH": ("hatch", "hatches"),
+                 "FILL": ("filled area", "filled areas"),
                  "IMAGE": ("image", "images"), "ATTRIB": ("text", "texts"), "ATTDEF": ("text", "texts")}
         other = ("other object", "other objects")
         cnt: Dict[tuple, int] = {}
@@ -75,6 +102,13 @@ class LayerList(QtWidgets.QWidget):
             if not counts.get(name):
                 continue  # (a layer with nothing to draw)
             it = QtWidgets.QListWidgetItem(f"{name}    ({counts[name]:,})")
+            try:  # (a swatch of the layer's colour, as the picture draws it)
+                r, g, b = dwg.layer_rgb[dwg.layers.index(name)]
+                pm = QtGui.QPixmap(12, 12)
+                pm.fill(QtGui.QColor(int(r), int(g), int(b)))
+                it.setIcon(QtGui.QIcon(pm))
+            except (ValueError, IndexError):
+                pass
             it.setData(QtCore.Qt.UserRole, name)
             it.setFlags(it.flags() | QtCore.Qt.ItemIsUserCheckable)
             it.setCheckState(QtCore.Qt.Unchecked if name in off else QtCore.Qt.Checked)
@@ -112,31 +146,84 @@ class LayerList(QtWidgets.QWidget):
 
 
 class PlaceReferenceDialog(QtWidgets.QDialog):
-    """References > Place DXF Drawing: the drawing unit (with the size it gives), where it
-    goes (plans of stories / an elevation), how it is positioned and kept, its layers."""
+    """References > Place Drawing: the drawing unit of a DXF file / the page and plot scale
+    of a PDF sheet (with the size it gives), where it goes (plans of stories / an
+    elevation), how it is positioned and kept, its layers."""
 
     def __init__(self, model, path: str, dwg: Drawing, view: str = "plan", story: Optional[str] = None,
-                 ordinate: float = 0.0, near_model: bool = True, parent=None):
+                 ordinate: float = 0.0, near_model: bool = True, parent=None,
+                 read_page: Optional[Callable[[int], Drawing]] = None, plot_scale: Optional[float] = None):
         super().__init__(parent)
-        self.setWindowTitle("Place DXF Drawing")
+        self.setWindowTitle(PLACE_TITLE)
         self.model, self.dwg, self.path = model, dwg, path
+        self.is_pdf = dwg.source == "pdf"
+        self._read_page = read_page
+        self._extra = 1.0  # a DXF drawing not drawn 1 : 1 (set by a measured length)
         k, unit = _du(model)
-        self._k = k
-        lay = QtWidgets.QVBoxLayout(self)
+        self._k, self._shown_unit = k, unit
+        outer = QtWidgets.QHBoxLayout(self)
+        lay = QtWidgets.QVBoxLayout()
+        outer.addLayout(lay, 0)
+        # ---- the picture of the drawing (right): its layers as ticked, its size, a length measured
+        side = QtWidgets.QVBoxLayout()
+        self.preview = DrawingPreview()
+        side.addWidget(self.preview, 1)
+        row = QtWidgets.QHBoxLayout()
+        self.measure_text = QtWidgets.QLabel("Check the size: click two points of the drawing whose distance you know")
+        self.real = QtWidgets.QLineEdit()
+        self.real.setMaximumWidth(90)
+        self.real.setPlaceholderText("real length")
+        self.real_unit = QtWidgets.QLabel(unit)
+        self.b_set = QtWidgets.QPushButton("Set")
+        self.b_set.setToolTip("The measured length is really this long: the drawing is scaled to it")
+        row.addWidget(self.measure_text, 1)
+        for w in (self.real, self.real_unit, self.b_set):
+            row.addWidget(w)
+            w.setEnabled(False)
+        side.addLayout(row)
+        outer.addLayout(side, 1)
+        self.preview.measured.connect(self._measured)
+        self.b_set.clicked.connect(self._calibrate)
+        self.real.returnPressed.connect(self._calibrate)
         form = QtWidgets.QFormLayout()
         name = QtWidgets.QLabel(os.path.basename(path))
         name.setToolTip(path)
         form.addRow("File", name)
-        form.addRow("Drawing", QtWidgets.QLabel(drawing_text(dwg)))
+        self.page = QtWidgets.QSpinBox()
+        self.page.setRange(1, max(1, int(dwg.pages)))
+        self.page.setValue(int(dwg.page))
+        self.page.setSuffix(f"  of {dwg.pages}")
+        self.page.setKeyboardTracking(False)
+        if self.is_pdf and dwg.pages > 1:
+            form.addRow("Page", self.page)
+        self.info = QtWidgets.QLabel(drawing_text(dwg))
+        form.addRow("Drawing", self.info)
         self.unit = QtWidgets.QComboBox()
         for u in UNIT_NAMES:
             self.unit.addItem(UNIT_LABELS[u], u)
         self.unit.setCurrentIndex(UNIT_NAMES.index(dwg.guess_unit()))
         self.unit_note = QtWidgets.QLabel("(from the file)" if dwg.unit else "(the file does not say - check the size)")
-        row = QtWidgets.QHBoxLayout()
-        row.addWidget(self.unit)
-        row.addWidget(self.unit_note, 1)
-        form.addRow("Drawing unit", row)
+        self.sheet = QtWidgets.QLabel(sheet_text(dwg))
+        self.plot = QtWidgets.QLineEdit()
+        self.plot.setMaximumWidth(90)
+        self.plot_note = QtWidgets.QLabel()
+        if self.is_pdf:
+            # a PDF page is the sheet: millimetres of paper, times its plot scale
+            self.unit_note.setText("")
+            form.addRow("Sheet", self.sheet)
+            row = QtWidgets.QHBoxLayout()
+            row.addWidget(QtWidgets.QLabel("1 :"))
+            row.addWidget(self.plot)
+            row.addWidget(self.plot_note, 1)
+            form.addRow("Plot scale", row)
+            self._offer_scale(plot_scale)
+            self.plot.textChanged.connect(self._size)
+            self.page.valueChanged.connect(self._page_changed)
+        else:
+            row = QtWidgets.QHBoxLayout()
+            row.addWidget(self.unit)
+            row.addWidget(self.unit_note, 1)
+            form.addRow("Drawing unit", row)
         self.size = QtWidgets.QLabel()
         self.size.setStyleSheet("font-weight: 600;")
         form.addRow("Size of the drawing", self.size)
@@ -199,20 +286,134 @@ class PlaceReferenceDialog(QtWidgets.QDialog):
         lay.addWidget(keep)
 
         box = QtWidgets.QGroupBox("Layers shown")
-        v = QtWidgets.QVBoxLayout(box)
+        self._layer_box = QtWidgets.QVBoxLayout(box)
         self.layers = LayerList(dwg, dwg.layers_off)
         self.layers.list.setMaximumHeight(140)
-        v.addWidget(self.layers)
+        self.layers.changed.connect(lambda: self.preview.set_layers_off(self.layers.off()))
+        self._layer_box.addWidget(self.layers)
         lay.addWidget(box)
 
         self.buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         lay.addWidget(self.buttons)
+        for b in self.buttons.buttons():  # (Enter in the length box sets the length, not OK)
+            b.setAutoDefault(False)
+        self.preview.set_drawing(dwg, self.layers.off(), self.metres_per_unit())
         self._size()
+        self.resize(1180, 720)
 
-    def _size(self):
-        self.size.setText(size_text(self.dwg, self.unit.currentData()))
+    # ---- the size of the drawing
+    def metres_per_unit(self) -> float:
+        """Metres of the building per unit of the file, as the form is set now."""
+        if self.is_pdf:
+            try:
+                return 0.001 * self.plot_scale()
+            except ValueError:
+                return 0.001
+        return UNIT_TO_M.get(self.unit.currentData(), 1.0) * self._extra
+
+    def _measured(self, length: float):
+        m = length * self.metres_per_unit()
+        self._last = float(length)
+        self.measure_text.setText(f"Measured: {m * self._to_shown():,.4g} {self._shown_unit}   -   if that is wrong, "
+                                  "its real length:")
+        for w in (self.real, self.real_unit, self.b_set):
+            w.setEnabled(True)
+        self.real.setFocus()
+
+    def _to_shown(self) -> float:
+        """Metres -> the length unit the model shows."""
+        return self._k / UNIT_TO_M.get(self.model.units.length, 1.0)
+
+    def _calibrate(self):
+        """The length measured on the picture is really what was typed: the scale follows."""
+        length = self.preview.measured_length()
+        try:
+            real = float(self.real.text().replace(",", "")) / self._to_shown()  # metres
+            if not (real > 0 and length and length > 0):
+                raise ValueError
+        except ValueError:
+            QtWidgets.QMessageBox.warning(self, self.windowTitle(), "Click two points of the drawing, then type the "
+                                          "real distance between them as a positive number.")
+            return
+        ratio = real / (length * self.metres_per_unit())
+        if self.is_pdf:
+            self.plot.setText(f"{float(f'{self.plot_scale() * ratio:.6g}'):g}")
+            self.plot_note.setText("(set by the measured length)")
+        else:
+            self._extra *= ratio
+        self._size()
+        self._measured(length)
+        self.real.clear()
+
+    def _offer_scale(self, remembered: Optional[float] = None):
+        """The plot scale offered: what the page states, else the last one used, else 100."""
+        told = self.dwg.plot_scale
+        self.plot.setText(f"{(told or remembered or 100.0):g}")
+        self.plot_note.setText("(from the file)" if told else
+                               "(the file does not say - check the size; Scale by a Known Length sets it later)")
+
+    def plot_scale(self) -> float:
+        text = self.plot.text().replace(",", "").strip()
+        if ":" in text:  # ("1:100" typed whole)
+            text = text.split(":")[-1]
+        v = float(text)
+        if not (v > 0 and v < 1.0e9):
+            raise ValueError
+        return v
+
+    def _size(self, *_):
+        self.preview.set_metres_per_unit(self.metres_per_unit())
+        if not self.is_pdf:
+            text = size_text(self.dwg, self.unit.currentData(), self._extra)
+            if abs(self._extra - 1.0) > 1e-9:
+                text += f"   (scaled x {self._extra:.5g} by the measured length)"
+            self.size.setText(text)
+            return
+        try:
+            self.size.setText(real_size_text(self.dwg, self.plot_scale()))
+        except ValueError:
+            self.size.setText("-")
+
+    def _page_changed(self, number: int):
+        """Another page of the PDF: read it, and show its lines, sheet and layers."""
+        if self._read_page is None or number == self.dwg.page:
+            return
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            dwg = self._read_page(int(number))
+            why = ""
+        except DxfError as exc:
+            dwg, why = None, str(exc)
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+        if dwg is None:
+            QtWidgets.QMessageBox.warning(self, self.windowTitle(), why)
+            self.page.blockSignals(True)
+            self.page.setValue(int(self.dwg.page))
+            self.page.blockSignals(False)
+            return
+        typed = self.plot.text()
+        self.dwg = dwg
+        self.info.setText(drawing_text(dwg))
+        self.sheet.setText(sheet_text(dwg))
+        if dwg.plot_scale:
+            self._offer_scale()
+        else:
+            self.plot.setText(typed)
+            self.plot_note.setText("(the file does not say - check the size; Scale by a Known Length sets it later)")
+        old = self.layers
+        self.layers = LayerList(dwg, dwg.layers_off)
+        self.layers.list.setMaximumHeight(140)
+        self.layers.changed.connect(lambda: self.preview.set_layers_off(self.layers.off()))
+        self._layer_box.replaceWidget(old, self.layers)
+        old.deleteLater()
+        self.preview.set_drawing(dwg, self.layers.off(), self.metres_per_unit())
+        self.measure_text.setText("Check the size: click two points of the drawing whose distance you know")
+        for w in (self.real, self.real_unit, self.b_set):
+            w.setEnabled(False)
+        self._size()
 
     def accept(self):
         try:
@@ -239,7 +440,14 @@ class PlaceReferenceDialog(QtWidgets.QDialog):
             raise ValueError("Tick Linked, Embedded, or both.")
         if not len(self.dwg.seg):
             raise ValueError("The drawing has no lines to show.")
-        return {"view": view, "stories": stories, "level": level, "unit": self.unit.currentData(),
+        scale = float(self._extra)
+        if self.is_pdf:
+            try:
+                scale = self.plot_scale()
+            except ValueError:
+                raise ValueError("The plot scale is not a positive number (100 for a sheet plotted 1:100).") from None
+        return {"view": view, "stories": stories, "level": level,
+                "unit": "mm" if self.is_pdf else self.unit.currentData(), "scale": scale, "page": int(self.dwg.page),
                 "own": self.pos_own.isChecked(), "align": self.align.isChecked(), "link": self.link.isChecked(),
                 "embed": self.embed.isChecked(), "layers_off": self.layers.off()}
 
@@ -252,15 +460,26 @@ class ReferenceLayersDialog(QtWidgets.QDialog):
         self.setWindowTitle(f"Layers - {ref.name} ({ref.source_label()})")
         self._apply = apply
         self._was = list(ref.layers_off)
-        lay = QtWidgets.QVBoxLayout(self)
+        outer = QtWidgets.QHBoxLayout(self)
+        lay = QtWidgets.QVBoxLayout()
+        outer.addLayout(lay, 0)
+        self.preview = DrawingPreview(measuring=False)  # (what the ticks leave, before closing the form)
+        self.preview.set_drawing(dwg, ref.layers_off, ref.factor("m"))
+        outer.addWidget(self.preview, 1)
         self.layers = LayerList(dwg, ref.layers_off)
-        self.layers.changed.connect(lambda: apply(self.layers.off()))
+        self.layers.setMaximumWidth(340)
+        self.layers.changed.connect(self._ticked)
         lay.addWidget(self.layers)
         bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
-        self.resize(340, 420)
+        self.resize(900, 520)
+
+    def _ticked(self):
+        off = self.layers.off()
+        self.preview.set_layers_off(off)
+        self._apply(off)
 
     def reject(self):
         if self.layers.off() != sorted(self._was):
@@ -292,8 +511,12 @@ class ManageReferencesDialog(QtWidgets.QDialog):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.itemSelectionChanged.connect(self._show)
         left.addWidget(self.table, 1)
+        self.preview = DrawingPreview(measuring=False)  # the reference selected, its layers as shown
+        self.preview.setMinimumHeight(220)
+        self._preview_of = None
+        left.addWidget(self.preview, 2)
         row = QtWidgets.QHBoxLayout()
-        self.b_add = QtWidgets.QPushButton("Place DXF Drawing...")
+        self.b_add = QtWidgets.QPushButton("Place Drawing...")
         self.b_del = QtWidgets.QPushButton("Delete")
         self.b_reload = QtWidgets.QPushButton("Reload")
         self.b_relink = QtWidgets.QPushButton("Choose File...")
@@ -323,6 +546,11 @@ class ManageReferencesDialog(QtWidgets.QDialog):
             self.unit.addItem(UNIT_LABELS[u], u)
         self.scale = QtWidgets.QLineEdit()
         self.scale.setMaximumWidth(110)
+        self.scale_label = QtWidgets.QLabel("Extra scale")
+        self.page = QtWidgets.QSpinBox()
+        self.page.setKeyboardTracking(False)
+        self.page.setMaximumWidth(110)
+        self.page_label = QtWidgets.QLabel("Page of the PDF")
         self.size = QtWidgets.QLabel()
         self.c_link = QtWidgets.QCheckBox("Linked to the file")
         self.c_embed = QtWidgets.QCheckBox("Embedded (a copy in the model file)")
@@ -335,7 +563,8 @@ class ManageReferencesDialog(QtWidgets.QDialog):
         f.addRow("Colour", self.color)
         f.addRow("Strength", self.strength)
         f.addRow("Drawing unit", self.unit)
-        f.addRow("Extra scale", self.scale)
+        f.addRow(self.scale_label, self.scale)
+        f.addRow(self.page_label, self.page)
         f.addRow("Size", self.size)
         f.addRow(self.c_link)
         f.addRow(self.c_embed)
@@ -354,6 +583,7 @@ class ManageReferencesDialog(QtWidgets.QDialog):
         self.color.activated.connect(self._color)
         self.strength.sliderReleased.connect(lambda: self._set(strength=self.strength.value() / 100.0))
         self.strength.actionTriggered.connect(lambda _a: QtCore.QTimer.singleShot(0, self, self._strength_key))
+        self.page.valueChanged.connect(self._page)
         self.unit.activated.connect(lambda _i: self._set(unit=self.unit.currentData()))
         self.scale.editingFinished.connect(self._scale)
         self.c_link.clicked.connect(self._storage)
@@ -364,7 +594,7 @@ class ManageReferencesDialog(QtWidgets.QDialog):
         close.rejected.connect(self.reject)
         close.accepted.connect(self.accept)
         left.addWidget(close)
-        self.resize(900, 460)
+        self.resize(1040, 640)
         self.refresh()
 
     # ---- the list
@@ -414,6 +644,8 @@ class ManageReferencesDialog(QtWidgets.QDialog):
         if not on:
             self.status.setText("")
             self.size.setText("")
+            self._preview_of = None
+            self.preview.set_drawing(None)
             return
         m = self.doc.model
         self.c_visible.setChecked(ref.visible)
@@ -430,6 +662,25 @@ class ManageReferencesDialog(QtWidgets.QDialog):
         self.b_stories.setEnabled(ref.view == "plan" and bool(m.stories))
         dwg, why = cadref.drawing_of(ref, m, getattr(self.doc, "path", None))
         self.b_layers.setEnabled(dwg is not None)
+        # a PDF sheet: millimetres of paper times its plot scale (no drawing unit to choose)
+        pdf = dwg.source == "pdf" if dwg is not None else ref.source_label().lower().endswith(".pdf")
+        self.unit.setEnabled(not pdf)
+        self.scale_label.setText("Plot scale  1 :" if pdf else "Extra scale")
+        pages = dwg.pages if (dwg is not None and pdf) else 1
+        self.page.blockSignals(True)
+        self.page.setRange(1, max(1, pages, int(ref.page)))
+        self.page.setValue(int(ref.page))
+        self.page.setSuffix(f"  of {pages}" if pdf else "")
+        self.page.blockSignals(False)
+        for w in (self.page, self.page_label):
+            w.setVisible(pdf and pages > 1)
+        what = (getattr(dwg, "serial", None), ref.name)
+        if what != self._preview_of:  # (the same drawing: the view of the picture is kept)
+            self._preview_of = what
+            self.preview.set_drawing(dwg, ref.layers_off, ref.factor("m"))
+        else:
+            self.preview.set_layers_off(ref.layers_off)
+            self.preview.set_metres_per_unit(ref.factor("m"))
         if dwg is None:
             self.size.setText("-")
             self.status.setText(f"<b>Not shown:</b> {why}")
@@ -492,6 +743,18 @@ class ManageReferencesDialog(QtWidgets.QDialog):
         if abs(v - ref.scale) > 1e-12 * max(1.0, abs(v)):
             self._set(scale=v)
 
+    def _page(self, number: int):
+        name = self.current()
+        ref = self._ref()
+        if ref is None or int(number) == int(ref.page):
+            return
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            self._try(lambda: cadref.set_page(self.doc, name, int(number), getattr(self.doc, "path", None)))
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+        self.refresh(name)
+
     def _storage(self):
         name = self.current()
         if name:
@@ -538,7 +801,9 @@ class ManageReferencesDialog(QtWidgets.QDialog):
     def _reload(self):
         ref = self._ref()
         if ref is not None:
-            cadref.reload(ref, self.doc.model, getattr(self.doc, "path", None))
+            path = getattr(self.doc, "path", None)
+            cadref.reload(ref, self.doc.model, path)
+            cadref.refresh_embedded(self.doc, [ref.name], path)  # (linked + embedded: the copy follows the file)
             self.window_.references_redraw()
             self.refresh()
 
@@ -549,7 +814,8 @@ class ManageReferencesDialog(QtWidgets.QDialog):
             return
         start = os.path.dirname(ref.path) if ref.path else ""
         path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Choose the Drawing File", start, FILE_FILTER)
-        if path and self._try(lambda: cadref.relink(self.doc, name, path)):
+        if path and self._try(lambda: cadref.relink(self.doc, name, path, getattr(self.doc, "path", None))):
+            self.window_.references_redraw()
             self.refresh(name)
 
     def _zoom(self):
@@ -593,7 +859,7 @@ class ReferenceCommandsMixin:
         window, else asked."""
         refs = list(cadref.references_of(self.doc.model))
         if not refs:
-            self._info("No reference yet - References > Place DXF Drawing")
+            self._info("No reference yet - References > Place Drawing")
             return None
         if len(refs) == 1:
             return refs[0]
@@ -620,26 +886,33 @@ class ReferenceCommandsMixin:
         start = settings.value("references/folder", "") if settings is not None else ""
         if not start and getattr(self.doc, "path", None):
             start = os.path.dirname(self.doc.path)
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(parent or self, "Place DXF Drawing", start or "", FILE_FILTER)
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(parent or self, PLACE_TITLE, start or "", FILE_FILTER)
         if not path:
             return None
         if settings is not None:
             settings.setValue("references/folder", os.path.dirname(path))
+        dwg = self._read_drawing(path, 1, parent)
+        if dwg is None:
+            return None
+        if not len(dwg.seg):
+            QtWidgets.QMessageBox.warning(parent or self, PLACE_TITLE,
+                                          "The drawing has no lines in its model space to show.")
+            return None
+        return self._place_drawing(path, dwg, parent, start_align)
+
+    def _read_drawing(self, path: str, page: int = 1, parent=None) -> Optional[Drawing]:
+        """The drawing of a file (a page of a PDF) with the wait cursor; None: it cannot be
+        read (told)."""
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         try:
-            dwg = read_dxf(path)
+            return cadref.read_drawing(path, page)
         except DxfError as exc:
             QtWidgets.QApplication.restoreOverrideCursor()
-            QtWidgets.QMessageBox.warning(parent or self, "Place DXF Drawing", str(exc))
+            QtWidgets.QMessageBox.warning(parent or self, PLACE_TITLE, str(exc))
             return None
         finally:
             if QtWidgets.QApplication.overrideCursor() is not None:
                 QtWidgets.QApplication.restoreOverrideCursor()
-        if not len(dwg.seg):
-            QtWidgets.QMessageBox.warning(parent or self, "Place DXF Drawing",
-                                          "The drawing has no lines in its model space to show.")
-            return None
-        return self._place_drawing(path, dwg, parent, start_align)
 
     def _place_drawing(self, path: str, dwg: Drawing, parent=None, start_align: bool = True) -> Optional[str]:
         m = self.doc.model
@@ -651,11 +924,23 @@ class ReferenceCommandsMixin:
             names = [s.name for s in m.stories_bottom_up()]
             story = names[1] if len(names) > 1 else (names[0] if names else None)
         view = kind if kind in ("xz", "yz") else "plan"
+        settings = getattr(self, "qsettings", None)
+        last = None
+        try:
+            last = float(settings.value("references/plot_scale", 0) or 0) or None if settings is not None else None
+        except (TypeError, ValueError):
+            last = None
+        pdf = dwg.source == "pdf"
+        # (a sheet has no coordinates of the model: it starts in the middle of the window)
         dlg = PlaceReferenceDialog(m, path, dwg, view, story, pl.value if pl is not None and view != "plan" else 0.0,
-                                   self._drawing_near_model(dwg), parent or self)
+                                   (not pdf) and self._drawing_near_model(dwg), parent or self,
+                                   read_page=lambda n: cadref.read_drawing(path, n), plot_scale=last)
         if dlg.exec() != QtWidgets.QDialog.Accepted:
             return None
         v = dlg.values()
+        dwg = dlg.dwg  # (another page of the PDF may have been chosen)
+        if pdf and settings is not None and v["scale"]:
+            settings.setValue("references/plot_scale", float(v["scale"]))
         level = v["level"]
         if v["view"] == "plan" and not v["stories"]:
             level = pl.value if (pl is not None and kind == "plan") else 0.0
@@ -676,15 +961,17 @@ class ReferenceCommandsMixin:
             origin = self._window_centre(target) if target is not None else (0.0, 0.0)
         try:
             name = cadref.add_reference(self.doc, path, v["view"], v["stories"], level, v["unit"], v["embed"],
-                                        v["link"], origin, base, v["layers_off"])
+                                        v["link"], origin, base, v["layers_off"], page=v["page"], scale=v["scale"])
         except ModelError as exc:
-            QtWidgets.QMessageBox.warning(parent or self, "Place DXF Drawing",
+            QtWidgets.QMessageBox.warning(parent or self, PLACE_TITLE,
                                           exc.message if hasattr(exc, "message") else str(exc))
             return None
         if target is not None:
             self.views.set_active(target)
             self.reference_zoom(name, window=target, only_if_out=v["own"])
-        self._info(f"Reference {name}: {os.path.basename(path)} placed ({size_text(dwg, v['unit'])})"
+        shown = real_size_text(dwg, v["scale"]) + f" at 1:{v['scale']:g}" if pdf else \
+            size_text(dwg, v["unit"], v["scale"])
+        self._info(f"Reference {name}: {os.path.basename(path)} placed ({shown})"
                    + ("" if target is not None else " - open a plan / elevation window to see it"))
         if v["align"] and start_align and target is not None:
             self.reference_tool("ref_align", name)
@@ -755,10 +1042,14 @@ class ReferenceCommandsMixin:
 
     def reference_tool(self, tool: str, name: Optional[str] = None):
         if not cadref.references_of(self.doc.model):
-            self._info("No reference yet - References > Place DXF Drawing")
+            self._info("No reference yet - References > Place Drawing")
             return
-        if self.viewport.config.kind == "3d":
+        vp = self.viewport
+        if vp.config.kind == "3d":
             self._info("References are put in place in plan and elevation windows - click in the window that shows it")
+        elif getattr(vp, "references_hidden", False):  # (nothing to click on while they are hidden here)
+            vp.set_references_hidden(False)
+            self.sync_reference_actions()
         self.state.reference_target = name if name else None
         self.state.set_tool(tool)
 
@@ -804,13 +1095,20 @@ class ReferenceCommandsMixin:
     def reference_reload(self):
         m = self.doc.model
         if not cadref.references_of(m):
-            self._info("No reference yet - References > Place DXF Drawing")
+            self._info("No reference yet - References > Place Drawing")
             return
+        path = getattr(self.doc, "path", None)
         cadref.reload()
+        fresh = cadref.refresh_embedded(self.doc, None, path)  # (linked + embedded: the copies follow the files)
+        m = self.doc.model
         self.references_redraw()
-        missing = [r.name for r in m.references.values()
-                   if cadref.source_of(r, m, getattr(self.doc, "path", None))[0] == "missing"]
-        self._info("Linked drawings read again" + (f" - not found: {', '.join(missing)}" if missing else ""))
+        missing = [r.name for r in m.references.values() if cadref.source_of(r, m, path)[0] == "missing"]
+        bad = [r.name for r in m.references.values()
+               if r.name not in missing and cadref.drawing_of(r, m, path)[0] is None]
+        self._info("Linked drawings read again"
+                   + (f" - the copy in the model renewed: {', '.join(fresh)}" if fresh else "")
+                   + (f" - not found: {', '.join(missing)}" if missing else "")
+                   + (f" - cannot be read: {', '.join(bad)}" if bad else ""))
 
     def reference_show_window(self, on: bool = True):
         self.viewport.set_references_hidden(not on)

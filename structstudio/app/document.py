@@ -87,6 +87,11 @@ class Document:
     def _replaced(self):
         """Another document took this one's place (new / open / import)."""
         self.generation += 1
+        try:  # (the drawings read for the last model's references)
+            from . import cadref
+            cadref.forget()
+        except Exception:
+            pass
         self._emit("replaced")
 
     # --------------------------------------------------------------- edits

@@ -13,6 +13,10 @@ kept in the model file), or both - and says where the drawing lies:
   plane, model length units), turned by ``rotation`` and scaled by the drawing ``unit``
   and by ``scale`` (a drawing that was not drawn 1:1).
 
+A drawing is a DXF file or one ``page`` of a PDF plotted from CAD.  A PDF page is read in
+millimetres on the sheet (``unit`` "mm"); ``scale`` is then its plot scale (100 for a
+sheet plotted 1:100).
+
 The embedded copies are :class:`Blob` objects in ``Model.attachments``.  A blob is
 immutable and is pickled *by its key* (the undo history keeps keys, not megabytes).
 """
@@ -120,6 +124,7 @@ class CadReference:
     color: str = "gray"  # "gray" | "layers" (the drawing's own colours) | "#rrggbb"
     strength: float = 0.6  # 0..1: how strongly it is drawn (1 = full colour)
     layers_off: List[str] = field(default_factory=list)
+    page: int = 1  # the page of a PDF drawing (1 = the first)
 
     def convert_units(self, src, dst) -> "CadReference":
         import dataclasses

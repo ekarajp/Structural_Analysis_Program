@@ -655,8 +655,9 @@ class SnapEngine:
                     hits.append(h)
             hits += [h for h in self._line_hits(cursor, big) if h.kind in kinds]
             hits += [h for h in self._tracking_hits(cursor, big) if h.kind in kinds]
-            hits += self._cad_hits(cursor, big, tuple(k for k in kinds if k in self.CAD_KINDS) +
-                                   (("end",) if "joint" in kinds else ()), forced=True)
+            if saved.get("cad", True):  # (Snap to References off: the drawings take no part)
+                hits += self._cad_hits(cursor, big, tuple(k for k in kinds if k in self.CAD_KINDS) +
+                                       (("end",) if "joint" in kinds else ()), forced=True)
         finally:
             for k, v in saved.items():
                 setattr(o, k, v)
