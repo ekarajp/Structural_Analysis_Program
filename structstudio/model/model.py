@@ -24,6 +24,7 @@ from .objects import (Area, AreaLoad, DesignStrip, LabelRules, Diaphragm, Frame,
                       TendonPoint, Tower, FREE)
 from .properties import FrameModifiers, FrameSection, Material, RebarSize, ShellModifiers, ShellSection
 from .design import DesignPreferences, SlabColumnDriftPrefs, SlabDesignModelPrefs
+from .references import Blob, CadReference
 from .nonlinear import (NONLINEAR_TYPES, FiberSectionDef, FrameHingeAssignment, FrameNonlinearProperty,
                         HingeProperty, LinkDOF, LinkObject, LinkProperty, NonlinearMaterial, NonlinearStaticCase,
                         TimeHistoryCase, TimeHistoryLoad)
@@ -82,7 +83,8 @@ _KNOWN_KEYS = {"schema_version", "units", "display_units", "info", "options", "m
                "frame_sections", "shell_sections", "stories", "towers", "grid_systems", "grid_lines", "diaphragms", "points",
                "frames", "areas", "groups", "line_springs", "tendons", "panel_loads", "design_strips", "load_patterns",
                "mass_sources", "functions", "label_rules", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",
-               "frame_nonlinear", "hinge_properties", "link_properties", "links", "design", "defaults"}
+               "frame_nonlinear", "hinge_properties", "link_properties", "links", "design", "defaults",
+               "references", "attachments"}
 
 _CASE_TYPES = {
     "LinearStatic": LinearStaticCase,
@@ -101,7 +103,7 @@ _TYPE_REGISTRY = {
         FrameLoad, AreaLoad, Story, Tower, GridLine, GridSystem, Diaphragm, Group, LineSpring, LoadPattern, MassSource,
         ResponseSpectrumFunction, TimeHistoryFunction, LinearStaticCase, ModalCase, ResponseSpectrumCase,
         PDeltaCase, LinearBucklingCase, ComboItem, LoadCombination, SpectrumLoad,
-        DesignPreferences, SlabColumnDriftPrefs, SlabDesignModelPrefs,
+        DesignPreferences, SlabColumnDriftPrefs, SlabDesignModelPrefs, CadReference,
     ) + NONLINEAR_TYPES
 }
 
@@ -235,6 +237,9 @@ class Model:
         self.panel_loads: Dict[str, PanelLoad] = {}
         # slab design strips (design data: they add nothing to the analysis)
         self.design_strips: Dict[str, DesignStrip] = {}
+        # CAD drawings to draw over (no part of the structure) and the files embedded for them
+        self.references: Dict[str, CadReference] = {}
+        self.attachments: Dict[str, Blob] = {}
         self.load_patterns: Dict[str, LoadPattern] = {}
         self.mass_sources: Dict[str, MassSource] = {"MsSrc1": MassSource()}
         self.functions: Dict[str, ResponseSpectrumFunction | TimeHistoryFunction] = {}
@@ -601,6 +606,13 @@ class Model:
         number of joints moved."""
         pairs, _gone = self.pair_levels(old, new)
         newd = {str(n): float(z) for n, z in new}
+        for ref in getattr(self, "references", {}).values():  # a drawing stays with its (renamed) story
+            if ref.view == "plan" and ref.stories:
+                ref.stories = [pairs[n] if n in pairs else n for n in ref.stories if n not in _gone]
+                for n in ref.stories:
+                    if n in newd:
+                        ref.level = newd[n]
+                        break
         lv = sorted(((float(z), (newd[pairs[n]] - float(z)) if n in pairs else None) for n, z in old),
                     key=lambda t: t[0])
         if not lv or all((d is not None and abs(d) < 1e-12) for _, d in lv):
@@ -1771,12 +1783,13 @@ class Model:
         for attr in ("materials", "rebar_sizes", "frame_sections", "shell_sections", "stories", "towers", "grid_systems", "diaphragms",
                      "points", "frames", "areas", "groups", "line_springs", "tendons", "panel_loads", "design_strips",
                      "load_patterns", "mass_sources", "functions", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",
-                     "frame_nonlinear", "hinge_properties", "link_properties", "links"):
+                     "frame_nonlinear", "hinge_properties", "link_properties", "links", "references"):
             table = getattr(self, attr)
             setattr(out, attr, {k: convert_dataclass(v, src, new_units) for k, v in table.items()})
         # (a cylindrical system's T lines are angles in degrees: not lengths)
         out.grid_lines = [convert_dataclass(g, src, new_units) if g.direction != "T" else dataclasses.replace(g)
                           for g in self.grid_lines]
+        out.attachments = dict(self.attachments)
         out.options = dataclasses.replace(self.options)
         out.design = convert_dataclass(self.design, src, new_units)
         out.label_rules = dataclasses.replace(self.label_rules, prefixes=dict(self.label_rules.prefixes))
@@ -1844,6 +1857,8 @@ class Model:
             "tendons": to_dict(self.tendons),
             "panel_loads": to_dict(self.panel_loads),
             "design_strips": to_dict(self.design_strips),
+            "references": to_dict(self.references),
+            "attachments": {k: b.to_dict() for k, b in self.attachments.items()},
             "load_patterns": to_dict(self.load_patterns),
             "mass_sources": to_dict(self.mass_sources),
             "functions": to_dict(self.functions),
@@ -1911,10 +1926,15 @@ class Model:
         for attr in ("materials", "rebar_sizes", "frame_sections", "shell_sections", "stories", "towers", "grid_systems", "diaphragms",
                      "points", "frames", "areas", "groups", "line_springs", "tendons", "panel_loads", "design_strips",
                      "load_patterns", "mass_sources", "functions", "load_cases", "load_combinations", "nonlinear_materials", "fiber_sections",
-                     "frame_nonlinear", "hinge_properties", "link_properties", "links"):
+                     "frame_nonlinear", "hinge_properties", "link_properties", "links", "references"):
             table = data.get(attr, {})
             setattr(m, attr, {k: _from_dict(v, f"{attr}.{k}") for k, v in table.items()})
         m.grid_lines = [_from_dict(g, f"grid_lines[{i}]") for i, g in enumerate(data.get("grid_lines", []))]
+        m.attachments = {str(k): Blob.from_dict(str(k), v) for k, v in (data.get("attachments") or {}).items()
+                         if isinstance(v, dict)}
+        for ref in m.references.values():  # (read as lists)
+            ref.stories = [str(n) for n in ref.stories]
+            ref.layers_off = [str(n) for n in ref.layers_off]
         for ds in m.design_strips.values():  # (read as lists)
             ds.points = [tuple(p) for p in ds.points]
             ds.widths = [tuple(w) for w in ds.widths]

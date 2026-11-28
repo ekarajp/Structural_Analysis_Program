@@ -409,8 +409,9 @@ def test_navigation_modes_grid_toggles_and_locale(window, app):
 def test_etabs_menu_bar(window, app):
     from PySide6 import QtGui
     titles = [a.text().replace("&", "") for a in window.menuBar().actions()]
-    assert titles == ["File", "Edit", "View", "Define", "Draw", "Select", "Assign", "Load", "Analyze", "Display",
-                      "Design", "Detailing", "Window", "Options", "Help"]
+    # (References: the CAD drawings to draw over - after Define, before Draw, as they are used)
+    assert titles == ["File", "Edit", "View", "Define", "References", "Draw", "Select", "Assign", "Load", "Analyze",
+                      "Display", "Design", "Detailing", "Window", "Options", "Help"]
     acts = window.menu_actions
     # ETABS default keyboard shortcuts
     for cid, key in (("analyze.run", "F5"), ("edit.replicate", "Ctrl+R"), ("edit.move", "Ctrl+M"),

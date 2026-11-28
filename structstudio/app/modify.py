@@ -779,6 +779,12 @@ class RotateTool(ModifyTool):
     prompt = "click the centre of rotation"
     views = ("plan", "xz", "yz")
 
+    @property
+    def typed_is_angle(self) -> bool:
+        """What is typed after the centre is the angle in degrees (not a length in the
+        display unit: 30 typed with lengths shown in mm turned by 0.03 degrees)."""
+        return bool(self.points) and not self.selecting
+
     def step_hint(self) -> str:
         if not self.points:
             return next_step(self.title, self.prompt)

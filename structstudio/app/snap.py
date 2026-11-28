@@ -64,6 +64,7 @@ SNAP_ITEMS: List[Tuple[str, str, str]] = [
     ("centers", "Area centers", "The geometric centre of a floor / wall area"),
     ("extensions", "Extensions", "Points on the extension of a frame or edge beyond its ends"),
     ("parallels", "Parallels", "Next point parallel to a frame or edge near the cursor"),
+    ("cad", "CAD references", "Ends, midpoints, intersections and centres of the drawings placed as references"),
     ("fine_grid", "Fine grid", "An invisible grid with the fine grid spacing (plan views)"),
     ("reference", "Reference lines", "Reference lines through joints"),
     ("ortho", "Orthogonal tracking", "Next point along the plane axes through the previous point"),
@@ -95,6 +96,7 @@ class SnapOptions:
     centers: bool = False
     extensions: bool = True
     parallels: bool = False
+    cad: bool = True  # the drawings placed as references (References menu)
     fine_grid: bool = False
     reference: bool = True
     ortho: bool = False
@@ -162,6 +164,7 @@ class SnapHit:
     text: str = ""  # extra description (length / angle)
     track2: Optional[Tuple[XYZ, XYZ]] = None  # a second tracking line (crossing alignments)
     line: Optional[Tuple[XYZ, XYZ]] = None  # the line the point lies on (nearest / edge / extension ...)
+    cad: bool = False  # a point of a CAD reference (not of the model)
 
     @property
     def label(self) -> str:
@@ -255,6 +258,7 @@ class SnapEngine:
         self.project_many: Optional[Callable[[np.ndarray], Tuple[np.ndarray, np.ndarray]]] = None
         self._seg_scr = None
         self.override: Optional[str] = None  # one-shot snap override (Shift / Ctrl + right-click menu)
+        self.cad = None  # cadref.RefSnapper of the window: the CAD references it shows
 
     # ------------------------------------------------------------ helpers
     @property
@@ -573,6 +577,8 @@ class SnapEngine:
                     h.distance = d
                     hits.append(h)
             hits += self._line_hits(cursor, tol)
+            if self.opt.cad:
+                hits += self._cad_hits(cursor, tol)
         hits += self._tracking_hits(cursor, tol)
         # only points inside the aperture: every distance is the snapped point projected back
         # to the screen.  (A perpendicular foot away from the cursor is offered only by the
@@ -584,7 +590,10 @@ class SnapEngine:
         # that happens to sit near them on the screen (3D: the middle of a beam of another
         # level in front of a base joint) wins only when it is clearly nearer the cursor
         bias = {"grid": 1.0, "intersection": 1.0, "midpoint": 4.0, "center": 4.0}
-        rank_d = lambda h: h.distance + (bias.get(h.kind, 0.0) if tier(h) == 0 else 0.0)  # noqa: E731
+        # a point of the model before a point of a drawing beside it (a column corner of the
+        # drawing next to the joint drawn there: the joint, so members join)
+        rank_d = lambda h: h.distance + ((bias.get(h.kind, 0.0) + (3.0 if h.cad else 0.0))  # noqa: E731
+                                         if tier(h) == 0 else 0.0)
         hits.sort(key=lambda h: (tier(h), round(rank_d(h), 1), sub.get(h.kind, 9)))
         if self.depth is not None and hits and tier(hits[0]) == 0:
             # 3D: points of different levels can project onto the same pixel - only then
@@ -646,12 +655,50 @@ class SnapEngine:
                     hits.append(h)
             hits += [h for h in self._line_hits(cursor, big) if h.kind in kinds]
             hits += [h for h in self._tracking_hits(cursor, big) if h.kind in kinds]
+            hits += self._cad_hits(cursor, big, tuple(k for k in kinds if k in self.CAD_KINDS) +
+                                   (("end",) if "joint" in kinds else ()), forced=True)
         finally:
             for k, v in saved.items():
                 setattr(o, k, v)
             self._segs = None
         hits.sort(key=lambda h: h.distance)
         return hits
+
+    CAD_KINDS = ("end", "midpoint", "intersection", "center", "nearest", "perpendicular")
+
+    def _cad_hits(self, cursor, tol, kinds=None, forced: bool = False) -> List[SnapHit]:
+        """Snap points of the CAD references of the window near the cursor: their ends,
+        centres and - as the model's own snaps are set - midpoints, intersections, the
+        perpendicular foot and the nearest point on a line."""
+        cad = self.cad
+        if not cad or self.plane.kind == "3d":
+            return []
+        if kinds is not None and not kinds:
+            return []
+        p = self.to_plane(float(cursor[0]), float(cursor[1]))
+        if p is None:
+            return []
+        pl = self.plane
+        uv = pl.to2(p)
+        # the aperture in model length: one unit along the plane's first axis on the screen
+        step = pl.to3((uv[0] + 1.0, uv[1]))
+        px = float(np.linalg.norm(np.asarray(self.project(step), float) - np.asarray(self.project(p), float)))
+        if not px > 0:
+            return []
+        prev = None
+        if self.previous is not None and self._in_plane(self.previous):
+            prev = pl.to2(tuple(self.previous))
+        o = self.opt
+        found = cad.hits(uv, tol / px, prev, kinds,
+                         midpoints=forced or o.ends_midpoints, intersections=forced or o.intersections,
+                         nearest=forced or o.lines, perpendicular=forced or o.perpendicular)
+        out = []
+        for q, kind, name in found:
+            xyz = pl.to3(q)
+            d = float(np.linalg.norm(np.asarray(self.project(xyz), float) - np.asarray(cursor, float)))
+            if d <= tol:
+                out.append(SnapHit(tuple(float(v) for v in xyz), kind, name, distance=d, cad=True))
+        return out
 
     def _centers_of_areas(self) -> List[SnapHit]:
         """Geometric centres of the shell areas (and of closed frame loops are not searched)."""

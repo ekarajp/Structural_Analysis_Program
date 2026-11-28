@@ -279,7 +279,7 @@ class Document:
 
     # what the analysis does not depend on: design preferences, design strips, the
     # project information - undoing / redoing a change of these keeps the results
-    DESIGN_KEYS = ("design", "design_strips", "info", "label_rules")
+    DESIGN_KEYS = ("design", "design_strips", "info", "label_rules", "references", "attachments")
 
     def _analysis_part(self, model) -> dict:
         """The model as the analysis sees it: no design data, and no labels of joints /
@@ -406,6 +406,13 @@ class Document:
             self.dirty = False
             self._mark_saved()
             report = ""
+            if getattr(self.model, "references", None):  # linked drawings that are not there
+                from . import cadref
+                cadref.reload()
+                for ref in self.model.references.values():
+                    if cadref.source_of(ref, self.model, path)[0] == "missing":
+                        self.note(f"Reference {ref.name}: the drawing file is not found ({ref.path or ref.rel_path}) "
+                                  "- References > Manage References > Choose File", "warning")
             self.results = None
             self._undo.clear()
             self._redo.clear()
@@ -437,6 +444,9 @@ class Document:
         path = path or self.path
         if not path:
             raise ValueError("no file name")
+        if getattr(self.model, "references", None):
+            from .cadref import update_rel_paths
+            update_rel_paths(self.model, path)  # (the linked drawings: also from where the model is)
         self.model.to_json(path)
         self.path = path
         self.dirty = False

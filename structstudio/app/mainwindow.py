@@ -16,6 +16,7 @@ from .colors_dialog import GraphicsColorsDialog
 from .document import Document
 from .icons import icon
 from .menu_commands import MenuCommandsMixin
+from .ref_ui import ReferenceCommandsMixin
 from .panels import LogPanel, ModelExplorer, ResultsPanel
 from .state import ViewState
 from .viewport import ModelViewport
@@ -169,7 +170,7 @@ class ImportWorker(QtCore.QThread):
             self.failed.emit(f"{type(exc).__name__}: {exc}")
 
 
-class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
+class MainWindow(MenuCommandsMixin, ReferenceCommandsMixin, QtWidgets.QMainWindow):
     def __init__(self, document: Optional[Document] = None, settings: Optional[QtCore.QSettings] = None):
         super().__init__()
         use_english_numbers()
@@ -585,9 +586,11 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
             "display.mesh": self.act_mesh,
             "window.theme": self.act_theme_toggle,
         })
+        acts.update(self.reference_actions())  # References: show in this window, snap
         cmds_extra = {"analyze.problems": self.show_analysis_issues,
                       "edit.find": lambda: self.find_box.focus_for_typing()}
         cmds = self.menu_commands()
+        cmds.update(self.reference_commands())
         cmds.update(cmds_extra)
         cmds.update({
             "file.new": self.new_model, "file.open": self.open_model, "file.save": self.save_model,
@@ -1673,6 +1676,7 @@ class MainWindow(MenuCommandsMixin, QtWidgets.QMainWindow):
     def _active_changed(self, vp):
         self.state.update_hint()  # the window title already names the view
         self._sync_display_actions()
+        self.sync_reference_actions()
         self._sync_result_toolbar(vp)
 
     def _sync_result_toolbar(self, vp):

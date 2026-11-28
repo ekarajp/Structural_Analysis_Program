@@ -240,6 +240,25 @@ ETABS_MENUS: List[Tuple[str, List[Entry]]] = [
         ("Table Named Sets...", "define.table_sets"),
         ("Named Assignment Sets...", "define.assign_sets"),
     ]),
+    # CAD drawings to draw over: placed after the materials and sections are defined, before
+    # drawing - in the order they are used (place, put in place, what is shown, the files)
+    ("Referen&ces", [
+        ("Place DXF Drawing...", "ref.place"),
+        "-",
+        ("Align (2 Points)", "ref.align"),
+        ("Scale by a Known Length", "ref.scale"),
+        ("Move", "ref.move"),
+        ("Rotate", "ref.rotate"),
+        ("Pin / Unpin", "ref.pin"),
+        "-",
+        ("Show in This Window", "ref.show_window", "Ctrl+Alt+R"),
+        ("Snap to References", "ref.snap", "Ctrl+Alt+S"),
+        ("Layers...", "ref.layers"),
+        ("Zoom to Reference", "ref.zoom"),
+        "-",
+        ("Reload Linked Drawings", "ref.reload"),
+        ("Manage References...", "ref.manage"),
+    ]),
     ("D&raw", [
         ("Select Object", "tool.select"),
         ("Reshape Object", "tool.reshape"),

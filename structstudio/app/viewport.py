@@ -1312,6 +1312,8 @@ class ModelViewport(QtWidgets.QWidget):
             self.invalidate("overlays")
         elif what == "design":  # design strips / design data: the strips drawn again
             self.invalidate("selection")
+        elif what == "references":  # a CAD reference placed / moved / restyled: only its lines again
+            self.invalidate("references")
         elif what == "labels":  # Auto Relabel: the names on screen again
             self._fill_header()
             self.invalidate("selection", "labels", "overlays")
@@ -1348,6 +1350,8 @@ class ModelViewport(QtWidgets.QWidget):
                 self._build_layer("selection")
             if "labels" in parts:
                 self._build_layer("labels")
+        if "references" in parts and "scene" not in parts:
+            self._build_references()
         if "overlays" in parts:
             self.update_overlays()
         else:
@@ -1435,6 +1439,70 @@ class ModelViewport(QtWidgets.QWidget):
         self._draw_highlight()
         self._draw_grips()
         self._grid_mode_fade(bool(getattr(self.state, "grid_mode", False)) and self.config.kind == "plan")
+        self._build_references()
+
+    # ------------------------------------------------------- CAD references
+    references_hidden = False  # this window shows no references (References > Show in This Window)
+
+    def shown_references(self):
+        """[(reference, drawing or None, why not)] of the references this window shows: a
+        plan shows those of its story (or level), an elevation those of its plane; a 3D
+        window none."""
+        from . import cadref
+        kind = self.config.kind
+        if kind not in ("plan", "xz", "yz") or self.references_hidden:
+            return []
+        m = self.doc.model
+        if not cadref.references_of(m):
+            return []
+        pl = self.plane()
+        out = []
+        for ref in cadref.shown_in(m, kind, pl.value, pl.story):
+            dwg, why = cadref.drawing_of(ref, m, getattr(self.doc, "path", None))
+            out.append((ref, dwg, why))
+        return out
+
+    def _build_references(self):
+        """The lines of the references again - only when what is shown changed (a drawing
+        of 100 000 lines is not made again for every edit of the model)."""
+        from . import cadref
+        import dataclasses
+        shown = self.shown_references()
+        pl = self.plane() if shown else None
+        bg, ink = scene.COLORS["background_top"], scene.COLORS["text"]
+        m = self.doc.model
+        sig = tuple((dataclasses.astuple(ref), id(dwg), pl.kind, float(pl.value), m.units.length, tuple(bg), tuple(ink))
+                    for ref, dwg, _ in shown)
+        if sig == getattr(self, "_ref_sig", None):
+            return
+        for a in getattr(self, "_ref_actors", []):
+            self.renderer.RemoveActor(a)
+        self._ref_actors = []
+        self._ref_sig = sig
+        self._ref_snap = None
+        for ref, dwg, _ in shown:
+            if dwg is None:
+                continue
+            a = cadref.build_actor(ref, dwg, m, pl.kind, pl.value, bg, ink)
+            if a is not None:
+                self.renderer.AddActor(a)
+                self._ref_actors.append(a)
+
+    def reference_snapper(self):
+        """Snap targets of the references shown here (None: none)."""
+        from . import cadref
+        if not getattr(self, "_ref_actors", None):
+            return None
+        snap = getattr(self, "_ref_snap", None)
+        if snap is None:
+            snap = self._ref_snap = cadref.RefSnapper([(r, d) for r, d, _ in self.shown_references() if d is not None],
+                                                      self.doc.model.units.length)
+        return snap or None
+
+    def set_references_hidden(self, hidden: bool):
+        self.references_hidden = bool(hidden)
+        self._build_references()
+        self.request_render()
 
     def _build_layer(self, layer: str):
         """Only the selection highlights / only the labels again: the objects (and
@@ -2688,6 +2756,8 @@ class ModelViewport(QtWidgets.QWidget):
                          tower=self.window_tower() if hasattr(self, "window_tower") else None,
                          same_level=bool(getattr(self.config, "same_level", True)))
         eng.override = getattr(st, "snap_override", None)
+        refs_of = getattr(self, "reference_snapper", None)  # CAD references of this window
+        eng.cad = refs_of() if refs_of is not None and pl.kind != "3d" else None
         # large models: the view's snap targets are listed once (until the model or what the
         # window shows changes) and only those near the cursor are tested (see SnapEngine)
         many_fn = getattr(self, "_display_many_fn", None)
@@ -3476,7 +3546,8 @@ class ModelViewport(QtWidgets.QWidget):
                 and not text.strip().startswith(("#", "@")):
             text = text + ","  # X only: Y where the cursor is
         text = self._fill_boxes(text)
-        text = self._typed_to_model(text)
+        if not getattr(st.tool, "typed_is_angle", False):  # (an angle typed for a rotation is no length)
+            text = self._typed_to_model(text)
         try:
             pt = None
             if self._box_mode() == "abs" and self._point_tool() and self.config.kind != "3d" and \
