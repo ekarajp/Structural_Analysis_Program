@@ -1591,8 +1591,28 @@ class ModelViewport(QtWidgets.QWidget):
                 None,
                 ("Manage References...", lambda: win.reference_manage(name), None)]
 
+    def add_reference_menu(self, menu, name: str, layer: str) -> dict:
+        """The reference's items as a submenu of ``menu`` (the window's right-click menu over
+        a line of a drawing): {action: what it does}."""
+        from . import cadref
+        items = self.reference_menu_items(name, layer)
+        if not items:
+            return {}
+        sub = menu.addMenu(f"Reference {name} - {cadref.references_of(self.doc.model)[name].source_label()}")
+        acts = {}
+        for item in items:
+            if item is None:
+                sub.addSeparator()
+                continue
+            a = sub.addAction(item[0])
+            if item[2] is not None:
+                a.setCheckable(True)
+                a.setChecked(item[2])
+            acts[a] = item[1]
+        return acts
+
     def reference_menu(self, name: str, layer: str, x: int, y: int):
-        """Right-click on a line of a drawing: what is done with a reference, where it is."""
+        """A menu of a reference alone, at a point of the window."""
         from . import cadref
         items = self.reference_menu_items(name, layer)
         if not items:
@@ -3410,11 +3430,9 @@ class ModelViewport(QtWidgets.QWidget):
                 if hits:
                     self.object_menu(hits[0][0], hits[0][1], x, y, others=hits[1:])
                 else:
-                    under = self.reference_under(x, y)  # a line of a drawing: the reference's menu
-                    if under is not None:
-                        self.reference_menu(under[0], under[1], x, y)
-                    else:
-                        self.background_menu_requested.emit(self, x, y)
+                    # (the window's menu: a pending assignment, a grid line's menu come first; a line
+                    # of a drawing under the cursor adds the reference's menu to it)
+                    self.background_menu_requested.emit(self, x, y)
             elif getattr(st.tool, "picks", None):
                 st.apply_load_tool()  # load command: right click applies to the picked objects
                 self.render()

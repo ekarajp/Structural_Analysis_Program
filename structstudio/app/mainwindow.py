@@ -1389,6 +1389,11 @@ class MainWindow(MenuCommandsMixin, ReferenceCommandsMixin, QtWidgets.QMainWindo
             return
         menu = QtWidgets.QMenu(self)
         ma = self.menu_actions
+        ref_acts = {}
+        under = vp.reference_under(x, y) if hasattr(vp, "reference_under") else None
+        if under is not None:  # a line of a drawing: its reference's commands, then the window's
+            ref_acts = vp.add_reference_menu(menu, under[0], under[1])
+            menu.addSeparator()
         if self.state.frames or self.state.areas or self.state.points:
             # the selection first (the window was right-clicked beside it)
             menu.addAction(self.tool_actions["reshape"])
@@ -1399,8 +1404,14 @@ class MainWindow(MenuCommandsMixin, ReferenceCommandsMixin, QtWidgets.QMainWindo
                 menu.addSeparator()
             elif cid in ma:
                 menu.addAction(ma[cid])
+        self._background_menu = menu  # (tests look at it)
         h = vp.vtk_widget.height()
-        menu.exec(vp.vtk_widget.mapToGlobal(QtCore.QPoint(int(x), int(h - y))))
+        chosen = menu.exec(vp.vtk_widget.mapToGlobal(QtCore.QPoint(int(x), int(h - y))))
+        if chosen in ref_acts:
+            try:
+                ref_acts[chosen]()
+            except Exception as exc:
+                self.state.report(exc)
 
     def _tree_selected(self, attr: str, name: str):
         if attr == "frames":

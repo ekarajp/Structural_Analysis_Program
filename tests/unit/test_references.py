@@ -918,6 +918,12 @@ def test_a_pdf_sheet_as_a_reference_page_and_plot_scale(pypdf, tmp_path):
     with pytest.raises(ModelError) as e:
         cadref.set_page(d2, name, 3, d2.path)
     assert "2 page(s)" in e.value.message
+    # its story deleted (Edit Story Data): the reference stays, at that level, with no story
+    old = [(st.name, st.elevation) for st in d2.model.stories_bottom_up()]
+    new = [lv for lv in old if lv[0] != "Story1"]
+    d2.edit(lambda m: (m.carry_levels(old, new), m.set_tower_stories(None, new)))
+    r2 = d2.model.references[name]
+    assert r2.stories == [] and r2.level == pytest.approx(3.5) and r2.unit == "mm"
     # a model saved before PDF sheets: no page in the file -> the first
     data = d2.model.to_dict()
     for r in data["references"].values():
@@ -1907,6 +1913,28 @@ def test_texts_are_drawn_fit_shows_the_drawing_and_the_right_click_menu(win, app
     assert win.state.tool.name == "ref_align" and win.state.tool.ref == name
     win.state.set_tool("select")
     assert vp.reference_menu_items("nothing", "COLUMN") == []
+    # right-click on the window over a line of a drawing: the window's menu with the reference's commands as a
+    # submenu at the top - a pending assignment and a grid line's own menu still come first
+    from structstudio.app import mainwindow as mw_mod
+    opened = []
+
+    class Menu(QtWidgets.QMenu):
+        def exec(self, *a, **k):
+            opened.append([act.text() for act in self.actions()])
+            return None
+    monkeypatch.setattr(mw_mod.QtWidgets, "QMenu", Menu)
+    win.show_background_menu(vp, int(x), int(y))
+    assert opened[-1][0] == f"Reference {name} - t.dxf" and "Show All" in " ".join(opened[-1])
+    win.show_background_menu(vp, *map(int, vp._display((3.0, 3.6, 3.5))))
+    assert not opened[-1][0].startswith("Reference")
+    grid = []
+    monkeypatch.setattr("structstudio.app.grid_tools.grid_line_menu", lambda *a: grid.append(a[2]))
+    gx, gy = vp._display((6.0, 2.6, 3.5))  # on grid line 2, where the drawing has its grid line too
+    assert vp.grid_line_under(int(gx), int(gy)) is not None
+    n_open = len(opened)
+    win.show_background_menu(vp, int(gx), int(gy))
+    assert grid and len(opened) == n_open
+    monkeypatch.undo()
     # a drawing file dropped on the window is placed; a DWG says what to do
     said = []
     monkeypatch.setattr(QtWidgets.QMessageBox, "information", staticmethod(lambda *a, **k: said.append(a[2])))

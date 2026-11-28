@@ -624,6 +624,10 @@ class ManageReferencesDialog(QtWidgets.QDialog):
             self.table.insertRow(r)
             if ref.view == "plan":
                 on = "Plan: " + (", ".join(ref.stories) if ref.stories else f"Z = {ref.level * _du(m)[0]:g}")
+                if not ref.stories and m.stories and not any(
+                        abs(st.elevation - ref.level) <= max(m.options.merge_tolerance, 1e-6) * 10
+                        for st in m.stories.values()):
+                    on += "  - no story at this level (Stories...)"  # (its story was deleted)
             else:
                 on = f"Elevation {'X-Z at Y' if ref.view == 'xz' else 'Y-Z at X'} = {ref.level * _du(m)[0]:g}"
             for c, text in enumerate((ref.name, ref.source_label(), on,
