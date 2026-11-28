@@ -1047,19 +1047,141 @@ def test_pdf_texts_are_read_and_lines_under_a_white_mask_left_out(pypdf):
                  (400.0, 400.0, 7.2, 0.0, "1(2)", (0, 0, 255), 21.12),  # (the brackets have no width in the table: half a size)
                  (400.0, 376.0, 7.2, 0.0, "3", (0, 0, 255), 5.56)]
     assert d.skipped == {"TEXT": 1} and d.layers == ["Pen 0.35 mm", "Text"] and d.text_counts()["Text"] == 5
-    # a white shape drawn over lines (the mask behind a title block or a stamp): what is wholly under it is
-    # not on the sheet as it is seen; a line that only crosses its edge, and what is drawn after it, stay
+    # a white shape drawn over lines (the mask behind a title block or a stamp): what it covers is not on the
+    # sheet as it is seen - a line wholly under it is gone, one that crosses its edge keeps the part outside;
+    # what is drawn after it stays
     masked = read_pdf(_pdf_into(_Pdf(), ["""
-        0 0 m 100 0 l S   20 20 m 60 20 l S   0 25 m 40 25 l S
+        0 0 m 100 0 l S   20 20 m 60 20 l S   0 25 m 40 25 l S   0 22 m 100 22 l S
         BT /F1 10 Tf 30 12 Td (under) Tj ET
         1 g 10 10 60 20 re f
         30 15 m 50 15 l S
     """]))
-    assert _psegs(masked) == [((0.0, 0.0), (100.0, 0.0)), ((0.0, 25.0), (40.0, 25.0)), ((30.0, 15.0), (50.0, 15.0))]
+    assert _psegs(masked) == [((0.0, 0.0), (100.0, 0.0)), ((0.0, 22.0), (10.0, 22.0)), ((0.0, 25.0), (10.0, 25.0)),
+                              ((30.0, 15.0), (50.0, 15.0)), ((70.0, 22.0), (100.0, 22.0))]
     # the page turned: a text reads the way the page is viewed
     turned = read_pdf(_pdf_into(f, [("0 0 m 9 9 l S BT /F1 10 Tf 50 100 Td (7) Tj ET",
                                      "/MediaBox [0 0 600 800] /Rotate 90", res)]))
     assert [(round(v[0] / PT_TO_MM, 2), round(v[1] / PT_TO_MM, 2), round(v[3], 1)) for v in turned.texts] == [(100.0, 550.0, -90.0)]
+
+
+@pdf_core
+def test_pdf_clipping_paths_and_hatch_patterns(pypdf):
+    # a hatch plotted as long lines clipped to its area; a viewport; the clip ends with Q
+    content = """
+    q 0 0 1190 841 re W n                                  % the whole page: clips nothing
+    q 100 100 50 20 re W n  90 110 m 200 110 l S  120 90 m 120 300 l S Q
+    q 300 300 m 340 300 l 320 340 l h W* n  280 310 m 360 310 l S Q
+    400 400 m 420 400 l S                                  % (after Q: not clipped)
+    Q
+    """
+    d = read_pdf(pdf([content]))
+    assert _psegs(d) == [((100.0, 110.0), (150.0, 110.0)), ((120.0, 100.0), (120.0, 120.0)),
+                         ((305.0, 310.0), (335.0, 310.0)), ((400.0, 400.0), (420.0, 400.0))]
+    # hatch patterns: many parallel lines evenly and closely spaced - a layer of their own, off at first
+    k = 1 / PT_TO_MM  # mm -> points
+    hatch = " ".join(f"{(100 + 1.5 * i) * k:.4f} {100 * k:.4f} m {(100 + 1.5 * i + 20) * k:.4f} {120 * k:.4f} l S"
+                     for i in range(14))  # 45 degrees, 1.5 mm apart on the sheet
+    brick = " ".join(f"{200 * k:.4f} {(100 + 1.6 * i) * k:.4f} m {230 * k:.4f} {(100 + 1.6 * i) * k:.4f} l S"
+                     for i in range(10))  # courses 1.6 mm apart ...
+    brick += " " + " ".join(f"{(202 + 4 * j + 2 * (i % 2)) * k:.4f} {(100 + 1.6 * i) * k:.4f} m "
+                            f"{(202 + 4 * j + 2 * (i % 2)) * k:.4f} {(101.6 + 1.6 * i) * k:.4f} l S"
+                            for i in range(9) for j in range(6))  # ... and the joints between them
+    table = " ".join(f"{300 * k:.4f} {(100 + 4 * i) * k:.4f} m {360 * k:.4f} {(100 + 4 * i) * k:.4f} l S"
+                     for i in range(12))  # the rows of a table, 4 mm apart: no hatch
+    rows = " ".join(f"{400 * k:.4f} {(100 + 1.2 * i + (0.5 if i % 3 == 0 else 0)) * k:.4f} m "
+                    f"{430 * k:.4f} {(100 + 1.2 * i + (0.5 if i % 3 == 0 else 0)) * k:.4f} l S" for i in range(12))
+    walls = f"{100 * k:.4f} {200 * k:.4f} m {200 * k:.4f} {200 * k:.4f} l S {100 * k:.4f} {203 * k:.4f} m " \
+            f"{200 * k:.4f} {203 * k:.4f} l S"
+    d = read_pdf(pdf([" ".join((hatch, brick, table, rows, walls))]))
+    assert d.layers == ["Pen 0.35 mm", "Hatch patterns"] and d.layers_off == ["Hatch patterns"]
+    hatched = d.seg_layer == 1
+    mid = 0.5 * (d.seg[:, 0:2] + d.seg[:, 2:4])
+    assert hatched[(mid[:, 0] < 125) & (mid[:, 1] < 125)].all() and hatched[(mid[:, 0] > 199) & (mid[:, 0] < 231)].all()
+    assert not hatched[mid[:, 0] > 299].any()  # a table, lines not evenly spaced
+    assert not hatched[mid[:, 1] > 199].any()  # two walls
+    assert int(hatched.sum()) == 14 + 10 + 54
+    # with layers: the hatch of each layer beside it ("layer (hatch)"), off at first
+    f = _Pdf()
+    oc = f.put("<< /Type /OCG /Name (S-COL) >>")
+    d = read_pdf(_pdf_into(f, [(f"/OC /MC0 BDC {hatch} {walls} EMC", "", f"/Properties << /MC0 {oc} 0 R >>")],
+                           f"/OCProperties << /OCGs [{oc} 0 R] /D << >> >>"))
+    assert d.layers == ["S-COL", "S-COL (hatch)"] and d.layers_off == ["S-COL (hatch)"]
+    assert d.layer_counts() == {"S-COL": 2, "S-COL (hatch)": 14}
+
+
+def _ttf_file():
+    import glob
+    for pat in ("/usr/share/fonts/**/DejaVuSans.ttf", "/usr/share/fonts/**/LiberationSans-Regular.ttf",
+                "C:/Windows/Fonts/arial.ttf", "/Library/Fonts/Arial.ttf", "/System/Library/Fonts/Supplemental/Arial.ttf"):
+        got = glob.glob(pat, recursive=True)
+        if got:
+            return got[0]
+    pytest.skip("no TrueType font file here")
+
+
+@pdf_core
+def test_pdf_fonts_without_characters_are_read_from_the_font_or_drawn_as_glyphs(pypdf):
+    from structstudio.io.pdf_read import _TrueType
+    data = open(_ttf_file(), "rb").read()
+    tt = _TrueType(data)
+    gid = {ch: g for g, ch in tt.chars.items()}
+    code = lambda text: "".join(f"{gid[ch]:04x}" for ch in text)  # noqa: E731
+    unnamed = next(g for g in range(1, tt.glyphs) if g not in tt.chars and len(tt.outline(g)) >= 1)
+    f = _Pdf()
+    prog = f.stream(data, f"/Length1 {len(data)}", flate=True)
+    desc = f.put(f"<< /Type /FontDescriptor /FontName /X /Flags 32 /FontBBox [0 0 1000 1000] /ItalicAngle 0 "
+                 f"/Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 /FontFile2 {prog} 0 R >>")
+    cid = f.put(f"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /X /CIDSystemInfo << /Registry (Adobe) "
+                f"/Ordering (Identity) /Supplement 0 >> /FontDescriptor {desc} 0 R /CIDToGIDMap /Identity /DW 600 >>")
+    f0 = f.put(f"<< /Type /Font /Subtype /Type0 /BaseFont /X /Encoding /Identity-H /DescendantFonts [{cid} 0 R] >>")
+    square = f.stream("1000 0 0 0 750 750 d1 0 0 m 750 0 l 750 750 l 0 750 l h f")
+    t3 = f.put(f"<< /Type /Font /Subtype /Type3 /FontBBox [0 0 750 750] /FontMatrix [0.001 0 0 0.001 0 0] "
+               f"/CharProcs << /sq {square} 0 R >> /Encoding << /Type /Encoding /Differences [97 /sq] >> "
+               f"/FirstChar 97 /LastChar 97 /Widths [1000] >>")
+    res = f"/Font << /F1 {f0} 0 R /T3 {t3} 0 R >>"
+    content = f"""0 0 m 9 0 l S
+    BT /F1 20 Tf 100 100 Td <{code("AB 12")}> Tj ET                 % characters from the font's own table
+    BT /F1 20 Tf 100 200 Td <{unnamed:04x}> Tj ET                     % a glyph with no character: drawn
+    BT /T3 10 Tf 300 300 Td (aa) Tj ET                               % a Type 3 font: its glyphs drawn
+    BT /T3 10 Tf 3 Tr 300 400 Td (a) Tj ET                           % invisible: nothing
+    """
+    d = read_pdf(_pdf_into(f, [(content, "", res)]))
+    assert [(t[4], round(t[0] / PT_TO_MM, 2), round(t[1] / PT_TO_MM, 2)) for t in d.texts] == [("AB 12", 100.0, 100.0)]
+    assert d.skipped == {} and d.layers == ["Pen 0.35 mm", "Text"]
+    G = d.text_seg / PT_TO_MM
+    glyph = G[(G[:, 1] > 150) & (G[:, 1] < 250)]
+    assert len(glyph) >= 3 and glyph[:, (0, 2)].min() >= 99.0  # the glyph's outline, at its place
+    sq = G[G[:, 1] > 250].round(3)
+    assert len(sq) == 8 and sq[:, (0, 2)].min() == 300.0 and sq[:, (0, 2)].max() == 317.5  # two squares, 10 apart
+    assert sq[:, (1, 3)].max() == 307.5 and set(d.text_seg_layer.tolist()) == {1}
+    assert d.text_counts()["Text"] == 2  # (the words, and the drawn glyphs as one)
+    # drawn as lines with the texts, never snapped to
+    S, _ = cadref.shown_lines(None, d, strings=False)
+    assert len(S) == len(d.seg) + len(d.text_seg)
+    assert len(cadref.shown_lines(None, d, texts=False)[0]) == len(d.seg)
+    snap = cadref.RefSnapper([(CadReference("R", unit="mm"), d)], "mm")
+    assert not snap.hits(tuple(sq[0, 0:2] * PT_TO_MM), 0.5)
+    try:
+        from fontTools.ttLib import TTFont
+    except ImportError:
+        return
+    ft = TTFont(_ttf_file())  # the font's table of characters, read by another program: the same
+    best = ft.getBestCmap()
+    assert all(tt.chars.get(ft.getGlyphID(name)) is not None for name in best.values())
+
+
+@pdf_core
+def test_pdf_letters_drawn_as_shapes_under_invisible_words_are_left_out(pypdf):
+    f = _Pdf()
+    helv = f.put("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    content = """0 0 m 200 0 l S
+    0 g 100 100 m 101 100 l 101 107 l 100 107 l h f   102 100 m 103 100 l 103 107 l 102 107 l h f   % "II" as shapes
+    BT /F1 10 Tf 3 Tr 100 100 Td (II) Tj ET                                              % ... and as words
+    300 300 m 304 300 l 304 304 l 300 304 l h f                                          % a solid column: kept
+    """
+    d = read_pdf(_pdf_into(f, [(content, "", f"/Font << /F1 {helv} 0 R >>")]))
+    assert [t[4] for t in d.texts] == ["II"]
+    assert d.layer_counts()["Filled shapes"] == 4 and _psegs(d, "Filled shapes")[0][0] == (300.0, 300.0)
 
 
 @core
@@ -1732,18 +1854,28 @@ def test_texts_are_drawn_fit_shows_the_drawing_and_the_right_click_menu(win, app
     box = T[tl == dwg.layers.index("NOTES2")]
     assert box[:, (0, 2)].min() == pytest.approx(3000, abs=120) and box[:, (1, 3)].min() == pytest.approx(2500, abs=120)
     assert box[:, (1, 3)].max() - box[:, (1, 3)].min() == pytest.approx(400, rel=0.25)  # capitals 400 high
-    # drawn with the lines of the reference; a layer off / "its texts" off takes them away; never snapped to
+    # in the window the texts are filled letters of their own (readable where an outline is a smudge), one
+    # actor per size; a layer off / "its texts" off takes them away; never snapped to
     lines = lambda: vp._ref_actors[0].GetMapper().GetInput().GetNumberOfLines()  # noqa: E731
-    n_all = lines()
-    assert n_all == 78 + len(T)
+    texts = lambda: sorted(round(h, 3) for _, h in vp._ref_texts)  # noqa: E731
+    tris = lambda: sum(a.GetMapper().GetInput().GetNumberOfPolys() for a, _ in vp._ref_texts)  # noqa: E731
+    assert lines() == 78 and texts() == [0.25] and tris() > 40  # (capitals 0.3 m and 0.4 m: one size band)
+    letters = vp._ref_texts[0][0].GetMapper().GetInput().GetBounds()
+    assert letters[4] == letters[5] == pytest.approx(3.5)  # on the story's plane
     cadref.change_reference(win.doc, name, layers_off=["FROZEN", "NOTES", "NOTES2"])
     app.processEvents()
-    assert lines() == 78 + int((tl == dwg.layers.index("GRID")).sum())
+    assert len(vp._ref_texts) == 1 and lines() == 78
     cadref.change_reference(win.doc, name, texts=False)
     app.processEvents()
-    assert lines() == 78
+    assert vp._ref_texts == [] and lines() == 78
     cadref.change_reference(win.doc, name, texts=True, layers_off=["FROZEN", "NOTES"])
     app.processEvents()
+    # letters too small to read at the zoom are not drawn (a smudge over the drawing); zoomed in they are
+    a = vp._ref_texts[0][0]
+    vp._text_sizes(wpp=1.0)  # (1 m a pixel)
+    assert not a.GetVisibility()
+    vp._text_sizes(wpp=0.01)
+    assert a.GetVisibility()
     assert all(k != "end" or "NOTES2" not in nm for _, k, nm in vp.reference_snapper().hits((3.0, 2.5), 0.3))
     # Restore Full View shows the drawing with the model (the plan is 14 m x 7 m, the grids 12 m x 5 m) ...
     win.doc.edit_design(lambda m: setattr(m.references[name], "origin", (30.0, 0.0)), "references")

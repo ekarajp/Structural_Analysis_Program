@@ -232,7 +232,8 @@ class DrawingPreview(QtWidgets.QWidget):
             return
         from . import cadref
         self._shown = int(self._visible().sum())
-        s, colours = cadref.shown_lines(None, d, self._off, texts=False)  # (the texts: written in paintEvent)
+        # (the glyphs a PDF has as outlines are lines; the texts are written in paintEvent)
+        s, colours = cadref.shown_lines(None, d, self._off, texts=True, strings=False)
         cx, cy = self._centre
         k = self._scale
         P = np.empty((len(s), 4))

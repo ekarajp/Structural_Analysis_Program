@@ -325,20 +325,188 @@ def text_segments(dwg: Drawing) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     return out
 
 
-def shown_lines(ref: Optional[CadReference], dwg: Drawing, layers_off=None, texts: bool = True
-                ) -> Tuple[np.ndarray, np.ndarray]:
-    """(segments (N, 4), RGB (N, 3)) of what is drawn of a drawing: the line work of the
-    layers shown, then - with ``texts`` - its texts."""
+def shown_lines(ref: Optional[CadReference], dwg: Drawing, layers_off=None, texts: bool = True,
+                strings: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+    """(segments (N, 4), RGB (N, 3)) of what is drawn of a drawing as lines: the line work
+    of the layers shown, then - with ``texts`` - the glyphs a PDF has as outlines and - with
+    ``strings`` too - its texts as the outlines of the program's font."""
     off = set(ref.layers_off if layers_off is None and ref is not None else (layers_off or ()))
     on = np.array([name not in off for name in dwg.layers], bool)
     m = on[dwg.seg_layer] if len(dwg.seg) else np.zeros(0, bool)
     S, C = dwg.seg[m], dwg.seg_rgb[m]
     if texts and (ref is None or getattr(ref, "texts", True)):
-        T, tl, tc = text_segments(dwg)
-        if len(T):
-            tm = on[tl]
-            S, C = np.vstack([S, T[tm]]), np.vstack([C, tc[tm]])
+        G = getattr(dwg, "text_seg", None)
+        if G is not None and len(G):
+            gm = on[dwg.text_seg_layer]
+            S, C = np.vstack([S, G[gm]]), np.vstack([C, dwg.text_seg_rgb[gm]])
+        if strings:
+            T, tl, tc = text_segments(dwg)
+            if len(T):
+                tm = on[tl]
+                S, C = np.vstack([S, T[tm]]), np.vstack([C, tc[tm]])
     return S, C
+
+
+MIN_TEXT_PX = 3.0  # texts whose capitals are smaller on the screen are not drawn (a smudge, not a word)
+MAX_TEXT_TRIANGLES = 3_000_000
+_TEXT_FILL: Dict[str, Tuple[np.ndarray, np.ndarray, float]] = {}
+
+
+def _point_in_ring(ring: np.ndarray, x: float, y: float) -> bool:
+    P, Q = ring, np.roll(ring, -1, axis=0)
+    cross = (P[:, 1] <= y) != (Q[:, 1] <= y)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        xs = P[:, 0] + (y - P[:, 1]) * (Q[:, 0] - P[:, 0]) / (Q[:, 1] - P[:, 1])
+    return bool(np.count_nonzero(cross & (x < xs)) % 2)
+
+
+def _text_fill(string: str) -> Tuple[np.ndarray, np.ndarray, float]:
+    """The letters of ``string`` as filled triangles of the program's font: (points (P, 2), y
+    up, baseline at 0, letters _GLYPH_PX high as a font size; triangles (T, 3); its width).
+    A filled letter can be read where its outline is a smudge."""
+    got = _TEXT_FILL.get(string)
+    if got is not None:
+        return got
+    from PySide6 import QtGui
+    from vtkmodules.util import numpy_support
+    from vtkmodules.vtkCommonCore import vtkPoints
+    from vtkmodules.vtkCommonDataModel import vtkCellArray, vtkPolyData
+    from vtkmodules.vtkFiltersGeneral import vtkContourTriangulator
+    _text_path("")  # (the font)
+    font, fm = _TEXT_FONT[0], _TEXT_FONT[1]
+    path = QtGui.QPainterPath()
+    path.addText(0.0, 0.0, font, string)
+    rings = []
+    for poly in path.toSubpathPolygons():
+        P = np.array([(q.x(), -q.y()) for q in poly], float)
+        if len(P) > 1 and (P[0] == P[-1]).all():
+            P = P[:-1]
+        if len(P) > 3:  # (fewer points: a letter is read from far fewer than its outline is made of)
+            keep = np.r_[True, np.abs(np.diff(P, axis=0)).sum(axis=1) >= 2.0]
+            P = P[keep]
+        if len(P) >= 3:
+            a = 0.5 * float(P[:, 0] @ np.roll(P[:, 1], -1) - P[:, 1] @ np.roll(P[:, 0], -1))
+            if abs(a) > 1e-6:
+                rings.append((P, a))
+    empty = (np.zeros((0, 2)), np.zeros((0, 3), np.int64), float(fm.horizontalAdvance(string)))
+    if not rings:
+        _TEXT_FILL[string] = empty
+        return empty
+    # outer outlines one way round, holes the other (fonts differ: Thai and Latin letters did)
+    boxes = [(P[:, 0].min(), P[:, 1].min(), P[:, 0].max(), P[:, 1].max()) for P, _ in rings]
+    fixed = []
+    for i, (P, a) in enumerate(rings):
+        x, y = P[0]
+        depth = sum(1 for j, (Q, _) in enumerate(rings) if j != i and boxes[j][0] <= x <= boxes[j][2]
+                    and boxes[j][1] <= y <= boxes[j][3] and _point_in_ring(Q, x, y))
+        fixed.append(P if (a > 0) == (depth % 2 == 0) else P[::-1])
+    X = np.vstack(fixed)
+    sizes = np.array([len(P) for P in fixed], np.int64)
+    first = np.cumsum(sizes) - sizes
+    conn = np.concatenate([np.r_[np.arange(n) + f0, f0] for n, f0 in zip(sizes.tolist(), first.tolist())])
+    offsets = np.r_[0, np.cumsum(sizes + 1)]
+    pts = vtkPoints()
+    pts.SetData(numpy_support.numpy_to_vtk(np.column_stack([X, np.zeros(len(X))]), deep=True))
+    lines = vtkCellArray()
+    lines.SetData(numpy_support.numpy_to_vtkIdTypeArray(offsets.astype(np.int64), deep=True),
+                  numpy_support.numpy_to_vtkIdTypeArray(conn.astype(np.int64), deep=True))
+    pd = vtkPolyData()
+    pd.SetPoints(pts)
+    pd.SetLines(lines)
+    tris = vtkCellArray()
+    vtkContourTriangulator.TriangulateContours(pd, 0, lines.GetNumberOfCells(), tris, (0.0, 0.0, 1.0))
+    T = numpy_support.vtk_to_numpy(tris.GetConnectivityArray()).reshape(-1, 3).astype(np.int64) \
+        if tris.GetNumberOfCells() else np.zeros((0, 3), np.int64)
+    out = (X, T, float(fm.horizontalAdvance(string)))
+    if len(_TEXT_FILL) > 20000:
+        _TEXT_FILL.clear()
+    _TEXT_FILL[string] = out
+    return out
+
+
+def build_text_actors(ref: CadReference, dwg: Drawing, model: Model, view: str, value: float, background, ink):
+    """The texts of a reference as filled letters in a window: [(actor, the height of its
+    smallest capitals in model length)] - one actor per size (a factor 2 apart), so a window
+    shows only the sizes that can be read at its zoom (see MIN_TEXT_PX)."""
+    from . import vtk_lite as vtk
+    from vtkmodules.util import numpy_support
+    if not getattr(ref, "texts", True) or not getattr(dwg, "texts", None):
+        return []
+    try:
+        from PySide6 import QtGui
+        if QtGui.QGuiApplication.instance() is None:
+            return []
+    except ImportError:
+        return []
+    on = visible_layers(ref, dwg)
+    unit = model.units.length
+    f = ref.factor(unit)
+    bands: Dict[int, list] = {}
+    total = 0
+    _text_path("")
+    cap = _TEXT_FONT[2]
+    for (x, y, h, ang, string, lay, rgb, across, up, width, wf) in dwg.texts:
+        if not on[lay] or not h > 0:
+            continue
+        P, T, w_px = _text_fill(string)
+        if not len(T):
+            continue
+        sy = h / cap
+        sx = (width / w_px) if (width > 0 and w_px > 0) else sy * (wf or 1.0)
+        dx = -0.5 * across * w_px * sx
+        dy = {0: 0.0, 1: 0.22 * h, 2: -0.5 * h, 3: -h}.get(up, 0.0)
+        a = math.radians(ang)
+        c, sn = math.cos(a), math.sin(a)
+        U, V = P[:, 0] * sx + dx, P[:, 1] * sy + dy
+        F = np.column_stack([x + c * U - sn * V, y + sn * U + c * V])
+        band = int(math.floor(math.log2(h * f))) if h * f > 0 else 0
+        bands.setdefault(band, []).append((F, T, rgb))
+        total += len(T)
+        if total > MAX_TEXT_TRIANGLES:
+            break
+    out = []
+    for band, items in sorted(bands.items()):
+        Fs, Ts, Cs = [], [], []
+        n0 = 0
+        for F, T, rgb in items:
+            Fs.append(F)
+            Ts.append(T + n0)
+            Cs.append(np.broadcast_to(np.array(rgb, np.uint8), (len(T), 3)))
+            n0 += len(F)
+        F = np.vstack(Fs)
+        T = np.vstack(Ts)
+        X = plane_to_world(view, value, placed(ref, unit, F))
+        pts = vtk.vtkPoints()
+        pts.SetData(numpy_support.numpy_to_vtk(np.ascontiguousarray(X, dtype=float), deep=True))
+        cells = vtk.vtkCellArray()
+        cells.SetData(numpy_support.numpy_to_vtkIdTypeArray(np.arange(0, 3 * len(T) + 1, 3, dtype=np.int64), deep=True),
+                      numpy_support.numpy_to_vtkIdTypeArray(np.ascontiguousarray(T.ravel()), deep=True))
+        poly = vtk.vtkPolyData()
+        poly.SetPoints(pts)
+        poly.SetPolys(cells)
+        rgb, one = display_colors(ref, dwg, None, background, ink, rgb=np.vstack(Cs))
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputData(poly)
+        if rgb is not None:
+            arr = numpy_support.numpy_to_vtk(np.ascontiguousarray(rgb), deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
+            arr.SetName("rgb")
+            poly.GetCellData().SetScalars(arr)
+            mapper.SetScalarModeToUseCellData()
+            mapper.SetColorModeToDirectScalars()
+            mapper.ScalarVisibilityOn()
+        else:
+            mapper.ScalarVisibilityOff()
+        mapper.SetResolveCoincidentTopologyToPolygonOffset()
+        mapper.SetRelativeCoincidentTopologyPolygonOffsetParameters(0.0, -66000.0 if ref.on_top else 66000.0)
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+        prop = actor.GetProperty()
+        prop.SetColor(*one)
+        prop.LightingOff()
+        actor.PickableOff()
+        actor.UseBoundsOff()
+        out.append((actor, 2.0 ** band))
+    return out
 
 
 def display_colors(ref: CadReference, dwg: Drawing, mask: np.ndarray, background, ink,
@@ -376,7 +544,7 @@ def build_actor(ref: CadReference, dwg: Drawing, model: Model, view: str, value:
     no layer is shown."""
     from . import vtk_lite as vtk
     from vtkmodules.util import numpy_support
-    S, own = shown_lines(ref, dwg)
+    S, own = shown_lines(ref, dwg, strings=False)  # (the texts: filled letters of their own, build_text_actors)
     mask = None
     n = len(S)
     if not n:

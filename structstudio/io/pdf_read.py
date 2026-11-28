@@ -16,8 +16,15 @@ What is read from the page's content (and the forms it draws, nested):
   are never snapped to.  (Texts a CAD program plots as strokes are line work already.)
   Text written invisibly is read too: programs that turn letters into filled shapes
   (left out here) keep the words that way;
-* lines wholly under a white shape drawn after them (a mask behind a title or a stamp)
-  are left out, as on the sheet;
+* what is covered by a white shape drawn after it (a mask behind a title or a stamp) is
+  left out, as on the sheet - a line that only crosses its edge keeps the part outside;
+* the clipping paths of the page (a hatch drawn as long lines clipped to its area, a
+  viewport) - only what is inside them is on the sheet;
+* hatch patterns (many parallel lines at an even, close spacing) are found and put on
+  layers of their own, off at first: what is drawn over is the outline, not the pattern;
+* texts written with fonts whose codes are no characters (no ToUnicode table): read from
+  the font's own table of characters (TrueType), else drawn as the outlines of its glyphs
+  (TrueType, Type 3) - seen as on the sheet, though not readable as text;
 * the layers of the file (PDF "optional content", as CAD programs write them when
   plotting with layers) - their names, and which are off.  A PDF without layers gets
   one layer per pen (width and colour), so thick and thin lines can be shown apart.
@@ -44,6 +51,9 @@ PT_TO_MM = 25.4 / 72.0
 MAX_DEPTH = 12  # forms drawn in forms
 FILL_MAX_VERTICES = 16  # a filled shape of straight edges up to this size is outlined
 MAX_PEN_LAYERS = 24
+HATCH_SPACING = 4.0  # mm on the sheet: slanted lines this close, evenly spaced, can be a hatch pattern
+HATCH_SPACING_SQUARE = 2.0  # ... lines along the sheet's edges this close (further apart: the rows of a table)
+HATCH_LINES = 8  # ... and at least this many of them
 MAX_TEXTS = 60_000
 MAX_MASKS = 400  # white shapes looked at for the lines they cover
 CAP_HEIGHT = 0.72  # the height of capital letters in a font of size 1
@@ -144,7 +154,9 @@ _GLYPHS = {"space": " ", "period": ".", "comma": ",", "hyphen": "-", "minus": "-
 
 def _string_bytes(tok) -> bytes:
     """The bytes of a string token: ("s", b"(...)") or ("h", b"<...>")."""
-    kind, raw = tok
+    kind, raw = tok[0], tok[1]
+    if kind == "c":  # (already bytes: read through a font program)
+        return raw
     if kind == "h":
         hx = re.sub(rb"[^0-9A-Fa-f]", b"", raw)
         return bytes.fromhex((hx + b"0" * (len(hx) % 2)).decode("ascii"))
@@ -218,6 +230,12 @@ class _Page:
         self.strokes = 0
         self.has_layers = False
         self.texts: List[tuple] = []  # (x, y, ux, uy, size, length, string, layer, rgb) under their matrices
+        self.clips: List[list] = []  # clipping paths: rings in page points
+        self.chains: Dict[tuple, int] = {(): 0}
+        self.chain_list: List[tuple] = [()]
+        self.glyph = 0  # > 0: drawing the glyph of a Type 3 font (its paths are text, not line work)
+        self.graw: List[np.ndarray] = []  # glyph outlines, page points (K, 4) each
+        self.gmeta: List[tuple] = []  # (segments, layer, rgb, clip chain)
         self.masks: List[tuple] = []  # (segments drawn before it, polygon (K, 2)) of white shapes
         self._fonts: Dict[tuple, Optional[dict]] = {}
         self._keep: list = []  # (the objects the tables below are keyed by stay alive)
@@ -332,11 +350,15 @@ class _Page:
                 tu = _get(f, "/ToUnicode")
                 if tu is not None and hasattr(tu, "get_data"):
                     info["map"] = _to_unicode(bytes(tu.get_data())) or None
-                if _text(_get(f, "/Subtype")) == "/Type0":
+                info["names"] = {}
+                sub = _text(_get(f, "/Subtype"))
+                if sub == "/Type0":
                     info["two"] = True
-                    info["skip"] = info["map"] is None  # (codes of glyphs, not of characters)
                     d0 = _get(f, "/DescendantFonts")
                     d0 = d0[0].get_object() if d0 else None
+                    if info["map"] is None:  # codes of glyphs, not of characters: the font program
+                        info["tt"], info["gid"] = self._font_program(d0)
+                        info["skip"] = info["tt"] is None
                     info["dw"] = float(_get(d0, "/DW") or 1000) / 1000.0 if d0 is not None else 1.0
                     W = list(_get(d0, "/W") or ()) if d0 is not None else []
                     k = 0
@@ -353,6 +375,14 @@ class _Page:
                                     info["w"][cc] = float(W[k + 2]) / 1000.0
                             k += 3
                 else:
+                    if sub == "/Type3":  # glyphs drawn by small content streams of their own
+                        fm = _get(f, "/FontMatrix")
+                        try:
+                            fm = tuple(float(v) for v in fm)
+                        except Exception:
+                            fm = (0.001, 0.0, 0.0, 0.001, 0.0, 0.0)
+                        info["t3"] = {"procs": _get(f, "/CharProcs"), "fm": fm if len(fm) == 6 else
+                                      (0.001, 0.0, 0.0, 0.001, 0.0, 0.0), "res": _get(f, "/Resources")}
                     enc = _get(f, "/Encoding")
                     base = _text(enc if not hasattr(enc, "keys") else _get(enc, "/BaseEncoding"))
                     if base == "/MacRomanEncoding":
@@ -365,6 +395,7 @@ class _Page:
                                 code = int(it)
                                 continue
                             nm = _text(it).lstrip("/")
+                            info["names"][code] = nm
                             if nm.startswith("uni") and len(nm) >= 7:
                                 try:
                                     info["diff"][code] = chr(int(nm[3:7], 16))
@@ -376,17 +407,44 @@ class _Page:
                                 info["diff"][code] = _GLYPHS[nm]
                             code += 1
                     first = int(_get(f, "/FirstChar") or 0)
+                    unit = info["t3"]["fm"][0] if "t3" in info else 0.001  # (Type 3: widths in glyph space)
                     for j, w in enumerate(_get(f, "/Widths") or ()):
-                        info["w"][first + j] = float(w) / 1000.0
+                        info["w"][first + j] = float(w) * unit
         except Exception:
             info = None
         self._keep.append(res)
         self._fonts[key] = info
         return info
 
-    def show(self, items, font, size, tm, ctm, tc, tw, tz, rise, mode, layer, rgb):
+    def _font_program(self, d0):
+        """(the embedded TrueType program of a CID font, its CID -> glyph map); (None, None)."""
+        try:
+            fd = _get(d0, "/FontDescriptor")
+            ff = _get(fd, "/FontFile2") if fd is not None else None
+            if ff is None:
+                return None, None
+            tt = _TrueType(bytes(ff.get_data()))
+            gm = _get(d0, "/CIDToGIDMap")
+            gid = None
+            if gm is not None and hasattr(gm, "get_data"):
+                raw = bytes(gm.get_data())
+                gid = {k // 2: (raw[k] << 8) | raw[k + 1] for k in range(0, len(raw) - 1, 2)}
+            return tt, gid
+        except Exception:
+            return None, None
+
+    def show(self, items, font, size, tm, ctm, tc, tw, tz, rise, mode, layer, rgb, ctx=None):
         """A string shown (Tj / TJ): remembered with its place; returns the text matrix after it."""
-        if font is None or font["skip"] or not size:
+        if font is None or not size:
+            self.skip("TEXT")
+            return tm
+        if font["map"] is None and ("t3" in font or font.get("tt") is not None):
+            # no table of characters: the font's own (TrueType), else the glyphs as drawn
+            text = self._tt_text(items, font) if font.get("tt") is not None else None
+            if text is None:
+                return self.glyphs(items, font, size, tm, ctm, tc, tw, tz, rise, mode, layer, rgb, ctx)
+            items = text
+        elif font["skip"]:
             self.skip("TEXT")
             return tm
         parts: List[str] = []
@@ -400,8 +458,11 @@ class _Page:
             elif isinstance(it, tuple):
                 raw = _string_bytes(it)
                 codes = [(raw[k] << 8) | raw[k + 1] for k in range(0, len(raw) - 1, 2)] if font["two"] else list(raw)
-                for c in codes:
-                    if m is not None and c in m:
+                known_chars = it[2] if len(it) > 2 else None
+                for j, c in enumerate(codes):
+                    if known_chars is not None:
+                        parts.append(known_chars[j])
+                    elif m is not None and c in m:
                         parts.append(m[c])
                     elif not font["two"]:
                         parts.append(font["diff"].get(c) or bytes([c]).decode(font["codec"], "replace"))
@@ -416,8 +477,106 @@ class _Page:
                 # (a font that states no widths - one of the standard ones: the length is the drawing font's)
                 known = bool(font["w"]) or font["two"]
                 self.texts.append((M[4] + rise * M[2], M[5] + rise * M[3], M[0] / lu, M[1] / lu, abs(size) * lv,
-                                   max(adv, 0.0) * lu if known else 0.0, string, layer, rgb))
+                                   max(adv, 0.0) * lu if known else 0.0, string, layer, rgb, mode == 3))
         return _mul((1.0, 0.0, 0.0, 1.0, adv, 0.0), tm)
+
+    def _tt_text(self, items, font):
+        """The items of a TJ with the characters of a CID font read from its TrueType program
+        (as ("c", raw, chars)); None when a glyph has no character."""
+        tt, gid = font["tt"], font.get("gid")
+        out = []
+        for it in items:
+            if isinstance(it, tuple):
+                raw = _string_bytes(it)
+                chars = []
+                for k in range(0, len(raw) - 1, 2):
+                    c = (raw[k] << 8) | raw[k + 1]
+                    ch = tt.chars.get(gid.get(c, 0) if gid is not None else c)
+                    if ch is None:
+                        return None
+                    chars.append(ch)
+                out.append(("c", raw, chars))
+            else:
+                out.append(it)
+        return out
+
+    def glyphs(self, items, font, size, tm, ctm, tc, tw, tz, rise, mode, layer, rgb, ctx):
+        """A string of a font with no characters: its glyphs drawn as on the sheet (outlines)."""
+        if mode == 3 or mode == 7:  # (invisible: nothing is seen of it)
+            return tm
+        t3 = font.get("t3")
+        tt = font.get("tt")
+        fm = t3["fm"] if t3 else (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+        drawn = False
+        for it in items:
+            if isinstance(it, float):
+                tm = _mul((1.0, 0.0, 0.0, 1.0, -it / 1000.0 * size * tz, 0.0), tm)
+                continue
+            if not isinstance(it, tuple):
+                continue
+            raw = _string_bytes(it)
+            codes = [(raw[k] << 8) | raw[k + 1] for k in range(0, len(raw) - 1, 2)] if font["two"] else list(raw)
+            for c in codes:
+                G = _mul(_mul(fm, (size * tz, 0.0, 0.0, size, 0.0, rise)), _mul(tm, ctm))
+                if t3 is not None and ctx is not None:
+                    name = font["names"].get(c)
+                    proc = _get(t3["procs"], "/" + name) if (name and t3["procs"] is not None) else None
+                    if proc is not None and ctx["depth"] < MAX_DEPTH:
+                        self.glyph += 1
+                        try:
+                            self.run(self.content(proc), t3["res"] if t3["res"] is not None else ctx["res"], G, rgb,
+                                     rgb, 0.0, layer, ctx["depth"] + 1, ctx["chain"], ctx["clip"])
+                        finally:
+                            self.glyph -= 1
+                        drawn = True
+                elif tt is not None:
+                    gid = font["gid"].get(c, 0) if font.get("gid") is not None else c
+                    for C in tt.outline(gid):
+                        X = C[:, 0] * G[0] + C[:, 1] * G[2] + G[4]
+                        Y = C[:, 0] * G[1] + C[:, 1] * G[3] + G[5]
+                        P = np.column_stack([X, Y])
+                        P = np.vstack([P, P[:1]])
+                        self.graw.append(np.hstack([P[:-1], P[1:]]))
+                        self.gmeta.append((len(P) - 1, layer, rgb, self.chain_id(ctx["clip"] if ctx else ())))
+                        drawn = True
+                w = font["w"].get(c, font["dw"])
+                spaces = 1 if (not font["two"] and c == 32) else 0
+                tm = _mul((1.0, 0.0, 0.0, 1.0, (w * size + tc + spaces * tw) * tz, 0.0), tm)
+        if not drawn:
+            self.skip("TEXT")
+        return tm
+
+    def chain_id(self, clip: tuple) -> int:
+        """A number for a set of clipping paths (0: none)."""
+        if not clip:
+            return 0
+        k = self.chains.get(clip)
+        if k is None:
+            k = self.chains[clip] = len(self.chain_list)
+            self.chain_list.append(clip)
+        return k
+
+    def add_clip(self, subs, ctm) -> Optional[int]:
+        """A clipping path (page points); None when it clips nothing of the page."""
+        a, b, c, d, e, f = ctm
+        rings = []
+        for pts, _flags in subs:
+            P = np.array([(a * x + c * y + e, b * x + d * y + f) for x, y in pts], float)
+            if len(P) > 1 and (P[0] == P[-1]).all():
+                P = P[:-1]
+            if len(P) >= 3:
+                rings.append(P)
+        if not rings:
+            return None
+        if len(rings) == 1 and len(rings[0]) == 4:
+            R = rings[0]
+            x0, y0, x1, y1 = self.box
+            xs, ys = np.unique(np.round(R[:, 0], 6)), np.unique(np.round(R[:, 1], 6))
+            if len(xs) == 2 and len(ys) == 2 and xs[0] <= x0 + 1e-6 and xs[1] >= x1 - 1e-6 and \
+                    ys[0] <= y0 + 1e-6 and ys[1] >= y1 - 1e-6:
+                return None  # (the whole page)
+        self.clips.append(rings)
+        return len(self.clips) - 1
 
     def content(self, obj) -> bytes:
         key = id(obj)
@@ -442,7 +601,15 @@ class _Page:
             self.ctms.append(ctm)
         return k
 
-    def paint(self, subs, ends, ctm, layer, rgb, pen, filled: bool):
+    def paint(self, subs, ends, ctm, layer, rgb, pen, filled: bool, clip: tuple = ()):
+        if self.glyph:  # the strokes / shapes of a glyph: its outline, as text
+            a, b, c, d, e, f = ctm
+            for pts, flags in subs:
+                if len(pts) >= 2:
+                    P = np.array([(a * x + c * y + e, b * x + d * y + f) for x, y in pts], float)
+                    self.graw.append(np.hstack([P[:-1], P[1:]]))
+                    self.gmeta.append((len(P) - 1, layer, rgb, self.chain_id(clip)))
+            return
         raw, curve = self.raw, self.curve
         n0 = len(curve)
         cid = self._matrix(ctm)
@@ -469,18 +636,20 @@ class _Page:
                            f"(over {MAX_SEGMENTS:,} segments). Plot a simpler sheet (fewer layers, no hatches).")
         # the pen in sheet points: the width under the matrix
         w = pen * math.sqrt(abs(ctm[0] * ctm[3] - ctm[1] * ctm[2]))
-        self.runs.append((n, cid, layer, rgb, w, filled))
+        ch = self.chain_id(clip)
+        self.runs.append((n, cid, layer, rgb, w, filled, ch))
         if not filled:
             self.strokes += 1
         for kind, where in ((PT_END, ends), (PT_CENTER, centres)):
             if where:
                 for p in where:
                     self.praw += p
-                self.pruns.append((len(where), cid, layer, rgb, w, filled, kind))
+                self.pruns.append((len(where), cid, layer, rgb, w, filled, kind, ch))
 
     def run(self, data: bytes, res, ctm, srgb: int, frgb: int, pen: float, layer: Optional[str], depth: int,
-            chain: tuple):
+            chain: tuple, clip: tuple = ()):
         """Interpret one content stream (a page, or a form drawn in it)."""
+        clipping = False  # W / W*: the path being made clips what is drawn after it
         stack: list = []
         push = stack.append
         saved: list = []
@@ -550,19 +719,33 @@ class _Page:
                         pts.append(pts[0])
                         flags.append(False)
                     if subs:
-                        self.paint(subs, ends, ctm, layer, srgb, pen, False)
+                        self.paint(subs, ends, ctm, layer, srgb, pen, False, clip)
+                    if clipping and subs and not self.glyph:
+                        c = self.add_clip(subs, ctm)
+                        clip = clip + (c,) if c is not None else clip
+                    clipping = False
                     subs, pts, flags, ends = [], None, None, []
                 elif op in _FILL:
                     if subs:
-                        self._fill(subs, ctm, layer, frgb)
+                        self._fill(subs, ctm, layer, frgb, clip)
+                    if clipping and subs and not self.glyph:
+                        c = self.add_clip(subs, ctm)
+                        clip = clip + (c,) if c is not None else clip
+                    clipping = False
                     subs, pts, flags, ends = [], None, None, []
                 elif op == b"n":
+                    if clipping and subs and not self.glyph:
+                        c = self.add_clip(subs, ctm)
+                        clip = clip + (c,) if c is not None else clip
+                    clipping = False
                     subs, pts, flags, ends = [], None, None, []
+                elif op == b"W" or op == b"W*":
+                    clipping = True
                 elif op == b"q":
-                    saved.append((ctm, srgb, frgb, pen, scs, fcs))
+                    saved.append((ctm, srgb, frgb, pen, scs, fcs, clip))
                 elif op == b"Q":
                     if saved:
-                        ctm, srgb, frgb, pen, scs, fcs = saved.pop()
+                        ctm, srgb, frgb, pen, scs, fcs, clip = saved.pop()
                 elif op == b"cm":
                     ctm = _mul(tuple(stack[-6:]), ctm)
                 elif op == b"w":
@@ -619,7 +802,7 @@ class _Page:
                         own = self.layer_name(_get(xo, "/OC"))
                         res2 = _get(xo, "/Resources")
                         self.run(self.content(xo), res2 if res2 is not None else res, _mul(mat, ctm), srgb, frgb, pen,
-                                 own if own is not None else layer, depth + 1, chain + (id(xo),))
+                                 own if own is not None else layer, depth + 1, chain + (id(xo),), clip)
                 elif op == b"Tj" or op == b"TJ" or op == b"'" or op == b'"':
                     if op == b'"':
                         tw, tc = float(stack[-3]), float(stack[-2])
@@ -627,7 +810,7 @@ class _Page:
                         tlm = _mul((1.0, 0.0, 0.0, 1.0, 0.0, -lead), tlm)
                         tm = tlm
                     tm = self.show(stack if op == b"TJ" else stack[-1:], font, fsize, tm, ctm, tc, tw, tz, rise,
-                                   tmode, layer, frgb)
+                                   tmode, layer, frgb, {"res": res, "depth": depth, "chain": chain, "clip": clip})
                 elif op == b"BT":
                     tm = tlm = _IDENTITY
                 elif op == b"Tf":
@@ -662,7 +845,11 @@ class _Page:
                 pass
             del stack[:]
 
-    def _fill(self, subs, ctm, layer, rgb: int):
+    def _fill(self, subs, ctm, layer, rgb: int, clip: tuple = ()):
+        if self.glyph:
+            closed = [(pts + [pts[0]] if pts[-1] != pts[0] else pts, flags) for pts, flags in subs if len(pts) >= 2]
+            self.paint(closed, [], ctm, layer, rgb, 0.0, True, clip)
+            return
         if (rgb >> 16) >= 247 and ((rgb >> 8) & 255) >= 247 and (rgb & 255) >= 247:
             # white: a background or a mask - the lines drawn before it under it are not seen
             if len(self.curve) and len(self.masks) < MAX_MASKS:
@@ -693,7 +880,7 @@ class _Page:
             if pts[-1] != pts[0]:
                 pts, flags = pts + [pts[0]], flags + [False]
             closed.append((pts, flags))
-        self.paint(closed, [], ctm, layer, rgb, 0.0, True)
+        self.paint(closed, [], ctm, layer, rgb, 0.0, True, clip)
 
 
 def _open(source):
@@ -793,6 +980,371 @@ def _layers_off(reader) -> List[str]:
         return sorted(n for n in off if n)
     except Exception:
         return []
+
+
+class _TrueType:
+    """What is needed of a TrueType font program embedded in a PDF (FontFile2): the
+    character of each glyph (its own table of characters, read backwards) and the outlines
+    of the glyphs (in units of the em)."""
+
+    def __init__(self, data: bytes):
+        import struct
+        self.d = data
+        self.u16 = lambda o: struct.unpack_from(">H", data, o)[0]  # noqa: E731
+        self.i16 = lambda o: struct.unpack_from(">h", data, o)[0]  # noqa: E731
+        self.u32 = lambda o: struct.unpack_from(">I", data, o)[0]  # noqa: E731
+        self.tables: Dict[bytes, Tuple[int, int]] = {}
+        for k in range(self.u16(4)):
+            o = 12 + 16 * k
+            self.tables[data[o:o + 4]] = (self.u32(o + 8), self.u32(o + 12))
+        head = self.tables.get(b"head")
+        self.upem = float(self.u16(head[0] + 18)) if head else 1000.0
+        self.long_loca = bool(self.i16(head[0] + 50)) if head else False
+        maxp = self.tables.get(b"maxp")
+        self.glyphs = self.u16(maxp[0] + 4) if maxp else 0
+        self.chars = self._chars()
+        self._outlines: Dict[int, List[np.ndarray]] = {}
+
+    def _chars(self) -> Dict[int, str]:
+        """glyph -> character, from the Unicode tables of 'cmap' (formats 4 and 12)."""
+        out: Dict[int, str] = {}
+        cm = self.tables.get(b"cmap")
+        if not cm:
+            return out
+        base = cm[0]
+        subs = []
+        for k in range(self.u16(base + 2)):
+            o = base + 4 + 8 * k
+            pid, eid, off = self.u16(o), self.u16(o + 2), self.u32(o + 4)
+            if (pid, eid) in ((3, 10), (0, 4), (0, 6)):
+                subs.insert(0, base + off)
+            elif (pid, eid) in ((3, 1), (0, 3), (0, 0), (0, 1), (0, 2)):
+                subs.append(base + off)
+        for o in subs:
+            fmt = self.u16(o)
+            if fmt == 4:
+                n = self.u16(o + 6) // 2
+                ends, starts = o + 14, o + 16 + 2 * n
+                deltas, ranges = starts + 2 * n, starts + 4 * n
+                for i in range(n):
+                    a, b = self.u16(starts + 2 * i), self.u16(ends + 2 * i)
+                    delta, ro = self.i16(deltas + 2 * i), self.u16(ranges + 2 * i)
+                    if a == 0xFFFF or b - a > 0x3000:
+                        continue
+                    for ch in range(a, b + 1):
+                        if ro:
+                            at = ranges + 2 * i + ro + 2 * (ch - a)
+                            g = self.u16(at) if at + 2 <= len(self.d) else 0
+                            g = (g + delta) & 0xFFFF if g else 0
+                        else:
+                            g = (ch + delta) & 0xFFFF
+                        if g and g not in out:
+                            out[g] = chr(ch)
+            elif fmt == 12:
+                for i in range(self.u32(o + 12)):
+                    a, b, g0 = self.u32(o + 16 + 12 * i), self.u32(o + 20 + 12 * i), self.u32(o + 24 + 12 * i)
+                    if b - a > 0x3000:
+                        continue
+                    for ch in range(a, b + 1):
+                        out.setdefault(g0 + ch - a, chr(ch))
+            if out:
+                break
+        return out
+
+    def outline(self, gid: int, depth: int = 0) -> List[np.ndarray]:
+        """The contours of glyph ``gid`` as closed polylines (em units / upem), curves as chords."""
+        got = self._outlines.get(gid)
+        if got is not None:
+            return got
+        out: List[np.ndarray] = []
+        try:
+            out = self._read_glyph(gid, depth)
+        except Exception:
+            out = []
+        self._outlines[gid] = out
+        return out
+
+    def _read_glyph(self, gid: int, depth: int) -> List[np.ndarray]:
+        loca, glyf = self.tables.get(b"loca"), self.tables.get(b"glyf")
+        if not loca or not glyf or not 0 <= gid < self.glyphs or depth > 8:
+            return []
+        if self.long_loca:
+            a, b = self.u32(loca[0] + 4 * gid), self.u32(loca[0] + 4 * gid + 4)
+        else:
+            a, b = 2 * self.u16(loca[0] + 2 * gid), 2 * self.u16(loca[0] + 2 * gid + 2)
+        if b <= a:
+            return []
+        o = glyf[0] + a
+        nc = self.i16(o)
+        k = 1.0 / self.upem
+        if nc < 0:  # made of other glyphs
+            out = []
+            p = o + 10
+            while True:
+                flags, g = self.u16(p), self.u16(p + 2)
+                p += 4
+                if flags & 1:
+                    dx, dy = self.i16(p), self.i16(p + 2)
+                    p += 4
+                else:
+                    dx, dy = (self.d[p] ^ 0x80) - 0x80, (self.d[p + 1] ^ 0x80) - 0x80
+                    p += 2
+                m = (1.0, 0.0, 0.0, 1.0)
+                if flags & 8:
+                    v = self.i16(p) / 16384.0
+                    m = (v, 0.0, 0.0, v)
+                    p += 2
+                elif flags & 0x40:
+                    m = (self.i16(p) / 16384.0, 0.0, 0.0, self.i16(p + 2) / 16384.0)
+                    p += 4
+                elif flags & 0x80:
+                    m = tuple(self.i16(p + 2 * j) / 16384.0 for j in range(4))
+                    p += 8
+                for C in self.outline(g, depth + 1):
+                    x = C[:, 0] * m[0] + C[:, 1] * m[2] + (dx * k if flags & 2 else 0.0)
+                    y = C[:, 0] * m[1] + C[:, 1] * m[3] + (dy * k if flags & 2 else 0.0)
+                    out.append(np.column_stack([x, y]))
+                if not flags & 0x20:
+                    break
+            return out
+        ends = [self.u16(o + 10 + 2 * j) for j in range(nc)]
+        npts = ends[-1] + 1 if ends else 0
+        p = o + 10 + 2 * nc
+        p += 2 + self.u16(p)
+        fl = []
+        while len(fl) < npts:
+            f = self.d[p]
+            p += 1
+            fl.append(f)
+            if f & 8:
+                r = self.d[p]
+                p += 1
+                fl.extend([f] * r)
+        fl = fl[:npts]
+        xs, ys = [], []
+        for coords, short, same in ((xs, 2, 16), (ys, 4, 32)):
+            v = 0
+            for f in fl:
+                if f & short:
+                    dv = self.d[p]
+                    p += 1
+                    v += dv if f & same else -dv
+                elif not f & same:
+                    v += self.i16(p)
+                    p += 2
+                coords.append(v)
+        out = []
+        start = 0
+        for e in ends:
+            P = [(xs[j] * k, ys[j] * k, bool(fl[j] & 1)) for j in range(start, e + 1)]
+            start = e + 1
+            if len(P) < 2:
+                continue
+            # quadratic contour -> chords (an off-curve point between two off-curve ones: their middle is on it)
+            pts: List[Tuple[float, float]] = []
+            if not P[0][2]:
+                P = ([P[-1]] if P[-1][2] else [((P[0][0] + P[-1][0]) / 2, (P[0][1] + P[-1][1]) / 2, True)]) + P
+            pts.append(P[0][:2])
+            q = P[1:] + [P[0]]
+            i, cur = 0, P[0]
+            while i < len(q):
+                nxt = q[i]
+                if nxt[2]:
+                    pts.append(nxt[:2])
+                    cur = nxt
+                    i += 1
+                    continue
+                ctrl = nxt
+                after = q[i + 1] if i + 1 < len(q) else P[0]
+                end = after if after[2] else ((ctrl[0] + after[0]) / 2, (ctrl[1] + after[1]) / 2, True)
+                for t in (0.25, 0.5, 0.75, 1.0):
+                    u = 1 - t
+                    pts.append((u * u * cur[0] + 2 * u * t * ctrl[0] + t * t * end[0],
+                                u * u * cur[1] + 2 * u * t * ctrl[1] + t * t * end[1]))
+                cur = end
+                i += 2 if after[2] and i + 1 < len(q) else 1
+            out.append(np.array(pts, float))
+        return out
+
+
+def _inside_rings(rings, P: np.ndarray) -> np.ndarray:
+    """Points ``P`` inside a set of rings, even-odd (a ring in a ring is a hole)."""
+    out = np.zeros(len(P), bool)
+    for ring in rings:
+        out ^= _inside(ring, P)
+    return out
+
+
+def _clip_segments(S: np.ndarray, rings, inside: bool) -> Tuple[np.ndarray, np.ndarray]:
+    """The parts of segments ``S`` (N, 4) inside (``inside``) or outside the area of
+    ``rings``: (pieces (M, 4), the segment each piece is of)."""
+    n = len(S)
+    if not n:
+        return np.zeros((0, 4)), np.zeros(0, np.int64)
+    allp = np.vstack(rings)
+    bx0, by0 = allp.min(axis=0)
+    bx1, by1 = allp.max(axis=0)
+    # wholly beside the box of the area: all out
+    away = (np.maximum(S[:, 0], S[:, 2]) < bx0) | (np.minimum(S[:, 0], S[:, 2]) > bx1) | \
+        (np.maximum(S[:, 1], S[:, 3]) < by0) | (np.minimum(S[:, 1], S[:, 3]) > by1)
+    near = np.flatnonzero(~away)
+    keep_whole = np.flatnonzero(away) if not inside else np.zeros(0, np.int64)
+    if not len(near):
+        return S[keep_whole], keep_whole
+    T = S[near]
+    A = T[:, 0:2]
+    D = T[:, 2:4] - A
+    ts = [np.zeros(len(T)), np.ones(len(T))]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        for ring in rings:
+            Q = np.roll(ring, -1, axis=0)
+            for (px, py), (qx, qy) in zip(ring.tolist(), Q.tolist()):
+                ex, ey = qx - px, qy - py
+                den = D[:, 0] * ey - D[:, 1] * ex
+                wx, wy = px - A[:, 0], py - A[:, 1]
+                t = (wx * ey - wy * ex) / den
+                u = (wx * D[:, 1] - wy * D[:, 0]) / den
+                ok = (np.abs(den) > 1e-12) & (t > 0) & (t < 1) & (u >= -1e-12) & (u <= 1 + 1e-12)
+                ts.append(np.where(ok, t, np.nan))
+    Tt = np.sort(np.column_stack(ts), axis=1)  # (the NaN last)
+    t0, t1 = Tt[:, :-1], Tt[:, 1:]
+    valid = np.isfinite(t0) & np.isfinite(t1) & (t1 - t0 > 1e-9)
+    rows, cols = np.nonzero(valid)
+    a, b = t0[rows, cols], t1[rows, cols]
+    mid = A[rows] + (0.5 * (a + b))[:, None] * D[rows]
+    keep = _inside_rings(rings, mid) == inside
+    rows, a, b = rows[keep], a[keep], b[keep]
+    # pieces of one segment that meet (split at a corner of the area that only touches it) as one
+    if len(rows) > 1:
+        join = (rows[1:] == rows[:-1]) & (np.abs(a[1:] - b[:-1]) <= 1e-9)
+        if join.any():
+            start = np.r_[True, ~join]
+            first = np.flatnonzero(start)
+            last = np.r_[first[1:] - 1, len(rows) - 1]
+            rows, a, b = rows[first], a[first], b[last]
+    pieces = np.column_stack([A[rows] + a[:, None] * D[rows], A[rows] + b[:, None] * D[rows]])
+    src = near[rows]
+    if len(keep_whole):
+        return np.vstack([S[keep_whole], pieces]), np.concatenate([keep_whole, src])
+    return pieces, src
+
+
+def _hatched(S: np.ndarray, group: np.ndarray, spacing: float = HATCH_SPACING, min_lines: int = HATCH_LINES,
+             tol: float = 0.05, cover: float = 0.15, square: float = HATCH_SPACING_SQUARE) -> np.ndarray:
+    """True per segment of a hatch pattern: one of many parallel lines of one ``group``
+    (a pen, a layer) beside each other at an even spacing no larger than ``spacing``
+    (sheet mm) - what a CAD program plots a patterned hatch as - and the short pieces
+    between such lines (the joints of a brick pattern).  Walls, grid lines and the rows of
+    a table are further apart; the strokes of texts are short and scattered.
+
+    Looked at in strips across the lines (``6 x spacing`` wide along them): a line of a
+    strip counts when it covers ``cover`` of the strip; a hatch is ``min_lines`` such lines
+    in an even progression (two hatches over each other, or a pattern of pairs, are two
+    progressions)."""
+    n = len(S)
+    out = np.zeros(n, bool)
+    if n < min_lines:
+        return out
+    d = S[:, 2:4] - S[:, 0:2]
+    deg = np.degrees(np.mod(np.arctan2(d[:, 1], d[:, 0]), np.pi))
+    # whole degrees; a line is looked at in the two nearest (the ends of plotted lines are rounded to the
+    # plotter's grid: the lines of one hatch differ in angle by a fraction of a degree)
+    b0 = np.floor(deg).astype(np.int64)
+    both = np.r_[np.arange(n), np.arange(n)]
+    bins = np.r_[b0, b0 + 1] % 180
+    th = np.radians(bins.astype(float))
+    c, s = np.cos(th), np.sin(th)
+    X0, Y0, X1, Y1 = S[both, 0], S[both, 1], S[both, 2], S[both, 3]
+    rho = -s * 0.5 * (X0 + X1) + c * 0.5 * (Y0 + Y1)
+    ta, tb = c * X0 + s * Y0, c * X1 + s * Y1
+    t0, t1 = np.minimum(ta, tb), np.maximum(ta, tb)
+    A = 6.0 * spacing
+    c0 = np.floor(t0 / A).astype(np.int64)
+    c1 = np.floor(t1 / A).astype(np.int64)
+    span = np.minimum(c1 - c0 + 1, 64)  # (a very long line: its first strips)
+    pick = np.repeat(np.arange(len(both)), span)
+    seg = both[pick]
+    cell = c0[pick] + (np.arange(len(pick)) - np.repeat(np.cumsum(span) - span, span))
+    covered = np.minimum(t1[pick], (cell + 1) * A) - np.maximum(t0[pick], cell * A)
+    key = (np.asarray(group, np.int64)[seg] * 180 + bins[pick]) * 4_000_003 + cell
+    r = rho[pick]
+    o = np.lexsort((r, key))
+    key, r, seg, covered = key[o], r[o], seg[o], covered[o]
+    # distinct lines in each strip, and how much of the strip each covers
+    new_line = np.r_[True, (key[1:] != key[:-1]) | (r[1:] - r[:-1] > tol)]
+    line = np.cumsum(new_line) - 1
+    lk, lr = key[new_line], r[new_line]
+    cov = np.bincount(line, weights=np.maximum(covered, 0.0)) / A
+    L = len(lk)
+    starts = np.flatnonzero(np.r_[True, lk[1:] != lk[:-1]])
+    gidx = np.cumsum(np.r_[True, lk[1:] != lk[:-1]]) - 1  # the strip of each line, numbered
+    comp = gidx * 1.0e6 + (lr - np.minimum.reduceat(lr, starts)[gidx])
+    usable = cov >= cover
+    ang_line = (lk // 4_000_003) % 180
+    lim = np.where((ang_line <= 1) | (ang_line >= 179) | (np.abs(ang_line - 90) <= 1), square, spacing)
+    flag = np.zeros(L, bool)
+    for j in range(1, 5):
+        if L <= j:
+            break
+        i = np.flatnonzero((gidx[j:] == gidx[:-j]) & usable[:-j] & usable[j:])
+        g = lr[i + j] - lr[i]
+        keep = (g > tol) & (g <= lim[i])
+        i, g = i[keep], g[keep]
+        if not len(i):
+            continue
+        cur = i + j
+        found = [i, cur]
+        alive = np.ones(len(i), bool)
+        for _m in range(2, min_lines):
+            target = comp[cur] + g
+            pos = np.clip(np.searchsorted(comp, target), 1, L - 1)
+            near = np.where(np.abs(comp[pos] - target) <= np.abs(comp[pos - 1] - target), pos, pos - 1)
+            alive &= (gidx[near] == gidx[i]) & (np.abs(comp[near] - target) <= tol) & (near > cur) & usable[near]
+            cur = np.where(alive, near, cur)
+            found.append(cur)
+        for f in found:
+            flag[f[alive]] = True
+    out[seg[flag[line]]] = True
+    if out.any():
+        out |= _between(S, group, out, 2.0 * spacing, tol)
+    return out
+
+
+def _between(S: np.ndarray, group: np.ndarray, hatch: np.ndarray, longest: float, tol: float) -> np.ndarray:
+    """Short segments both of whose ends lie on hatch lines of their group: the pieces of a
+    pattern between its lines (brick joints)."""
+    cand = np.flatnonzero(~hatch & (np.hypot(S[:, 2] - S[:, 0], S[:, 3] - S[:, 1]) <= longest))
+    out = np.zeros(len(S), bool)
+    if not len(cand):
+        return out
+    H = np.flatnonzero(hatch)
+    cellsz = max(4 * tol, 0.1)
+    # the cells the hatch lines pass through (points every half cell along them)
+    Lh = np.hypot(S[H, 2] - S[H, 0], S[H, 3] - S[H, 1])
+    k = np.maximum(np.ceil(Lh / (0.5 * cellsz)).astype(np.int64), 1)
+    if int(k.sum()) > 4_000_000:
+        return out
+    hh = np.repeat(H, k + 1)
+    t = (np.arange(len(hh)) - np.repeat(np.cumsum(k + 1) - (k + 1), k + 1)) / np.repeat(k, k + 1)
+    X = S[hh, 0] + t * (S[hh, 2] - S[hh, 0])
+    Y = S[hh, 1] + t * (S[hh, 3] - S[hh, 1])
+    g = np.asarray(group, np.int64)
+
+    def cells(x, y, grp):
+        return (grp * 1_000_003 + np.floor(x / cellsz).astype(np.int64)) * 1_000_003 + np.floor(y / cellsz).astype(np.int64)
+    have = np.unique(cells(X, Y, g[hh]))
+    ok = np.ones(len(cand), bool)
+    for cx, cy in ((0, 1), (2, 3)):
+        x, y, gg = S[cand, cx], S[cand, cy], g[cand]
+        hit = np.zeros(len(cand), bool)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                key = cells(x + dx * cellsz, y + dy * cellsz, gg)
+                pos = np.clip(np.searchsorted(have, key), 0, len(have) - 1)
+                hit |= have[pos] == key
+        ok &= hit
+    out[cand[ok]] = True
+    return out
 
 
 def _inside(poly: np.ndarray, P: np.ndarray) -> np.ndarray:
@@ -899,23 +1451,69 @@ def read_pdf(source, page: int = 1) -> Drawing:
             x, y = H - y, x
         return x * k, y * k
 
-    # lines wholly under a white shape drawn after them are not on the sheet as it is seen
-    hidden = np.zeros(len(seg), bool)
+    def viewed_ring(R: np.ndarray) -> np.ndarray:
+        return np.column_stack(viewed(R[:, 0], R[:, 1]))
+
+    clip_rings = [[viewed_ring(R) for R in rings] for rings in work.clips]
+
+    def clipped(S: np.ndarray, chain_of: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """The parts of segments inside the clipping paths they were drawn under:
+        (pieces, the segment each is of)."""
+        if not len(S) or not chain_of.any():
+            return S, np.arange(len(S))
+        parts, src = [S[chain_of == 0]], [np.flatnonzero(chain_of == 0)]
+        for c in np.unique(chain_of[chain_of > 0]).tolist():
+            idx = np.flatnonzero(chain_of == c)
+            T = S[idx]
+            for cid in work.chain_list[c]:
+                T, j = _clip_segments(T, clip_rings[cid], True)
+                idx = idx[j]
+            parts.append(T)
+            src.append(idx)
+        src_all = np.concatenate(src)
+        order_ = np.argsort(src_all, kind="stable")  # (in the order they were drawn)
+        return np.vstack(parts)[order_], src_all[order_]
+
+    def run_of(runs) -> np.ndarray:
+        return np.repeat(np.arange(len(runs)), np.array([r[0] for r in runs], np.int64)) if runs else np.zeros(0, int)
+
+    seg_run = run_of(work.runs)
+    seg_chain = np.array([r[6] for r in work.runs], np.int64)[seg_run] if len(seg_run) else np.zeros(0, np.int64)
+    seg, src = clipped(seg, seg_chain)
+    seg_run, orig = seg_run[src], src
+    curve = np.array(work.curve, bool)[src] if len(src) else np.zeros(0, bool)
+    if len(pts):  # snap points outside the clipping paths are not on the sheet
+        p_run = run_of(work.pruns)
+        p_chain = np.array([r[7] for r in work.pruns], np.int64)[p_run]
+        keep = np.ones(len(pts), bool)
+        for c in np.unique(p_chain[p_chain > 0]).tolist():
+            idx = np.flatnonzero(p_chain == c)
+            for cid in work.chain_list[c]:
+                keep[idx] &= _inside_rings(clip_rings[cid], pts[idx])
+    else:
+        p_run, keep = np.zeros(0, int), np.zeros(0, bool)
+
+    # what a white shape drawn after it covers is not on the sheet as it is seen
     text_hidden = set()
     for upto, tupto, poly in work.masks:
         if not upto and not tupto:
             continue
-        Q = np.array([viewed(x, y) for x, y in poly], float)
+        Q = viewed_ring(poly)
         qx0, qy0, qx1, qy1 = Q[:, 0].min(), Q[:, 1].min(), Q[:, 0].max(), Q[:, 1].max()
         if (qx1 - qx0) >= 0.95 * dwg.sheet[0] and (qy1 - qy0) >= 0.95 * dwg.sheet[1]:
             continue  # (the paper itself)
-        part = seg[:upto]
-        cand = np.flatnonzero((np.minimum(part[:, 0], part[:, 2]) >= qx0) & (np.maximum(part[:, 0], part[:, 2]) <= qx1) &
-                              (np.minimum(part[:, 1], part[:, 3]) >= qy0) & (np.maximum(part[:, 1], part[:, 3]) <= qy1))
+        cand = np.flatnonzero((orig < upto) &
+                              (np.maximum(seg[:, 0], seg[:, 2]) >= qx0) & (np.minimum(seg[:, 0], seg[:, 2]) <= qx1) &
+                              (np.maximum(seg[:, 1], seg[:, 3]) >= qy0) & (np.minimum(seg[:, 1], seg[:, 3]) <= qy1))
         if len(cand):
-            inside = _inside(Q, part[cand, 0:2]) & _inside(Q, part[cand, 2:4]) & \
-                _inside(Q, 0.5 * (part[cand, 0:2] + part[cand, 2:4]))
-            hidden[cand[inside]] = True
+            pieces, j = _clip_segments(seg[cand], [Q], False)
+            rest = np.ones(len(seg), bool)
+            rest[cand] = False
+            take = np.concatenate([np.flatnonzero(rest), cand[j]])
+            seg = np.vstack([seg[rest], pieces])
+            seg_run, orig, curve = seg_run[take], orig[take], curve[take]
+            o = np.argsort(orig, kind="stable")
+            seg, seg_run, orig, curve = seg[o], seg_run[o], orig[o], curve[o]
         for j in range(min(tupto, len(work.texts))):
             tx, ty = viewed(work.texts[j][0], work.texts[j][1])
             if qx0 <= tx <= qx1 and qy0 <= ty <= qy1 and _inside(Q, np.array([[tx, ty]]))[0]:
@@ -925,15 +1523,9 @@ def read_pdf(source, page: int = 1) -> Drawing:
             raise DxfError(f"Page {number} of the PDF is a picture (a scanned sheet), not line work: there is nothing "
                            "to draw over or snap to. Only PDFs plotted from a CAD program can be placed.")
         raise DxfError(f"Page {number} of the PDF has no lines"
-                       + (" - only text." if work.skipped.get("TEXT") else "."))
+                       + (" - only text." if (work.skipped.get("TEXT") or work.texts) else "."))
 
     # ---- layers: those of the file, else one per pen
-    def per(runs, col):
-        return [r[col] for r in runs]
-
-    def spread(runs, values, dtype):
-        return np.repeat(np.array(values, dtype), np.array([r[0] for r in runs], np.int64))
-
     all_runs = work.runs + [r[:6] for r in work.pruns]
     text_layer_names = [(t[7] or NO_LAYER) if work.has_layers else "Text" for t in work.texts]
     if work.has_layers:
@@ -949,23 +1541,54 @@ def read_pdf(source, page: int = 1) -> Drawing:
         else:
             names = ["Filled shapes" if r[5] else "PDF" for r in all_runs]
     order: Dict[str, int] = {}
-    ids = [order.setdefault(nm, len(order)) for nm in names]
+    ids = np.array([order.setdefault(nm, len(order)) for nm in names], np.int64)
     ns = len(work.runs)
-    layer = spread(work.runs, ids[:ns], np.int32)
-    rgb = spread(work.runs, per(work.runs, 3), np.int64)
-    curve = np.array(work.curve, bool)
+    run_rgb = np.array([r[3] for r in work.runs], np.int64)
+    run_filled = np.array([r[5] for r in work.runs], bool)
+    layer = ids[:ns][seg_run]
+    rgb = run_rgb[seg_run]
     # what lies wholly off the page is not on the sheet; zero-length pieces draw nothing
     sw, sh = dwg.sheet
     pad = 1.0e-6 * max(sw, sh)
-    ok = np.all(np.isfinite(seg), axis=1) & ~hidden
+    ok = np.all(np.isfinite(seg), axis=1)
     ok &= np.hypot(seg[:, 2] - seg[:, 0], seg[:, 3] - seg[:, 1]) > 0.0
     ok &= ~((np.maximum(seg[:, 0], seg[:, 2]) < -pad) | (np.minimum(seg[:, 0], seg[:, 2]) > sw + pad) |
             (np.maximum(seg[:, 1], seg[:, 3]) < -pad) | (np.minimum(seg[:, 1], seg[:, 3]) > sh + pad))
-    seg, layer, rgb, curve = seg[ok], layer[ok], rgb[ok], curve[ok]
+    # letters drawn as filled shapes with their words written invisibly over them (as some programs plot
+    # texts): the words are kept as text, the shapes are left out
+    filled_seg = run_filled[seg_run]
+    if filled_seg.any() and any(t[9] for t in work.texts):
+        mid = 0.5 * (seg[:, 0:2] + seg[:, 2:4])
+        fi = np.flatnonzero(filled_seg & ok)
+        for (tx, ty, ux, uy, size, length, string, _lay, _rgb, hid) in work.texts:
+            if not hid or not len(fi):
+                continue
+            ln = length if length > 0 else 0.6 * size * len(string)
+            vx, vy = -uy, ux
+            corners = [(tx + ux * a_ + vx * b_, ty + uy * a_ + vy * b_)
+                       for a_, b_ in ((-0.1 * size, -0.3 * size), (ln + 0.1 * size, -0.3 * size),
+                                      (ln + 0.1 * size, 1.1 * size), (-0.1 * size, 1.1 * size))]
+            Q = viewed_ring(np.array(corners, float))
+            box = (mid[fi, 0] >= Q[:, 0].min()) & (mid[fi, 0] <= Q[:, 0].max()) & \
+                (mid[fi, 1] >= Q[:, 1].min()) & (mid[fi, 1] <= Q[:, 1].max())
+            if box.any():
+                inner = fi[box][_inside(Q, mid[fi[box]])]
+                ok[inner] = False
+    seg, layer, rgb, curve, seg_run = seg[ok], layer[ok], rgb[ok], curve[ok], seg_run[ok]
     if not len(seg):
         raise DxfError(f"Page {number} of the PDF has no lines on the sheet.")
+    # hatch patterns: on layers of their own, off at first
+    hatch = _hatched(seg, np.where(run_filled[seg_run], -1, layer)) & ~run_filled[seg_run] & ~curve
+    hatch_layers = set()
+    if hatch.any():
+        names_of = list(order)
+        for lid in np.unique(layer[hatch]).tolist():
+            nm = (names_of[lid] + " (hatch)") if work.has_layers else "Hatch patterns"
+            h = order.setdefault(nm, len(order))
+            layer[hatch & (layer == lid)] = h
+            hatch_layers.add(nm)
     # the texts: where they start, their direction and size on the sheet as it is viewed
-    for j, (tx, ty, ux, uy, size, length, string, _lay, trgb) in enumerate(work.texts):
+    for j, (tx, ty, ux, uy, size, length, string, _lay, trgb, _hid) in enumerate(work.texts):
         if j in text_hidden:
             continue
         px, py = viewed(tx, ty)
@@ -980,6 +1603,24 @@ def read_pdf(source, page: int = 1) -> Drawing:
         lid = order.setdefault(text_layer_names[j], len(order))
         dwg.texts.append((px, py, size * k * CAP_HEIGHT, math.degrees(math.atan2(uy, ux)), string, lid,
                           ((trgb >> 16) & 255, (trgb >> 8) & 255, trgb & 255), 0, 0, length * k, 1.0))
+    # the glyphs of fonts with no characters: their outlines, as text (drawn, never snapped to)
+    if work.graw:
+        G = np.vstack(work.graw)
+        G = np.column_stack([*viewed(G[:, 0], G[:, 1]), *viewed(G[:, 2], G[:, 3])])
+        meta = work.gmeta
+        g_chain = np.repeat(np.array([m_[3] for m_ in meta], np.int64), np.array([m_[0] for m_ in meta], np.int64))
+        g_of = np.repeat(np.arange(len(meta)), np.array([m_[0] for m_ in meta], np.int64))
+        G, j = clipped(G, g_chain)
+        g_of = g_of[j]
+        g_lay = np.array([order.setdefault((m_[1] or NO_LAYER) if work.has_layers else "Text", len(order))
+                          for m_ in meta], np.int32)
+        g_rgb = np.array([m_[2] for m_ in meta], np.int64)
+        okg = np.all(np.isfinite(G), axis=1) & (np.hypot(G[:, 2] - G[:, 0], G[:, 3] - G[:, 1]) > 0)
+        G, g_of = G[okg], g_of[okg]
+        c_ = g_rgb[g_of]
+        dwg.text_seg = np.ascontiguousarray(G, float)
+        dwg.text_seg_layer = g_lay[g_of]
+        dwg.text_seg_rgb = np.column_stack([(c_ >> 16) & 255, (c_ >> 8) & 255, c_ & 255]).astype(np.uint8)
     dwg.layers = list(order)
     first = {}
     for lid, c in zip(layer.tolist(), rgb.tolist()):
@@ -987,19 +1628,22 @@ def read_pdf(source, page: int = 1) -> Drawing:
             first[lid] = c
             if len(first) == len(order):
                 break
+    for t in dwg.texts:
+        first.setdefault(t[5], (t[6][0] << 16) | (t[6][1] << 8) | t[6][2])
     dwg.layer_rgb = [((first.get(i, 0) >> 16) & 255, (first.get(i, 0) >> 8) & 255, first.get(i, 0) & 255)
                      for i in range(len(order))]
     off = set(_layers_off(reader)) if work.has_layers else set()
-    dwg.layers_off = [nm for nm in dwg.layers if nm in off or (nm.endswith(" (filled)") and nm[:-9] in off)]
+    dwg.layers_off = [nm for nm in dwg.layers if nm in off or nm in hatch_layers or
+                      (nm.endswith(" (filled)") and nm[:-9] in off) or (nm.endswith(" (hatch)") and nm[:-8] in off)]
     dwg.seg = np.ascontiguousarray(seg, float)
     dwg.seg_layer = layer.astype(np.int32)
     dwg.seg_curve = curve
     dwg.seg_rgb = np.column_stack([(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255]).astype(np.uint8)
     if len(pts):
-        pl = spread(work.pruns, ids[ns:], np.int32)
-        pk = spread(work.pruns, [r[6] for r in work.pruns], np.uint8)
-        okp = np.all(np.isfinite(pts), axis=1) & (pts[:, 0] >= -pad) & (pts[:, 0] <= sw + pad) & \
+        pl = ids[ns:][np.repeat(np.arange(len(work.pruns)), np.array([r[0] for r in work.pruns], np.int64))]
+        pk = np.repeat(np.array([r[6] for r in work.pruns], np.uint8), np.array([r[0] for r in work.pruns], np.int64))
+        okp = keep & np.all(np.isfinite(pts), axis=1) & (pts[:, 0] >= -pad) & (pts[:, 0] <= sw + pad) & \
             (pts[:, 1] >= -pad) & (pts[:, 1] <= sh + pad)
-        dwg.pts, dwg.pts_layer, dwg.pts_kind = pts[okp], pl[okp], pk[okp]
+        dwg.pts, dwg.pts_layer, dwg.pts_kind = pts[okp], pl[okp].astype(np.int32), pk[okp]
     dwg.counts = {"PATH": int(work.strokes)}
     return dwg

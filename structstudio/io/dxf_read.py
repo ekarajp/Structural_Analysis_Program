@@ -95,6 +95,10 @@ class Drawing:
     # (r, g, b), across 0 left / 1 centre / 2 right of the point, up 0 baseline / 1 bottom / 2 middle / 3 top,
     # width: the length of the string when the file states it, else 0, width factor)
     texts: list = field(default_factory=list)
+    # line work that is text (the glyphs of a PDF font with no characters): drawn, never snapped to
+    text_seg: np.ndarray = field(default_factory=lambda: np.zeros((0, 4)))
+    text_seg_layer: np.ndarray = field(default_factory=lambda: np.zeros(0, np.int32))
+    text_seg_rgb: np.ndarray = field(default_factory=lambda: np.zeros((0, 3), np.uint8))
     # a page of a PDF (see pdf_read): the coordinates are millimetres on the sheet
     source: str = "dxf"  # "dxf" | "pdf"
     pages: int = 1
@@ -135,9 +139,12 @@ class Drawing:
         return "m"
 
     def text_counts(self) -> Dict[str, int]:
+        """Texts per layer (the glyph outlines of a layer count as one text)."""
         out = {name: 0 for name in self.layers}
         for t in self.texts:
             out[self.layers[t[5]]] += 1
+        for k in np.unique(self.text_seg_layer).tolist() if len(self.text_seg) else []:
+            out[self.layers[k]] += 1
         return out
 
     def layer_counts(self) -> Dict[str, int]:

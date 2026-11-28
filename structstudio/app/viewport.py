@@ -1479,7 +1479,10 @@ class ModelViewport(QtWidgets.QWidget):
             return
         for a in getattr(self, "_ref_actors", []):
             self.renderer.RemoveActor(a)
+        for a, _h in getattr(self, "_ref_texts", []):
+            self.renderer.RemoveActor(a)
         self._ref_actors = []
+        self._ref_texts = []  # (actor, capital height): the texts, shown at the sizes that can be read
         self._ref_sig = sig
         self._ref_snap = None
         for ref, dwg, _ in shown:
@@ -1489,6 +1492,23 @@ class ModelViewport(QtWidgets.QWidget):
             if a is not None:
                 self.renderer.AddActor(a)
                 self._ref_actors.append(a)
+            for t, h in cadref.build_text_actors(ref, dwg, m, pl.kind, pl.value, bg, ink):
+                self.renderer.AddActor(t)
+                self._ref_texts.append((t, h))
+        self._text_sizes()
+
+    def _text_sizes(self, wpp: Optional[float] = None):
+        """The texts of the references at the sizes that can be read at this zoom (smaller
+        ones would be smudges over the drawing)."""
+        texts = getattr(self, "_ref_texts", None)
+        if not texts:
+            return
+        from . import cadref
+        wpp = self._world_per_px() if wpp is None else wpp
+        for a, h in texts:
+            on = (1.4 * h) / max(wpp, 1e-300) >= cadref.MIN_TEXT_PX  # (the band holds capitals h to 2h high)
+            if bool(a.GetVisibility()) != on:
+                a.SetVisibility(on)
 
     def reference_snapper(self):
         """Snap targets of the references shown here (None: none)."""
@@ -2432,8 +2452,10 @@ class ModelViewport(QtWidgets.QWidget):
         return 2.0 * cam.GetDistance() * math.tan(math.radians(cam.GetViewAngle()) / 2.0) / h
 
     def _screen_dashes(self):
-        """Before every frame: the dashed lines' dashes at their pixel size for this zoom."""
+        """Before every frame: the dashed lines' dashes at their pixel size for this zoom (and
+        the texts of the references at the sizes that can be read)."""
         wpp = self._world_per_px()
+        self._text_sizes(wpp)
         acts = self.renderer.GetActors()
         acts.InitTraversal()
         for _ in range(acts.GetNumberOfItems()):
