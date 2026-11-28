@@ -73,7 +73,9 @@ def real_size_text(dwg: Drawing, scale: float) -> str:
 
 def drawing_text(dwg: Drawing) -> str:
     n = len(dwg.seg)
-    t = f"{n:,} line{'s' if n != 1 else ''} on {sum(1 for v in dwg.layer_counts().values() if v)} layer(s)"
+    nt = len(getattr(dwg, "texts", ()))
+    t = f"{n:,} line{'s' if n != 1 else ''}" + (f", {nt:,} text{'s' if nt != 1 else ''}" if nt else "") + \
+        f" on {sum(1 for v in dwg.layer_counts().values() if v)} layer(s)"
     if dwg.skipped:
         words = {"TEXT": ("text", "texts"), "MTEXT": ("text", "texts"), "HATCH": ("hatch", "hatches"),
                  "FILL": ("filled area", "filled areas"),
@@ -96,12 +98,16 @@ class LayerList(QtWidgets.QWidget):
         v = QtWidgets.QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
         self.list = QtWidgets.QListWidget()
-        counts = dwg.layer_counts()
+        lines = dwg.layer_counts()
+        words = dwg.text_counts() if getattr(dwg, "texts", None) else {}
+        counts = {name: lines.get(name, 0) + words.get(name, 0) for name in dwg.layers}
         off = set(off)
         for name in sorted(dwg.layers, key=str.lower):
             if not counts.get(name):
                 continue  # (a layer with nothing to draw)
-            it = QtWidgets.QListWidgetItem(f"{name}    ({counts[name]:,})")
+            what = f"{lines.get(name, 0):,}" if not words.get(name) else \
+                (f"{lines[name]:,} + " if lines.get(name) else "") + f"{words[name]:,} text{'s' if words[name] != 1 else ''}"
+            it = QtWidgets.QListWidgetItem(f"{name}    ({what})")
             try:  # (a swatch of the layer's colour, as the picture draws it)
                 r, g, b = dwg.layer_rgb[dwg.layers.index(name)]
                 pm = QtGui.QPixmap(12, 12)
@@ -207,6 +213,7 @@ class PlaceReferenceDialog(QtWidgets.QDialog):
         self.plot = QtWidgets.QLineEdit()
         self.plot.setMaximumWidth(90)
         self.plot_note = QtWidgets.QLabel()
+        self.plot_note.setWordWrap(True)
         if self.is_pdf:
             # a PDF page is the sheet: millimetres of paper, times its plot scale
             self.unit_note.setText("")
@@ -269,6 +276,7 @@ class PlaceReferenceDialog(QtWidgets.QDialog):
         self.pos_own = QtWidgets.QRadioButton("The drawing's own coordinates (its 0, 0 at the model's 0, 0)")
         self.pos_mid = QtWidgets.QRadioButton("In the middle of the window - then put it in place with two points")
         (self.pos_own if near_model else self.pos_mid).setChecked(True)
+        self.pos_own.setVisible(not self.is_pdf)  # (a sheet has no coordinates of the building)
         self.align = QtWidgets.QCheckBox("Start Align (2 Points) when it is placed")
         self.align.setChecked(True)
         for w in (self.pos_own, self.pos_mid, self.align):
@@ -301,7 +309,8 @@ class PlaceReferenceDialog(QtWidgets.QDialog):
             b.setAutoDefault(False)
         self.preview.set_drawing(dwg, self.layers.off(), self.metres_per_unit())
         self._size()
-        self.resize(1180, 720)
+        screen = self.screen().availableGeometry() if self.screen() is not None else QtCore.QRect(0, 0, 1280, 800)
+        self.resize(min(1180, screen.width() - 40), min(720, screen.height() - 70))  # (also on a small screen)
 
     # ---- the size of the drawing
     def metres_per_unit(self) -> float:
@@ -352,7 +361,7 @@ class PlaceReferenceDialog(QtWidgets.QDialog):
         told = self.dwg.plot_scale
         self.plot.setText(f"{(told or remembered or 100.0):g}")
         self.plot_note.setText("(from the file)" if told else
-                               "(the file does not say - check the size; Scale by a Known Length sets it later)")
+                               "(the file does not say: read a dimension on the picture and measure it)")
 
     def plot_scale(self) -> float:
         text = self.plot.text().replace(",", "").strip()
@@ -402,7 +411,7 @@ class PlaceReferenceDialog(QtWidgets.QDialog):
             self._offer_scale()
         else:
             self.plot.setText(typed)
-            self.plot_note.setText("(the file does not say - check the size; Scale by a Known Length sets it later)")
+            self.plot_note.setText("(the file does not say: read a dimension on the picture and measure it)")
         old = self.layers
         self.layers = LayerList(dwg, dwg.layers_off)
         self.layers.list.setMaximumHeight(140)
@@ -535,6 +544,7 @@ class ManageReferencesDialog(QtWidgets.QDialog):
         self.c_snap = QtWidgets.QCheckBox("Snap to it")
         self.c_pinned = QtWidgets.QCheckBox("Pinned in place")
         self.c_top = QtWidgets.QCheckBox("Drawn over the model (not hidden by extruded sections)")
+        self.c_texts = QtWidgets.QCheckBox("Its texts are drawn")
         self.color = QtWidgets.QComboBox()
         for key, label in COLOR_CHOICES:
             self.color.addItem(label, key)
@@ -558,7 +568,7 @@ class ManageReferencesDialog(QtWidgets.QDialog):
         self.b_stories = QtWidgets.QPushButton("Stories...")
         self.status = QtWidgets.QLabel()
         self.status.setWordWrap(True)
-        for w in (self.c_visible, self.c_snap, self.c_pinned, self.c_top):
+        for w in (self.c_visible, self.c_snap, self.c_pinned, self.c_top, self.c_texts):
             f.addRow(w)
         f.addRow("Colour", self.color)
         f.addRow("Strength", self.strength)
@@ -580,6 +590,7 @@ class ManageReferencesDialog(QtWidgets.QDialog):
         self.c_snap.clicked.connect(lambda on: self._set(snap=bool(on)))
         self.c_pinned.clicked.connect(lambda on: self._set(pinned=bool(on)))
         self.c_top.clicked.connect(lambda on: self._set(on_top=bool(on)))
+        self.c_texts.clicked.connect(lambda on: self._set(texts=bool(on)))
         self.color.activated.connect(self._color)
         self.strength.sliderReleased.connect(lambda: self._set(strength=self.strength.value() / 100.0))
         self.strength.actionTriggered.connect(lambda _a: QtCore.QTimer.singleShot(0, self, self._strength_key))
@@ -652,6 +663,7 @@ class ManageReferencesDialog(QtWidgets.QDialog):
         self.c_snap.setChecked(ref.snap)
         self.c_pinned.setChecked(ref.pinned)
         self.c_top.setChecked(ref.on_top)
+        self.c_texts.setChecked(getattr(ref, "texts", True))
         mode = ref.color if ref.color in ("gray", "layers") else "custom"
         self.color.setCurrentIndex([k for k, _ in COLOR_CHOICES].index(mode))
         self.strength.setValue(int(round(ref.strength * 100)))
@@ -844,7 +856,51 @@ class ReferenceCommandsMixin:
         show / hide, and the snap - the "CAD references" snap of the snap list."""
         self.act_ref_show = self._make("Show in This Window", self.reference_show_window, "Ctrl+Alt+R", checkable=True,
                                        checked=True, tip="Show / hide the references in the active window (Ctrl+Alt+R)")
+        # drawings dropped on the window are placed; a linked drawing changed by the CAD program is noticed
+        self.setAcceptDrops(True)
+        app = QtWidgets.QApplication.instance()
+        if app is not None:
+            app.applicationStateChanged.connect(self._reference_files_checked)
         return {"ref.show_window": self.act_ref_show, "ref.snap": self.snap_actions["cad"]}
+
+    def _dropped_drawings(self, ev) -> List[str]:
+        md = ev.mimeData()
+        if not md.hasUrls():
+            return []
+        return [u.toLocalFile() for u in md.urls() if u.toLocalFile().lower().endswith((".dxf", ".pdf", ".dwg"))]
+
+    def dragEnterEvent(self, ev):
+        if self._dropped_drawings(ev):
+            ev.acceptProposedAction()
+        else:
+            super().dragEnterEvent(ev)
+
+    def dropEvent(self, ev):
+        files = self._dropped_drawings(ev)
+        if not files:
+            super().dropEvent(ev)
+            return
+        ev.acceptProposedAction()
+        # (after the drop has returned to the program it came from)
+        QtCore.QTimer.singleShot(0, lambda: [self.reference_place(path=f) for f in files[:4]])
+
+    def _reference_files_checked(self, state=None):
+        """Back in the program: a linked drawing that was saved again meanwhile is told
+        once (References > Reload Linked Drawings brings it in)."""
+        if state is not None and state != QtCore.Qt.ApplicationActive:
+            return
+        try:
+            m = self.doc.model
+            path = getattr(self.doc, "path", None)
+            told = getattr(self, "_ref_changed_told", set())
+            now = {r.name for r in cadref.references_of(m).values() if cadref.changed_on_disk(r, m, path)}
+            new = sorted(now - told)
+            self._ref_changed_told = now
+            if new:
+                self._info(f"Reference {', '.join(new)}: the drawing file was changed - References > Reload Linked "
+                           "Drawings shows the new one")
+        except Exception:
+            pass
 
     # ---- helpers
     def _ref_window(self):
@@ -881,13 +937,19 @@ class ReferenceCommandsMixin:
             self.act_ref_show.setChecked(not getattr(self.viewport, "references_hidden", False))
 
     # ---- commands
-    def reference_place(self, parent=None, start_align: bool = True) -> Optional[str]:
+    def reference_place(self, parent=None, start_align: bool = True, path: Optional[str] = None) -> Optional[str]:
         settings = getattr(self, "qsettings", None)
         start = settings.value("references/folder", "") if settings is not None else ""
         if not start and getattr(self.doc, "path", None):
             start = os.path.dirname(self.doc.path)
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(parent or self, PLACE_TITLE, start or "", FILE_FILTER)
+        if not (isinstance(path, str) and path):  # (a file dropped on the window comes with its path)
+            path, _ = QtWidgets.QFileDialog.getOpenFileName(parent or self, PLACE_TITLE, start or "", FILE_FILTER)
         if not path:
+            return None
+        if path.lower().endswith(".dwg"):
+            QtWidgets.QMessageBox.information(parent or self, PLACE_TITLE, "A DWG file cannot be read directly.\n\n"
+                                              "Open it in the CAD program and save it as DXF (Save As > DXF), or plot "
+                                              "it to PDF - both can be placed.")
             return None
         if settings is not None:
             settings.setValue("references/folder", os.path.dirname(path))
@@ -1087,8 +1149,10 @@ class ReferenceCommandsMixin:
         else:
             self.references_redraw()
 
-    def reference_manage(self):
+    def reference_manage(self, select: Optional[str] = None):
         dlg = ManageReferencesDialog(self)
+        if isinstance(select, str) and select:
+            dlg.refresh(select)
         dlg.exec()
         self.sync_reference_actions()
 
@@ -1100,6 +1164,7 @@ class ReferenceCommandsMixin:
         path = getattr(self.doc, "path", None)
         cadref.reload()
         fresh = cadref.refresh_embedded(self.doc, None, path)  # (linked + embedded: the copies follow the files)
+        self._ref_changed_told = set()
         m = self.doc.model
         self.references_redraw()
         missing = [r.name for r in m.references.values() if cadref.source_of(r, m, path)[0] == "missing"]

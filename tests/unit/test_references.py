@@ -213,7 +213,8 @@ def test_what_is_not_line_work_is_counted_and_the_paper_space_left_out():
         line(0, 0, 0, 999, extra=((67, 1),))
     d = read_dxf(dxf(ents).encode())
     assert _segs(d) == [((0.0, 0.0), (10.0, 0.0))]
-    assert d.skipped == {"TEXT": 1, "HATCH": 1, "MTEXT": 1}
+    assert d.skipped == {"HATCH": 1}  # (texts are read: see the test of the texts; one without a height is nothing)
+    assert [(t[4], t[2]) for t in d.texts] == [("A", 2.5)]
     assert d.unit is None and d.guess_unit() == "m"  # 10 units across: metres
     big = read_dxf(dxf(line(0, 0, 42000, 0)).encode())
     assert big.guess_unit() == "mm" and read_dxf(dxf(line(0, 0, 4200, 0)).encode()).guess_unit() == "cm"
@@ -575,6 +576,19 @@ def test_files_as_editors_save_them_and_curve_fit_polylines(monkeypatch):
     with pytest.raises(DxfError) as e:
         read_dxf(text)
     assert "more line work" in str(e.value)
+    # a large file is not turned into ten million strings: the lines are found in its bytes and read as
+    # text only where an object is read (not the pattern lines of a hatch); what that must still tell apart:
+    monkeypatch.setattr(dxf_read, "MAX_SEGMENTS", 6_000_000)
+    hatch = _g((0, "HATCH"), (8, "H-ONLY"), (10, 1), (20, 2), (1, "not a number")) + \
+        _g((0, "HATCH"), (8, "0"), (67, 1), (10, 1), (20, 2))  # (the second one is in the paper space: not counted)
+    odd = read_dxf(dxf(line(0, 0, 5, 0, "\u0e01\u0e33\u0e41\u0e1e\u0e07") + hatch + _g((0, "LINE"), (-3, "x"), (8, "0"), (10, 0), (20, 0),
+                                                                   (11, 0), (21, 7)), codepage="ANSI_874").encode("cp874"))
+    assert odd.skipped == {"HATCH": 1} and len(odd.seg) == 2 and "\u0e01\u0e33\u0e41\u0e1e\u0e07" in odd.layers  # a Thai layer name
+    assert "H-ONLY" not in odd.layers  # (a layer with nothing that is drawn is no layer of the reference)
+    for junk in (b"0\nSECTION\nx2\nENTITIES\n0\nEOF\n", b"\x00\x01\x02\n\n\n\n\n", b"hello\nworld\nfoo\nbar\n"):
+        with pytest.raises(DxfError) as e:
+            read_dxf(junk)
+        assert "not a" in str(e.value)
 
 
 @core
@@ -703,6 +717,7 @@ def pypdf():
 @pdf_core
 def test_a_pdf_page_is_its_strokes_in_millimetres_on_the_sheet(pypdf):
     content = """
+    1 g 0 0 500 400 re f                          % a white shape under everything: nothing
     0.72 w 0 0 0 RG
     100 100 m 400 100 l S                         % a line
     2 0 0 2 10 20 cm                              % everything after: twice the size, shifted
@@ -711,7 +726,6 @@ def test_a_pdf_page_is_its_strokes_in_millimetres_on_the_sheet(pypdf):
     300 200 m 340 200 l 340 230 l s               % ... and with s
     BT /F1 12 Tf (GRID A) Tj ET                   % a text: not line work
     0.5 g 400 300 20 20 re f                      % a column drawn solid: its outline
-    1 g 0 0 500 400 re f                          % a white background: nothing
     q 0.5 0 0 0.5 -10 -20 cm 0.1 g 0 0 1190.55 841.89 re f Q   % the sheet's own dark background: nothing
     0 g 10 10 m 30 10 l 30 30 l 20 40 l 10 30 l 12 28 l 14 26 l 16 24 l 18 22 l 20 20 l 22 18 l 24 16 l
         26 14 l 28 12 l 29 11 l 30 12 l 31 13 l 32 14 l f   % a large fill (a hatch): counted, left out
@@ -926,8 +940,12 @@ def test_a_pdf_drawn_by_another_program_reads_the_same(pypdf, tmp_path):
     c.drawString(100, 500, "A text")
     c.save()
     d = read_pdf(fn)
-    assert d.layers == ["Pen 0.25 mm #0000ff", "Filled shapes"] and d.skipped == {"TEXT": 1}
-    assert d.layer_counts() == {"Pen 0.25 mm #0000ff": 1 + 4 + 48, "Filled shapes": 4}
+    assert d.layers == ["Pen 0.25 mm #0000ff", "Filled shapes", "Text"] and d.skipped == {}
+    (x, y, h, ang, string, lay, rgb, across, up, width, wf), = d.texts  # the text: read, to be drawn by the program
+    assert (string, d.layers[lay], rgb, ang) == ("A text", "Text", (51, 51, 51), 0.0)
+    assert (x / PT_TO_MM, y / PT_TO_MM) == pytest.approx((100.0, 500.0)) and h == pytest.approx(12 * 0.72 * PT_TO_MM)
+    assert width == 0.0  # (a standard font that states no widths: as long as the program's font draws it)
+    assert d.layer_counts() == {"Pen 0.25 mm #0000ff": 1 + 4 + 48, "Filled shapes": 4, "Text": 0}
     assert _psegs(d)[0] == ((72.0, 72.0), (360.0, 72.0))
     assert [tuple(round(v / PT_TO_MM, 2) for v in p) for p, kk in zip(d.pts.tolist(), d.pts_kind.tolist())
             if kk == PT_CENTER] == [(400.0, 300.0)]
@@ -967,6 +985,81 @@ def test_the_picture_of_a_drawing_is_drawn_with_numpy():
     dark = lambda im: int((im.sum(axis=2) < 600).sum())  # noqa: E731
     assert dark(a) > dark(b) > 0 and (a[0, 0] == [255, 255, 255]).all()
     assert ((a == [255, 0, 0]).all(axis=2)).any() and not ((b == [255, 0, 0]).all(axis=2)).any()  # the red grid
+
+
+@core
+def test_the_texts_of_a_dxf_drawing_are_read_with_their_place():
+    g = _g
+    ents = g((0, "TEXT"), (8, "GRID"), (10, 100), (20, 200), (40, 250), (1, "A%%d \\U+0E01"), (50, 90)) + \
+        g((0, "TEXT"), (8, "0"), (10, 0), (20, 0), (11, 500), (21, 600), (40, 100), (1, "MID"), (72, 1), (73, 2)) + \
+        g((0, "MTEXT"), (8, "0"), (10, 1000), (20, 1000), (40, 100), (71, 1), (3, "{\\fArial|b0;RC "),
+          (1, "WALL}\\P\\H2x;300 \\S1/2;")) + \
+        insert("B", 1000, 0, "COLUMN", sx=2, sy=2, rot=90) + \
+        g((0, "INSERT"), (8, "0"), (66, 1), (2, "B"), (10, 0), (20, 0)) + \
+        g((0, "ATTRIB"), (8, "GRID"), (10, 7), (20, 8), (40, 9), (1, "C"), (2, "TAG")) + \
+        g((0, "ATTRIB"), (8, "GRID"), (10, 7), (20, 8), (40, 9), (1, "hidden"), (2, "T2"), (70, 1)) + g((0, "SEQEND")) + \
+        line(0, 0, 1, 0)
+    blk = block("B", g((0, "TEXT"), (8, "0"), (62, 0), (10, 10), (20, 0), (40, 5), (1, "in block")))
+    d = read_dxf(dxf(ents, layer_def("GRID", 1) + layer_def("COLUMN", 3), blk).encode())
+    got = [(round(t[0], 3), round(t[1], 3), round(t[2], 3), round(t[3], 3), t[4], d.layers[t[5]], t[6], t[7], t[8])
+           for t in d.texts]
+    assert got == [
+        (100.0, 200.0, 250.0, 90.0, "A\u00b0 \u0e01", "GRID", (255, 0, 0), 0, 0),  # the codes of CAD texts as characters
+        (500.0, 600.0, 100.0, 0.0, "MID", "0", (255, 255, 255), 1, 2),  # centred on its alignment point
+        (1000.0, 1000.0, 100.0, 0.0, "RC WALL", "0", (255, 255, 255), 0, 3),  # a paragraph: its lines, the codes gone
+        (1000.0, 833.3, 100.0, 0.0, "300 1/2", "0", (255, 255, 255), 0, 3),
+        (7.0, 8.0, 9.0, 0.0, "C", "GRID", (255, 0, 0), 0, 0),  # the letter an insert carries (not the hidden one)
+        # in a block: where the insert puts it, turned and twice the size, on the layer / in the colour of the insert
+        (1000.0, 20.0, 10.0, 90.0, "in block", "COLUMN", (0, 255, 0), 0, 0),
+        (10.0, 0.0, 5.0, 0.0, "in block", "0", (255, 255, 255), 0, 0)]
+    assert d.skipped == {} and d.text_counts() == {"0": 4, "GRID": 2, "COLUMN": 1} and len(d.seg) == 1
+    # texts are no line work: nothing of them is snapped to
+    ref = CadReference("R", unit="mm")
+    assert not any("GRID" in name for _, _, name in cadref.RefSnapper([(ref, d)], "m").hits((0.1, 0.2), 0.5))
+
+
+@pdf_core
+def test_pdf_texts_are_read_and_lines_under_a_white_mask_left_out(pypdf):
+    f = _Pdf()
+    cmap = f.stream("/CIDInit /ProcSet findresource begin 1 begincodespacerange <0000> <FFFF> endcodespacerange "
+                    "2 beginbfchar <0003> <0020> <0010> <0E01> endbfchar 1 beginbfrange <0024> <0026> <0041> endbfrange")
+    desc = f.put("<< /Type /Font /Subtype /CIDFontType2 /BaseFont /X /DW 1000 /W [36 [600 700 800] 16 16 500] >>")
+    thai = f.put(f"<< /Type /Font /Subtype /Type0 /BaseFont /X /Encoding /Identity-H /DescendantFonts [{desc} 0 R] "
+                 f"/ToUnicode {cmap} 0 R >>")
+    helv = f.put("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding /FirstChar 48 "
+                 "/Widths [556 556 556 556 556 556 556 556 556 556] >>")
+    glyphs = f.put("<< /Type /Font /Subtype /Type0 /BaseFont /Y /Encoding /Identity-H >>")
+    res = f"/Font << /F1 {helv} 0 R /F2 {thai} 0 R /F3 {glyphs} 0 R >>"
+    content = """
+    0 0 m 300 0 l S
+    0 0 1 rg BT /F1 10 Tf 2 0 0 2 100 200 Tm (10800) Tj ET          % a dimension, twice the size by the matrix
+    BT /F2 20 Tf 0 1 -1 0 50 60 Tm [<0024> -300 <00250026> <0003> <0010>] TJ ET   % upwards; a gap; Thai
+    BT /F1 10 Tf 3 Tr 10 10 Td (77) Tj ET                            % invisible text: the words of letters drawn as shapes
+    BT /F3 10 Tf 0 Tr 10 10 Td <00410042> Tj ET                      % codes of glyphs with no table: not readable
+    BT /F1 10 Tf 0 Tr 400 400 Td (1\\050\\062\\)) Tj 0 -12 TD (3) ' ET
+    """
+    d = read_pdf(_pdf_into(f, [(content, "", res)]))
+    t = [(round(v[0] / PT_TO_MM, 2), round(v[1] / PT_TO_MM, 2), round(v[2] / PT_TO_MM, 2), round(v[3], 1), v[4], v[6],
+          round(v[9] / PT_TO_MM, 2)) for v in d.texts]
+    assert t == [(100.0, 200.0, 14.4, 0.0, "10800", (0, 0, 255), 55.6),  # 5 digits x 0.556 x 10 x 2
+                 (50.0, 60.0, 14.4, 90.0, "A BC \u0e01", (0, 0, 255), 78.0),  # (0.6 + 0.3 gap + 0.7 + 0.8 + 1 + 0.5) x 20
+                 (10.0, 10.0, 7.2, 0.0, "77", (0, 0, 255), 11.12),
+                 (400.0, 400.0, 7.2, 0.0, "1(2)", (0, 0, 255), 21.12),  # (the brackets have no width in the table: half a size)
+                 (400.0, 376.0, 7.2, 0.0, "3", (0, 0, 255), 5.56)]
+    assert d.skipped == {"TEXT": 1} and d.layers == ["Pen 0.35 mm", "Text"] and d.text_counts()["Text"] == 5
+    # a white shape drawn over lines (the mask behind a title block or a stamp): what is wholly under it is
+    # not on the sheet as it is seen; a line that only crosses its edge, and what is drawn after it, stay
+    masked = read_pdf(_pdf_into(_Pdf(), ["""
+        0 0 m 100 0 l S   20 20 m 60 20 l S   0 25 m 40 25 l S
+        BT /F1 10 Tf 30 12 Td (under) Tj ET
+        1 g 10 10 60 20 re f
+        30 15 m 50 15 l S
+    """]))
+    assert _psegs(masked) == [((0.0, 0.0), (100.0, 0.0)), ((0.0, 25.0), (40.0, 25.0)), ((30.0, 15.0), (50.0, 15.0))]
+    # the page turned: a text reads the way the page is viewed
+    turned = read_pdf(_pdf_into(f, [("0 0 m 9 9 l S BT /F1 10 Tf 50 100 Td (7) Tj ET",
+                                     "/MediaBox [0 0 600 800] /Rotate 90", res)]))
+    assert [(round(v[0] / PT_TO_MM, 2), round(v[1] / PT_TO_MM, 2), round(v[3], 1)) for v in turned.texts] == [(100.0, 550.0, -90.0)]
 
 
 @core
@@ -1603,3 +1696,104 @@ def _wheel(widget, delta):
     pos = QtCore.QPointF(widget.width() / 2, widget.height() / 2)
     return QtGui.QWheelEvent(pos, widget.mapToGlobal(pos), QtCore.QPoint(0, 0), QtCore.QPoint(0, delta),
                              QtCore.Qt.NoButton, QtCore.Qt.NoModifier, QtCore.Qt.NoScrollPhase, False)
+
+
+@gui
+def test_texts_are_drawn_fit_shows_the_drawing_and_the_right_click_menu(win, app, monkeypatch, tmp_path):
+    from PySide6 import QtCore, QtWidgets
+    from structstudio.app import ref_ui
+    vp = _plan(win, app)
+    text = _g((0, "TEXT"), (8, "NOTES2"), (10, 3000), (20, 2500), (40, 400), (1, "RC WALL 250")) + \
+        _g((0, "TEXT"), (8, "GRID"), (10, -900), (20, 5000), (40, 300), (1, "\u0e01"))
+    fn = tmp_path / "t.dxf"
+    fn.write_bytes(_floor_plan().replace("  0\nENDSEC\n  0\nEOF", text + "  0\nENDSEC\n  0\nEOF").encode())
+    got = {}
+
+    def answer(dlg):
+        got["info"] = dlg.info.text()
+        got["layers"] = sorted(dlg.layers.list.item(k).text() for k in range(dlg.layers.list.count()))
+        dlg.show()
+        app.processEvents()
+        dlg.preview.repaint()
+        got["written"] = dlg.preview._texts_drawn  # on the picture the texts are written as text (readable)
+        dlg.layers.set_all(False)
+        dlg.preview.repaint()
+        got["none"] = dlg.preview._texts_drawn
+        dlg.layers.set_off(["FROZEN", "NOTES"])
+        dlg.align.setChecked(False)
+        dlg.hide()
+    name, _ = _place(win, app, monkeypatch, str(fn), answer)
+    assert got["info"].startswith("80 lines, 2 texts on ") and (got["written"], got["none"]) == (2, 0)
+    assert "GRID    (5 + 1 text)" in got["layers"] and "NOTES2    (1 text)" in got["layers"]
+    ref = lambda: win.doc.model.references[name]  # noqa: E731
+    dwg = cadref.drawing_of(ref(), win.doc.model)[0]
+    T, tl, tc = cadref.text_segments(dwg)
+    assert len(T) > 40 and set(tl.tolist()) == {dwg.layers.index("NOTES2"), dwg.layers.index("GRID")}
+    box = T[tl == dwg.layers.index("NOTES2")]
+    assert box[:, (0, 2)].min() == pytest.approx(3000, abs=120) and box[:, (1, 3)].min() == pytest.approx(2500, abs=120)
+    assert box[:, (1, 3)].max() - box[:, (1, 3)].min() == pytest.approx(400, rel=0.25)  # capitals 400 high
+    # drawn with the lines of the reference; a layer off / "its texts" off takes them away; never snapped to
+    lines = lambda: vp._ref_actors[0].GetMapper().GetInput().GetNumberOfLines()  # noqa: E731
+    n_all = lines()
+    assert n_all == 78 + len(T)
+    cadref.change_reference(win.doc, name, layers_off=["FROZEN", "NOTES", "NOTES2"])
+    app.processEvents()
+    assert lines() == 78 + int((tl == dwg.layers.index("GRID")).sum())
+    cadref.change_reference(win.doc, name, texts=False)
+    app.processEvents()
+    assert lines() == 78
+    cadref.change_reference(win.doc, name, texts=True, layers_off=["FROZEN", "NOTES"])
+    app.processEvents()
+    assert all(k != "end" or "NOTES2" not in nm for _, k, nm in vp.reference_snapper().hits((3.0, 2.5), 0.3))
+    # Restore Full View shows the drawing with the model (the plan is 14 m x 7 m, the grids 12 m x 5 m) ...
+    win.doc.edit_design(lambda m: setattr(m.references[name], "origin", (30.0, 0.0)), "references")
+    app.processEvents()
+    vp.fit()
+    w = vp.vtk_widget.width() * vp._dpr()
+    xs = [vp._display((x, 0.0, 3.5))[0] for x in (0.0, 43.0)]
+    assert 0 <= xs[0] < xs[1] <= w  # the model's corner and the far end of the drawing 30 m away: both in sight
+    # ... but not one far away (survey coordinates, a wrong unit): the model stays in sight
+    win.doc.edit_design(lambda m: setattr(m.references[name], "origin", (650000.0, 0.0)), "references")
+    app.processEvents()
+    vp.fit()
+    xs = [vp._display((x, 0.0, 3.5))[0] for x in (0.0, 12.0)]
+    assert 0 <= xs[0] < xs[1] <= w and xs[1] - xs[0] > 0.3 * w
+    win.doc.edit_design(lambda m: setattr(m.references[name], "origin", (0.0, 0.0)), "references")
+    app.processEvents()
+    vp.fit()
+    # right-click on a line of the drawing: the reference's menu (its layer can be hidden from there)
+    x, y = vp._display((9.0 + 0.3, 2.5, 3.5))  # on the round column of layer COLUMN
+    assert vp.reference_under(int(x), int(y)) == (name, "COLUMN")
+    assert vp.reference_under(*map(int, vp._display((3.0, 3.6, 3.5)))) is None
+    items = vp.reference_menu_items(name, "COLUMN")
+    texts = [it[0] for it in items if it is not None]
+    assert texts[:5] == ["Align (2 Points)", "Scale by a Known Length", "Move", "Rotate", "Unpin"]  # (placed without Align: pinned at once)
+    assert texts[5:] == ['Hide Layer "COLUMN"', "Layers...", "Snap to It", "Hide the Reference", "Manage References..."]
+    next(it for it in items if it and it[0].startswith("Hide Layer"))[1]()
+    assert "COLUMN" in ref().layers_off and win.doc.undo() and "COLUMN" not in ref().layers_off
+    items[0][1]()  # Align from the menu: the tool, on this reference
+    assert win.state.tool.name == "ref_align" and win.state.tool.ref == name
+    win.state.set_tool("select")
+    assert vp.reference_menu_items("nothing", "COLUMN") == []
+    # a drawing file dropped on the window is placed; a DWG says what to do
+    said = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information", staticmethod(lambda *a, **k: said.append(a[2])))
+    assert win.reference_place(path=str(tmp_path / "x.dwg")) is None and "save it as DXF" in said[0]
+    monkeypatch.setattr(ref_ui.PlaceReferenceDialog, "exec", lambda dlg: QtWidgets.QDialog.Rejected)
+    md = QtCore.QMimeData()
+    md.setUrls([QtCore.QUrl.fromLocalFile(str(fn)), QtCore.QUrl.fromLocalFile(str(tmp_path / "notes.txt"))])
+
+    class Drop:
+        def mimeData(self):
+            return md
+    assert win._dropped_drawings(Drop()) == [str(fn)] and win.acceptDrops()
+    # the linked file saved again by the CAD program: told once when the program is used again
+    told = []
+    monkeypatch.setattr(win, "_info", told.append)
+    win._reference_files_checked(QtCore.Qt.ApplicationActive)
+    assert told == []
+    fn.write_bytes(_floor_plan().encode())
+    os.utime(fn, ns=(os.stat(fn).st_atime_ns, os.stat(fn).st_mtime_ns + 5_000_000_000))
+    win._reference_files_checked(QtCore.Qt.ApplicationActive)
+    win._reference_files_checked(QtCore.Qt.ApplicationActive)
+    assert len(told) == 1 and name in told[0] and "Reload" in told[0]

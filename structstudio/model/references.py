@@ -125,6 +125,7 @@ class CadReference:
     strength: float = 0.6  # 0..1: how strongly it is drawn (1 = full colour)
     layers_off: List[str] = field(default_factory=list)
     page: int = 1  # the page of a PDF drawing (1 = the first)
+    texts: bool = True  # its texts are drawn (never snapped to)
 
     def convert_units(self, src, dst) -> "CadReference":
         import dataclasses

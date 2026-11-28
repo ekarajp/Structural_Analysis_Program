@@ -234,7 +234,115 @@ def _lum(rgb) -> float:
     return (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255.0
 
 
-def display_colors(ref: CadReference, dwg: Drawing, mask: np.ndarray, background, ink) -> Tuple[Optional[np.ndarray], tuple]:
+MAX_TEXT_SEGMENTS = 1_500_000
+_GLYPH_PX = 100.0
+_TEXT_PATHS: Dict[str, Tuple[np.ndarray, float]] = {}
+_TEXT_FONT: list = []
+
+
+def _text_path(string: str) -> Tuple[np.ndarray, float]:
+    """(the outlines of ``string`` as segments (K, 4), y up, baseline at 0, letters _GLYPH_PX
+    high as a font size; its width) - drawn with the program's font, so any script the
+    computer has a font for is written (Thai too)."""
+    got = _TEXT_PATHS.get(string)
+    if got is not None:
+        return got
+    from PySide6 import QtGui
+    if not _TEXT_FONT:
+        font = QtGui.QFont()
+        font.setFamilies(["Tahoma", "Segoe UI", "Arial", "DejaVu Sans"])
+        font.setStyleHint(QtGui.QFont.SansSerif)
+        font.setPixelSize(int(_GLYPH_PX))
+        fm = QtGui.QFontMetricsF(font)
+        _TEXT_FONT.extend([font, fm, float(fm.capHeight()) or 0.72 * _GLYPH_PX])
+    font, fm = _TEXT_FONT[0], _TEXT_FONT[1]
+    path = QtGui.QPainterPath()
+    path.addText(0.0, 0.0, font, string)
+    segs = []
+    for poly in path.toSubpathPolygons():
+        P = np.array([(q.x(), -q.y()) for q in poly], float)
+        if len(P) < 2:
+            continue
+        # (a letter is read from far fewer points than its outline is made of)
+        keep = [0]
+        for k in range(1, len(P) - 1):
+            if abs(P[k, 0] - P[keep[-1], 0]) + abs(P[k, 1] - P[keep[-1], 1]) >= 6.0:
+                keep.append(k)
+        keep.append(len(P) - 1)
+        P = P[keep]
+        segs.append(np.hstack([P[:-1], P[1:]]))
+    out = (np.vstack(segs) if segs else np.zeros((0, 4)), float(fm.horizontalAdvance(string)))
+    if len(_TEXT_PATHS) > 20000:
+        _TEXT_PATHS.clear()
+    _TEXT_PATHS[string] = out
+    return out
+
+
+def text_segments(dwg: Drawing) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The texts of a drawing as line work to draw (never to snap to): (segments (M, 4) in
+    file coordinates, layer index per segment, RGB per segment).  Worked out once per
+    drawing; empty without a display (no fonts to draw with)."""
+    got = getattr(dwg, "_text_segments", None)
+    if got is not None:
+        return got
+    empty = (np.zeros((0, 4)), np.zeros(0, np.int32), np.zeros((0, 3), np.uint8))
+    if not getattr(dwg, "texts", None):
+        return empty
+    try:
+        from PySide6 import QtGui
+        if QtGui.QGuiApplication.instance() is None:
+            return empty
+    except ImportError:
+        return empty
+    segs, lays, cols = [], [], []
+    total = 0
+    for (x, y, h, ang, string, lay, rgb, across, up, width, wf) in dwg.texts:
+        U, w_px = _text_path(string)
+        if not len(U) or not h > 0:
+            continue
+        cap = _TEXT_FONT[2]
+        sy = h / cap
+        sx = (width / w_px) if (width > 0 and w_px > 0) else sy * (wf or 1.0)
+        dx = -0.5 * across * w_px * sx
+        dy = {0: 0.0, 1: 0.22 * h, 2: -0.5 * h, 3: -h}.get(up, 0.0)
+        a = math.radians(ang)
+        c, sn = math.cos(a), math.sin(a)
+        X1, Y1 = U[:, 0] * sx + dx, U[:, 1] * sy + dy
+        X2, Y2 = U[:, 2] * sx + dx, U[:, 3] * sy + dy
+        segs.append(np.column_stack([x + c * X1 - sn * Y1, y + sn * X1 + c * Y1, x + c * X2 - sn * Y2, y + sn * X2 + c * Y2]))
+        lays.append(np.full(len(U), lay, np.int32))
+        cols.append(np.broadcast_to(np.array(rgb, np.uint8), (len(U), 3)))
+        total += len(U)
+        if total > MAX_TEXT_SEGMENTS:
+            break
+    if not segs:
+        return empty
+    out = (np.vstack(segs), np.concatenate(lays), np.vstack(cols))
+    try:
+        dwg._text_segments = out
+    except Exception:
+        pass
+    return out
+
+
+def shown_lines(ref: Optional[CadReference], dwg: Drawing, layers_off=None, texts: bool = True
+                ) -> Tuple[np.ndarray, np.ndarray]:
+    """(segments (N, 4), RGB (N, 3)) of what is drawn of a drawing: the line work of the
+    layers shown, then - with ``texts`` - its texts."""
+    off = set(ref.layers_off if layers_off is None and ref is not None else (layers_off or ()))
+    on = np.array([name not in off for name in dwg.layers], bool)
+    m = on[dwg.seg_layer] if len(dwg.seg) else np.zeros(0, bool)
+    S, C = dwg.seg[m], dwg.seg_rgb[m]
+    if texts and (ref is None or getattr(ref, "texts", True)):
+        T, tl, tc = text_segments(dwg)
+        if len(T):
+            tm = on[tl]
+            S, C = np.vstack([S, T[tm]]), np.vstack([C, tc[tm]])
+    return S, C
+
+
+def display_colors(ref: CadReference, dwg: Drawing, mask: np.ndarray, background, ink,
+                   rgb: Optional[np.ndarray] = None) -> Tuple[Optional[np.ndarray], tuple]:
     """(per-segment RGB uint8 or None, the one colour 0..1): "gray" - the window's ink
     faded towards the background; "#rrggbb" - that colour; "layers" - the drawing's own
     colours, those too close to the background (white lines on a white window) in ink."""
@@ -250,7 +358,7 @@ def display_colors(ref: CadReference, dwg: Drawing, mask: np.ndarray, background
         return None, tuple((bg + (c - bg) * k).tolist())
     if mode != "layers":
         return None, tuple((bg + (fg - bg) * (0.25 + 0.6 * k)).tolist())
-    rgb = dwg.seg_rgb[mask].astype(float) / 255.0
+    rgb = (dwg.seg_rgb[mask] if rgb is None else rgb).astype(float) / 255.0
     lum = rgb @ np.array([0.299, 0.587, 0.114])
     bg_l = float(bg @ np.array([0.299, 0.587, 0.114]))
     low = np.abs(lum - bg_l) < 0.28
@@ -268,13 +376,12 @@ def build_actor(ref: CadReference, dwg: Drawing, model: Model, view: str, value:
     no layer is shown."""
     from . import vtk_lite as vtk
     from vtkmodules.util import numpy_support
-    on = visible_layers(ref, dwg)
-    mask = on[dwg.seg_layer] if len(dwg.seg) else np.zeros(0, bool)
-    n = int(mask.sum())
+    S, own = shown_lines(ref, dwg)
+    mask = None
+    n = len(S)
     if not n:
         return None
     unit = model.units.length
-    S = dwg.seg[mask]
     P = np.vstack([placed(ref, unit, S[:, 0:2]), placed(ref, unit, S[:, 2:4])])
     X = plane_to_world(view, value, P)
     pts = vtk.vtkPoints()
@@ -288,7 +395,7 @@ def build_actor(ref: CadReference, dwg: Drawing, model: Model, view: str, value:
     poly = vtk.vtkPolyData()
     poly.SetPoints(pts)
     poly.SetLines(cells)
-    rgb, one = display_colors(ref, dwg, mask, background, ink)
+    rgb, one = display_colors(ref, dwg, mask, background, ink, rgb=own)
     mapper = vtk.vtkPolyDataMapper()
     mapper.SetInputData(poly)
     if rgb is not None:
@@ -439,6 +546,11 @@ class RefSnapper:
 
     def which(self, uv, radius: float) -> Optional[str]:
         """The reference with a line within ``radius`` of ``uv`` (the nearest)."""
+        got = self.under(uv, radius)
+        return got[0] if got else None
+
+    def under(self, uv, radius: float) -> Optional[Tuple[str, str]]:
+        """(reference, layer) of the line nearest ``uv`` within ``radius``."""
         best, best_d = None, None
         for it in self.items:
             ref, f, S = it["ref"], it["factor"], it["seg"]
@@ -455,9 +567,11 @@ class RefSnapper:
             L2 = np.maximum(np.einsum("ij,ij->i", D, D), 1e-300)
             t = np.clip(np.einsum("ij,ij->i", q - A, D) / L2, 0.0, 1.0)
             F = A + t[:, None] * D
-            d = float(np.hypot(F[:, 0] - q[0], F[:, 1] - q[1]).min()) * f
+            dist = np.hypot(F[:, 0] - q[0], F[:, 1] - q[1])
+            j = int(np.argmin(dist))
+            d = float(dist[j]) * f
             if d <= radius and (best_d is None or d < best_d):
-                best, best_d = ref.name, d
+                best, best_d = (ref.name, it["dwg"].layers[int(it["layer"][box[j]])]), d
         return best
 
 
@@ -644,9 +758,17 @@ def relink(doc, name: str, path: str, model_path: Optional[str] = None) -> None:
         _CACHE[("embedded", blob.key, page)] = (dwg, "")
     _remember(path, page, dwg)
 
+    was_pdf = old.unit == "mm" and old.source_label().lower().endswith(".pdf")
+    kind_changed = (dwg.source == "pdf") != was_pdf
+
     def mutate(model: Model):
         r = model.references[name]
         r.path, r.rel_path, r.page = path, "", page
+        if kind_changed:  # a sheet instead of a drawing in real units (or the other way): its own unit and scale
+            if dwg.source == "pdf":
+                r.unit, r.scale = "mm", float(dwg.plot_scale or 100.0)
+            else:
+                r.unit, r.scale = dwg.guess_unit(), 1.0
         if blob is not None:
             model.attachments[blob.key] = blob
             r.embedded = blob.key

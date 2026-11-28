@@ -1501,6 +1501,109 @@ class ModelViewport(QtWidgets.QWidget):
                                                       self.doc.model.units.length)
         return snap or None
 
+    def _fit_references(self):
+        """Restore Full View shows the drawings of this window with the model - those near
+        it.  (A drawing far away - in the wrong unit, at survey coordinates - would shrink
+        the model to a dot: References > Zoom to Reference goes there.)"""
+        from . import cadref
+        shown = [(r, d) for r, d, _ in self.shown_references() if d is not None]
+        if not shown:
+            return
+        b = self.renderer.ComputeVisiblePropBounds()
+        have = b[0] <= b[1] and b[2] <= b[3] and b[4] <= b[5]
+        m = self.doc.model
+        pl = self.plane()
+        corners = np.array([(x, y, z) for x in b[0:2] for y in b[2:4] for z in b[4:6]], float) if have else None
+        reach = 4.0 * max(float(np.linalg.norm(corners.max(axis=0) - corners.min(axis=0))) if have else 0.0,
+                          scene.model_extent(m))
+        parts = []
+        for ref, dwg in shown:
+            box = cadref.outline(ref, dwg, m.units.length)
+            if box is None:
+                continue
+            X = cadref.plane_to_world(pl.kind, pl.value, box)
+            if have and float(np.abs(X - corners.mean(axis=0)).max()) > reach:
+                continue
+            parts.append(X)
+        if not parts:
+            return
+        if have:
+            parts.append(corners)
+        self.zoom_to(np.vstack(parts), margin=0.04)
+
+    def reference_under(self, x: int, y: int):
+        """(reference, layer) of the drawing line under display point (x, y); None."""
+        sn = self.reference_snapper() if self.config.kind != "3d" else None
+        if not sn:
+            from . import cadref
+            items = [(cadref.replace(r, snap=True), d) for r, d, _ in self.shown_references() if d is not None] \
+                if self.config.kind != "3d" else []
+            if not items:
+                return None
+            sn = cadref.RefSnapper(items, self.doc.model.units.length)
+        p = self._plane_point(x, y)
+        q = self._plane_point(x + 6, y)
+        if p is None or q is None:
+            return None
+        return sn.under(self.plane().to2(p), max(float(np.linalg.norm(np.subtract(q, p))), 1e-12))
+
+    def reference_menu_items(self, name: str, layer: str):
+        """[(text, what it does, ticked or None)] of the right-click menu of a reference (None: a
+        separator); empty when there is no such reference."""
+        from . import cadref
+        win = self.window()
+        ref = cadref.references_of(self.doc.model).get(name)
+        if ref is None or not hasattr(win, "reference_tool"):
+            return []
+        doc = self.doc
+        return [("Align (2 Points)", lambda: win.reference_tool("ref_align", name), None),
+                ("Scale by a Known Length", lambda: win.reference_tool("ref_scale", name), None),
+                ("Move", lambda: win.reference_tool("ref_move", name), None),
+                ("Rotate", lambda: win.reference_tool("ref_rotate", name), None),
+                ("Unpin" if ref.pinned else "Pin in Place",
+                 lambda: cadref.change_reference(doc, name, "Pin Reference", pinned=not ref.pinned), None),
+                None,
+                (f"Hide Layer \"{layer}\"", lambda: cadref.change_reference(
+                    doc, name, "Reference Layers", layers_off=sorted(set(ref.layers_off) | {layer})), None),
+                ("Layers...", lambda: win.reference_layers(name), None),
+                ("Snap to It", lambda: cadref.change_reference(doc, name, snap=not ref.snap), bool(ref.snap)),
+                ("Hide the Reference", lambda: cadref.change_reference(doc, name, visible=False), None),
+                None,
+                ("Manage References...", lambda: win.reference_manage(name), None)]
+
+    def reference_menu(self, name: str, layer: str, x: int, y: int):
+        """Right-click on a line of a drawing: what is done with a reference, where it is."""
+        from . import cadref
+        items = self.reference_menu_items(name, layer)
+        if not items:
+            return
+        menu = QtWidgets.QMenu(self.window())
+        menu.setAttribute(QtCore.Qt.WA_DeleteOnClose)
+        head = menu.addAction(f"Reference {name} - {cadref.references_of(self.doc.model)[name].source_label()}")
+        f = menu.font()
+        f.setBold(True)
+        head.setFont(f)
+        head.setEnabled(False)
+        menu.addSeparator()
+        acts = {}
+        for item in items:
+            if item is None:
+                menu.addSeparator()
+                continue
+            a = menu.addAction(item[0])
+            if item[2] is not None:
+                a.setCheckable(True)
+                a.setChecked(item[2])
+            acts[a] = item[1]
+        r = self._dpr()
+        h = self.vtk_widget.height()
+        a = menu.exec(self.vtk_widget.mapToGlobal(QtCore.QPoint(int(x / r), int(h - y / r))))
+        if a in acts:
+            try:
+                acts[a]()
+            except Exception as exc:
+                self.state.report(exc)
+
     def set_references_hidden(self, hidden: bool):
         self.references_hidden = bool(hidden)
         if getattr(self, "_active", False):
@@ -2529,6 +2632,7 @@ class ModelViewport(QtWidgets.QWidget):
 
     def fit(self):
         self.renderer.ResetCamera()
+        self._fit_references()
         if getattr(self, "_legend_room", False):
             self._legend_room = False
             self._make_legend_room(True)
@@ -3284,7 +3388,11 @@ class ModelViewport(QtWidgets.QWidget):
                 if hits:
                     self.object_menu(hits[0][0], hits[0][1], x, y, others=hits[1:])
                 else:
-                    self.background_menu_requested.emit(self, x, y)
+                    under = self.reference_under(x, y)  # a line of a drawing: the reference's menu
+                    if under is not None:
+                        self.reference_menu(under[0], under[1], x, y)
+                    else:
+                        self.background_menu_requested.emit(self, x, y)
             elif getattr(st.tool, "picks", None):
                 st.apply_load_tool()  # load command: right click applies to the picked objects
                 self.render()

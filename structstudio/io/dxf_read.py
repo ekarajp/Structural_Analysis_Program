@@ -17,8 +17,10 @@ says what to do (save as ASCII DXF).
 """
 from __future__ import annotations
 
+import codecs
 import itertools
 import math
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -89,6 +91,10 @@ class Drawing:
     version: str = ""
     skipped: Dict[str, int] = field(default_factory=dict)  # entity type -> how many were not drawn
     counts: Dict[str, int] = field(default_factory=dict)
+    # the texts (drawn as letters, never snapped to): (x, y, height, angle in degrees, string, layer index,
+    # (r, g, b), across 0 left / 1 centre / 2 right of the point, up 0 baseline / 1 bottom / 2 middle / 3 top,
+    # width: the length of the string when the file states it, else 0, width factor)
+    texts: list = field(default_factory=list)
     # a page of a PDF (see pdf_read): the coordinates are millimetres on the sheet
     source: str = "dxf"  # "dxf" | "pdf"
     pages: int = 1
@@ -128,13 +134,36 @@ class Drawing:
             return "cm"
         return "m"
 
+    def text_counts(self) -> Dict[str, int]:
+        out = {name: 0 for name in self.layers}
+        for t in self.texts:
+            out[self.layers[t[5]]] += 1
+        return out
+
     def layer_counts(self) -> Dict[str, int]:
         n = np.bincount(self.seg_layer, minlength=len(self.layers)) if len(self.seg) else np.zeros(len(self.layers), int)
         return {name: int(n[k]) for k, name in enumerate(self.layers)}
 
 
 # --------------------------------------------------------------------------- reading
-def _decode(data: bytes) -> str:
+def _decodable(data: bytes, enc: str) -> bool:
+    """Can all of ``data`` be read as ``enc``?  (Piece by piece: no second copy of a large file.)"""
+    try:
+        dec = codecs.getincrementaldecoder(enc)()
+    except LookupError:
+        return False
+    try:
+        for k in range(0, len(data), 1 << 23):
+            dec.decode(data[k:k + (1 << 23)])
+        dec.decode(b"", True)
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
+def _text_bytes(data: bytes) -> Tuple[bytes, str]:
+    """(the bytes of the file's text, the encoding of its values); refuses what is no
+    ASCII DXF with what to do."""
     if data[:22].startswith(b"AutoCAD Binary DXF"):
         raise DxfError("This is a binary DXF file. Save it from the CAD program as an ASCII (text) DXF and try again.")
     if data[:6] in (b"AC1012", b"AC1014", b"AC1015", b"AC1018", b"AC1021", b"AC1024", b"AC1027", b"AC1032") or \
@@ -142,15 +171,13 @@ def _decode(data: bytes) -> str:
         raise DxfError("This is a DWG file. Save it from the CAD program as DXF (Save As > DXF) and try again.")
     if data[:2] in (b"\xff\xfe", b"\xfe\xff"):  # (a UTF-16 text file, as some editors save it)
         try:
-            return data.decode("utf-16")
+            return data.decode("utf-16").encode("utf-8"), "utf-8"
         except UnicodeDecodeError:
             pass
     if data[:3] == b"\xef\xbb\xbf":  # (a UTF-8 byte order mark)
         data = data[3:]
-    try:
-        return data.decode("utf-8")
-    except UnicodeDecodeError:
-        pass
+    if _decodable(data, "utf-8"):
+        return data, "utf-8"
     page = "cp1252"
     k = data.find(b"$DWGCODEPAGE")
     if k >= 0:
@@ -161,12 +188,79 @@ def _decode(data: bytes) -> str:
                 page = "cp" + name[5:]
             elif name.startswith("DOS"):
                 page = "cp" + name[3:]
-    for enc in (page, "cp874", "latin-1"):
-        try:
-            return data.decode(enc)
-        except (UnicodeDecodeError, LookupError):
-            continue
-    return data.decode("latin-1", "replace")
+    for enc in (page, "cp874"):
+        if _decodable(data, enc):
+            return data, enc
+    return data, "latin-1"
+
+
+class _Values:
+    """The value lines of a DXF file: read as text when asked for (a file of 100 MB is
+    ten million lines, most of them never looked at - the pattern lines of hatches)."""
+
+    __slots__ = ("data", "s", "e", "codec")
+
+    def __init__(self, data: bytes, s: np.ndarray, e: np.ndarray, codec: str):
+        self.data, self.s, self.e, self.codec = data, s, e, codec
+
+    def __len__(self) -> int:
+        return len(self.s)
+
+    def __getitem__(self, k):
+        d, c = self.data, self.codec
+        if isinstance(k, slice):
+            return [d[a:b].decode(c, "replace") for a, b in zip(self.s[k].tolist(), self.e[k].tolist())]
+        return d[int(self.s[k]):int(self.e[k])].decode(c, "replace")
+
+
+def _index(data: bytes, codec: str) -> Tuple[np.ndarray, _Values]:
+    """(the group codes, their values) of the text of a DXF file: pairs of lines."""
+    arr = np.frombuffer(data, np.uint8)
+    k = len(data.rstrip())
+    off = np.int32 if len(data) < 2_000_000_000 else np.int64  # (the offsets of ten million lines: kept small)
+    nl = np.flatnonzero(arr[:k] == 10).astype(off)
+    L = len(nl) + 1
+    if L < 4:
+        raise DxfError("This is not a DXF file (it is empty).")
+    starts = np.empty(L, off)
+    starts[0] = 0
+    starts[1:] = nl + 1
+    ends = np.empty(L, off)
+    ends[:-1] = nl
+    ends[-1] = k
+    del nl
+    n = min(len(range(0, L - 1, 2)), len(range(1, L, 2)))
+    cs, ce = starts[0:L - 1:2][:n].copy(), ends[0:L - 1:2][:n].copy()
+    vs, ve = starts[1::2][:n].copy(), ends[1::2][:n].copy()
+    del starts, ends
+    bad = DxfError("This is not an ASCII DXF file (a group code is not a number).")
+    width = int((ce - cs).max())
+    if width > 24 or width < 1:
+        raise bad
+    val = np.zeros(n, np.int32)
+    last = len(arr) - 1
+    for i in range(0, n, 1 << 20):  # (a million lines at a time)
+        a0, a1 = cs[i:i + (1 << 20)].astype(np.int64), ce[i:i + (1 << 20)].astype(np.int64)
+        v = np.zeros(len(a0), np.int32)
+        neg = np.zeros(len(a0), bool)
+        seen = np.zeros(len(a0), bool)
+        for j in range(int((a1 - a0).max())):
+            at = a0 + j
+            ch = arr[np.minimum(at, last)]
+            ch[at >= a1] = 32
+            digit = (ch >= 48) & (ch <= 57)
+            minus = ch == 45
+            if not (digit | minus | (ch == 32) | (ch == 9) | (ch == 13) | (ch == 43)).all():
+                raise bad
+            v[digit] = v[digit] * 10 + (ch[digit].astype(np.int32) - 48)
+            neg |= minus
+            seen |= digit
+        if not seen.all():
+            raise bad
+        v[neg] = -v[neg]
+        val[i:i + (1 << 20)] = v
+    del cs, ce
+    return val, _Values(data, vs, ve, codec)
 
 
 def _ocs(n: Sequence[float]) -> Optional[np.ndarray]:
@@ -261,7 +355,8 @@ def _through_points(fit: np.ndarray) -> np.ndarray:
 class _Group:
     """What a container (the model space or a block) holds, before blocks are put in."""
 
-    __slots__ = ("seg", "curve", "layer", "color", "pts", "pkind", "player", "inserts", "base", "flat")
+    __slots__ = ("seg", "curve", "layer", "color", "pts", "pkind", "player", "inserts", "base", "flat", "texts",
+                 "tflat")
 
     def __init__(self):
         self.seg: List[np.ndarray] = []
@@ -274,6 +369,8 @@ class _Group:
         self.inserts: List[tuple] = []
         self.base = (0.0, 0.0)
         self.flat = None
+        self.texts: List[tuple] = []  # (x, y, height, angle rad, string, layer, colour, across, up, width factor)
+        self.tflat = None
 
     def add(self, pts: np.ndarray, layer: int, color: int, curve, closed: bool = False):
         pts = np.asarray(pts, float).reshape(-1, 2)
@@ -325,7 +422,9 @@ def _fl(d: Dict[int, List[str]], code: int) -> List[float]:
     return out
 
 
-_SKIPPED = {"TEXT", "MTEXT", "ATTRIB", "ATTDEF", "HATCH", "IMAGE", "WIPEOUT", "VIEWPORT", "3DSOLID", "BODY", "REGION",
+MAX_TEXTS = 60_000
+_MTEXT_CODE = re.compile(r"\\[ACcFfHhQqTtWwpP][^;\\]*;|\\[LlOoKk]|[{}]")
+_SKIPPED = {"ATTDEF", "HATCH", "IMAGE", "WIPEOUT", "VIEWPORT", "3DSOLID", "BODY", "REGION",
             "MESH", "SURFACE", "MLINE", "MLEADER", "MULTILEADER", "ACAD_TABLE", "TOLERANCE", "XLINE", "RAY", "SHAPE",
             "OLE2FRAME", "OLEFRAME", "ACAD_PROXY_ENTITY", "HELIX", "LIGHT", "SUN", "UNDERLAY", "PDFUNDERLAY",
             "DWFUNDERLAY", "DGNUNDERLAY", "SECTION", "ARC_DIMENSION", "LARGE_RADIAL_DIMENSION"}
@@ -344,23 +443,12 @@ def read_dxf(source) -> Drawing:
                 data = fh.read()
         except OSError as exc:
             raise DxfError(f"The file cannot be read: {exc}") from None
-    text = _decode(data).rstrip()
-    del data
-    lines = text.split("\n")
-    del text
-    if len(lines) < 4:
-        raise DxfError("This is not a DXF file (it is empty).")
-    try:
-        codes = np.fromiter((int(c) for c in lines[0:len(lines) - 1:2]), dtype=np.int32)
-    except ValueError:
-        raise DxfError("This is not an ASCII DXF file (a group code is not a number).") from None
-    vals = lines[1::2]
-    n = min(len(codes), len(vals))
-    codes = codes[:n]
+    data, codec = _text_bytes(data)
+    codes, vals = _index(data, codec)
+    n = len(codes)
     starts = np.flatnonzero(codes == 0)
     if not len(starts):
         raise DxfError("This is not a DXF file (no entities).")
-    code_list = codes.tolist()
     ends = np.append(starts[1:], n).tolist()
     starts = starts.tolist()
 
@@ -389,8 +477,9 @@ def read_dxf(source) -> Drawing:
 
     def record(a: int, b: int) -> Dict[int, List[str]]:
         d: Dict[int, List[str]] = {}
-        for c, v in zip(code_list[a:b], vals[a:b]):
-            d.setdefault(c, []).append(v.strip())
+        for c, v in zip(codes[a:b].tolist(), vals[a:b]):
+            # (the spaces of a text belong to it: a long text is cut into pieces anywhere)
+            d.setdefault(c, []).append(v.strip() if c != 1 and c != 3 else v.strip("\r\n"))
         return d
 
     def color_of(d) -> int:
@@ -407,6 +496,61 @@ def read_dxf(source) -> Drawing:
             return BYBLOCK
         r, g, b = aci_rgb(abs(c))
         return (r << 16) | (g << 8) | b
+
+    def plain(text: str) -> str:
+        """The codes of CAD texts as characters (%%d, \\U+0E01 ...)."""
+        if "%%" in text:
+            for code, ch in (("%%d", "\u00b0"), ("%%D", "\u00b0"), ("%%p", "\u00b1"), ("%%P", "\u00b1"),
+                             ("%%c", "\u2300"), ("%%C", "\u2300"), ("%%u", ""), ("%%U", ""), ("%%o", ""),
+                             ("%%O", ""), ("%%%", "%")):
+                text = text.replace(code, ch)
+        if "\\U+" in text:
+            text = re.sub(r"\\U\+([0-9A-Fa-f]{4})", lambda m: chr(int(m.group(1), 16)), text)
+        return text
+
+    def add_text(g: _Group, d, lay: int, col: int, up_code: int):
+        text = plain((d.get(1) or [""])[0]).strip()
+        h = _f(d, 40)
+        if not text or not h > 0:
+            return
+        across, up = _i(d, 72, 0), _i(d, up_code, 0)
+        at = (_f(d, 10), _f(d, 20))
+        if across in (3, 5):  # aligned / fit between two points: from the first
+            across, up = 0, 0
+        elif across == 4:  # middle
+            across, up, at = 1, 2, (_f(d, 11, at[0]), _f(d, 21, at[1]))
+        elif (across or up) and 11 in d:
+            at = (_f(d, 11), _f(d, 21))
+        xy = to_world(d, np.array([at]))[0]
+        g.texts.append((float(xy[0]), float(xy[1]), h, math.radians(_f(d, 50)), text, lay, col,
+                        min(max(across, 0), 2), min(max(up, 0), 3), _f(d, 41, 1.0) or 1.0))
+
+    def add_mtext(g: _Group, d, lay: int, col: int):
+        raw = "".join(d.get(3) or []) + (d.get(1) or [""])[0]
+        h = _f(d, 40)
+        if not raw.strip() or not h > 0:
+            return
+        raw = re.sub(r"\\S([^;^/#]*)[\^/#]([^;]*);", r"\1/\2", raw)  # stacked: a/b
+        raw = raw.replace("\\P", "\n").replace("\\~", " ").replace("\\\\", "\x00")
+        raw = _MTEXT_CODE.sub("", raw).replace("\x00", "\\")
+        lines = [plain(t).strip() for t in raw.split("\n")]
+        if 11 in d or 21 in d:
+            ang = math.atan2(_f(d, 21), _f(d, 11, 1.0))
+        else:
+            ang = _f(d, 50)  # (radians in an MTEXT)
+        att = min(max(_i(d, 71, 1), 1), 9)
+        across, row = (att - 1) % 3, (att - 1) // 3  # row: 0 top, 1 middle, 2 bottom
+        step = 1.667 * h
+        n = len(lines)
+        first = {0: 0.0, 1: 0.5 * (n - 1) * step, 2: (n - 1) * step}[row]  # the first line above the point by this
+        up = {0: 3, 1: 2, 2: 0}[row]
+        x0, y0 = to_world(d, np.array([[_f(d, 10), _f(d, 20)]]))[0]
+        for k, text in enumerate(lines):
+            if not text:
+                continue
+            off = first - k * step
+            g.texts.append((float(x0 - math.sin(ang) * off), float(y0 + math.cos(ang) * off), h, ang, text, lay, col,
+                            across, up, 1.0))
 
     def to_world(d, pts: np.ndarray, z: float = 0.0) -> np.ndarray:
         if 210 not in d and 230 not in d:
@@ -463,7 +607,7 @@ def read_dxf(source) -> Drawing:
             if section == "HEADER":
                 # the variables: (9, name) then its values
                 name = ""
-                for c, v in zip(code_list[a + 1:b], vals[a + 1:b]):
+                for c, v in zip(codes[a + 1:b].tolist(), vals[a + 1:b]):
                     v = v.strip()
                     if c == 9:
                         name = v
@@ -509,7 +653,7 @@ def read_dxf(source) -> Drawing:
         if section == "BLOCKS":
             if etype == "BLOCK":
                 d = record(a + 1, b)
-                name = (d.get(2) or d.get(3) or [""])[0]
+                name = (d.get(2) or d.get(3) or [""])[0].strip()
                 current = _Group()
                 current.base = (_f(d, 10), _f(d, 20))
                 blocks[name.upper()] = current
@@ -548,6 +692,14 @@ def read_dxf(source) -> Drawing:
             skip_seq = False
             continue
         if skip_seq:
+            if etype == "ATTRIB":  # the text an insert carries (a grid bubble's letter)
+                d = record(a + 1, b)
+                if _i(d, 67, 0) != 1 and not _i(d, 70, 0) & 1:
+                    add_text(g, d, layer_id((d.get(8) or ["0"])[0]), color_of(d), 74)
+            continue
+        if etype in _SKIPPED:  # (not read at all: the hatches can be most of a file)
+            if not ((codes[a + 1:b] == 67).any() and _i(record(a + 1, b), 67, 0) == 1):
+                skipped[etype] = skipped.get(etype, 0) + 1
             continue
         d = record(a + 1, b)
         if _i(d, 67, 0) == 1:
@@ -564,7 +716,7 @@ def read_dxf(source) -> Drawing:
                 # the bulge (42) of a vertex follows its 10 / 20: read them in order
                 bulges = [0.0] * m
                 k = -1
-                for c, v in zip(code_list[a + 1:b], vals[a + 1:b]):
+                for c, v in zip(codes[a + 1:b].tolist(), vals[a + 1:b]):
                     if c == 10:
                         k += 1
                     elif c == 42 and 0 <= k < m:
@@ -650,6 +802,10 @@ def read_dxf(source) -> Drawing:
                               max(_i(d, 71, 1), 1), max(_i(d, 70, 1), 1), _f(d, 45), _f(d, 44), lay, col, W, True))
             if _i(d, 66, 0) == 1:
                 skip_seq = True  # its attributes, up to SEQEND
+        elif etype in ("TEXT", "ATTRIB"):
+            add_text(g, d, lay, col, 73 if etype == "TEXT" else 74)
+        elif etype == "MTEXT":
+            add_mtext(g, d, lay, col)
         elif etype in _SKIPPED:
             skipped[etype] = skipped.get(etype, 0) + 1
             counts[etype] -= 1
@@ -720,6 +876,47 @@ def read_dxf(source) -> Drawing:
                   np.concatenate(player) if player else np.zeros(0, np.int32))
         return g.flat
 
+    def flat_texts(g: _Group, depth: int, chain: Tuple[int, ...]) -> List[tuple]:
+        """The texts of a container with those of its blocks, put in place."""
+        if g.tflat is not None:
+            return g.tflat
+        out = list(g.texts)
+        for (name, ix, iy, sx, sy, rot, rows, cols, dr, dc, ilay, icol, W, mark) in g.inserts:
+            blk = blocks.get(name)
+            if blk is None or depth >= MAX_DEPTH or id(blk) in chain:
+                continue
+            inner = flat_texts(blk, depth + 1, chain + (id(blk),))
+            if not inner or len(out) > MAX_TEXTS:
+                continue
+            cr, sr = math.cos(rot), math.sin(rot)
+            A = np.array([[cr * sx, -sr * sy], [sr * sx, cr * sy]])
+            base = np.array(blk.base, float)
+            for r_ in range(rows):
+                for c_ in range(cols):
+                    off = np.array([ix, iy]) + np.array([cr * c_ * dc - sr * r_ * dr, sr * c_ * dc + cr * r_ * dr])
+                    M, t = A, off - A @ base
+                    if W is not None:
+                        M, t = W @ A, W @ t
+                    for (x, y, h, ang, text, lay, col, across, up, wf) in inner:
+                        p = M @ np.array([x, y]) + t
+                        u = M @ np.array([math.cos(ang), math.sin(ang)])
+                        v = M @ np.array([-math.sin(ang), math.cos(ang)])
+                        lu, lv = float(np.hypot(*u)), float(np.hypot(*v))
+                        if not (lu > 0 and lv > 0):
+                            continue
+                        if col == BYBLOCK:
+                            col2 = (_LAYER_OF - ilay) if icol == BYLAYER else icol
+                        elif col == _LAYER_OF - L0:
+                            col2 = _LAYER_OF - ilay
+                        elif col == BYLAYER and lay == L0:
+                            col2 = _LAYER_OF - ilay
+                        else:
+                            col2 = col
+                        out.append((float(p[0]), float(p[1]), h * lv, math.atan2(u[1], u[0]), text,
+                                    ilay if lay == L0 else lay, col2, across, up, wf * lu / lv))
+        g.tflat = out
+        return out
+
     seg, curve, layer, color, pts, pkind, player = flatten(model, 0, ())
     if len(seg) > MAX_SEGMENTS:
         raise DxfError(f"The drawing holds more line work than can be shown as a reference (over {MAX_SEGMENTS:,} "
@@ -744,6 +941,18 @@ def read_dxf(source) -> Drawing:
     okp = np.all(np.isfinite(pts), axis=1) if len(pts) else np.zeros(0, bool)
     dwg.pts, dwg.pts_kind, dwg.pts_layer = pts[okp], pkind[okp], player[okp]
     dwg.layer_rgb = [((c >> 16) & 255, (c >> 8) & 255, c & 255) for c in layer_color]
+    def rgb_of(col: int, lay: int) -> Tuple[int, int, int]:
+        if col == BYLAYER:
+            col = layer_color[lay]
+        elif col <= _LAYER_OF:
+            col = layer_color[min(max(_LAYER_OF - col, 0), len(layer_color) - 1)]
+        elif col == BYBLOCK:
+            col = 0xFFFFFF
+        return ((col >> 16) & 255, (col >> 8) & 255, col & 255)
+
+    for (x, y, h, ang, text, lay, col, across, up, wf) in flat_texts(model, 0, ())[:MAX_TEXTS]:
+        if math.isfinite(x) and math.isfinite(y) and math.isfinite(h) and h > 0:
+            dwg.texts.append((x, y, h, math.degrees(ang), text, int(lay), rgb_of(col, lay), across, up, 0.0, wf))
     dwg.counts = {k: v for k, v in counts.items() if v > 0}
     dwg.skipped = skipped
     return dwg

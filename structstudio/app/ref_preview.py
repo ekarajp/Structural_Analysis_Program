@@ -7,8 +7,9 @@ the picture.  Two clicks on the picture measure a length (the clicks snap to the
 lines), which is how a wrong unit or scale is seen at once and put right ("this bay is
 really 6 m").
 
-The wheel zooms about the cursor, dragging with the middle or the right button (or the
-left one while not measuring) moves the picture, a double click fits it again.
+The wheel zooms about the cursor, dragging (any button) moves the picture, a double
+click fits it again; a click without dragging picks a point to measure from.  The texts
+of the drawing are drawn too (so a dimension can be read and measured against).
 
 The lines are drawn into an image with numpy (:func:`raster_lines`) - a drawing of some
 hundred thousand lines is redrawn in a few hundredths of a second, where one painter
@@ -127,6 +128,7 @@ class DrawingPreview(QtWidgets.QWidget):
         self._centre = (0.0, 0.0)  # the file point in the middle of the widget
         self._fitted = True
         self._drag = None
+        self._press = None  # a left press that may become a click (a pick) or a drag (a move)
         self._pick: list = []  # file points clicked (0, 1 or 2)
         self._hover: Optional[Tuple[float, float]] = None
         self._shown = 0
@@ -228,9 +230,9 @@ class DrawingPreview(QtWidgets.QWidget):
             self._image, self._shown = None, 0
             self.update()
             return
-        m = self._visible()
-        s = d.seg[m]
-        self._shown = int(len(s))
+        from . import cadref
+        self._shown = int(self._visible().sum())
+        s, colours = cadref.shown_lines(None, d, self._off, texts=False)  # (the texts: written in paintEvent)
         cx, cy = self._centre
         k = self._scale
         P = np.empty((len(s), 4))
@@ -238,7 +240,7 @@ class DrawingPreview(QtWidgets.QWidget):
         P[:, 1] = h * 0.5 - (s[:, 1] - cy) * k
         P[:, 2] = w * 0.5 + (s[:, 2] - cx) * k
         P[:, 3] = h * 0.5 - (s[:, 3] - cy) * k
-        img = raster_lines(P, _ink_colours(d.seg_rgb[m], bg, ink) if len(s) else np.zeros((0, 3), np.uint8), w, h, bg)
+        img = raster_lines(P, _ink_colours(colours, bg, ink) if len(s) else np.zeros((0, 3), np.uint8), w, h, bg)
         self._buf = np.ascontiguousarray(img)
         self._image = QtGui.QImage(self._buf.data, w, h, 3 * w, QtGui.QImage.Format_RGB888)
         self.update()
@@ -293,20 +295,31 @@ class DrawingPreview(QtWidgets.QWidget):
         if pan:
             self._drag = (pos.x(), pos.y(), self._centre)
             self.setCursor(QtCore.Qt.ClosedHandCursor)
-        elif ev.button() == QtCore.Qt.LeftButton and self.dwg is not None:
-            p = self._snap(pos.x(), pos.y())
-            if len(self._pick) >= 2:
-                self._pick = []
-            self._pick.append(p)
-            if len(self._pick) == 2:
-                if math.dist(*self._pick) <= 0:
-                    self._pick.pop()
-                else:
-                    self.measured.emit(math.dist(*self._pick))
-            self.update()
+        elif ev.button() == QtCore.Qt.LeftButton:
+            self._press = (pos.x(), pos.y())
+
+    def _pick_at(self, px: float, py: float):
+        if self.dwg is None:
+            return
+        p = self._snap(px, py)
+        if len(self._pick) >= 2:
+            self._pick = []
+        self._pick.append(p)
+        if len(self._pick) == 2:
+            if math.dist(*self._pick) <= 0:
+                self._pick.pop()
+            else:
+                self.measured.emit(math.dist(*self._pick))
+        self.update()
 
     def mouseMoveEvent(self, ev):
         pos = ev.position()
+        if self._press is not None and self._drag is None and \
+                abs(pos.x() - self._press[0]) + abs(pos.y() - self._press[1]) > 5:
+            # the left button dragged: the picture moves (a click without dragging picks)
+            self._drag = (self._press[0], self._press[1], self._centre)
+            self._press = None
+            self.setCursor(QtCore.Qt.ClosedHandCursor)
         if self._drag is not None:
             x0, y0, c = self._drag
             self._centre = (c[0] - (pos.x() - x0) / self._scale, c[1] + (pos.y() - y0) / self._scale)
@@ -317,12 +330,17 @@ class DrawingPreview(QtWidgets.QWidget):
             self.update()
 
     def mouseReleaseEvent(self, ev):
+        if self._press is not None and ev.button() == QtCore.Qt.LeftButton:
+            x, y = self._press
+            self._press = None
+            self._pick_at(x, y)
+            return
         if self._drag is not None:
             self._drag = None
             self.setCursor(QtCore.Qt.CrossCursor if self._measuring else QtCore.Qt.OpenHandCursor)
 
     def mouseDoubleClickEvent(self, ev):
-        self._pick = []
+        self._pick, self._press = [], None
         self.fit()
 
     def leaveEvent(self, ev):
@@ -344,6 +362,7 @@ class DrawingPreview(QtWidgets.QWidget):
             p.drawText(self.rect(), QtCore.Qt.AlignCenter, "No drawing")
             p.end()
             return
+        self._paint_texts(p, bg, ink)
         soft = QtGui.QColor(ink)
         soft.setAlpha(110)
         accent = pal.color(QtGui.QPalette.Highlight)
@@ -388,12 +407,61 @@ class DrawingPreview(QtWidgets.QWidget):
                 self._label(p, (0.5 * (w0[0] + w1[0]), 0.5 * (w0[1] + w1[1]) - 12),
                             _length_text(math.dist(pts[0], pts[1]) * self._metres), red, bg)
         p.setPen(soft)
-        hint = "wheel: zoom   drag (middle / right button): move   double click: fit"
+        hint = "wheel: zoom   drag: move   double click: fit"
         if self._measuring:
             hint = "click two points to measure   " + hint
         p.drawText(QtCore.QRectF(6, self.height() - 18, self.width() - 12, 16),
                    QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, hint)
         p.end()
+
+    MIN_TEXT_PX = 5.0  # smaller letters cannot be read: not written
+    MAX_TEXTS_DRAWN = 4000
+
+    def _paint_texts(self, p: QtGui.QPainter, bg, ink):
+        """The texts of the layers shown, written as text (readable at any zoom, where the
+        letters are large enough to read)."""
+        d = self.dwg
+        texts = getattr(d, "texts", None)
+        if not texts:
+            return
+        k = self._scale
+        w, h = self.width(), self.height()
+        on = [n not in self._off for n in d.layers]
+        back = (bg.red(), bg.green(), bg.blue())
+        dark = (ink.red(), ink.green(), ink.blue())
+        font = QtGui.QFont(p.font())
+        font.setFamilies(["Tahoma", "Segoe UI", "Arial", "DejaVu Sans"])
+        drawn = 0
+        p.save()
+        p.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
+        for (x, y, height, ang, string, lay, rgb, across, up, width, wf) in texts:
+            px = height * k / 0.72  # the size of the font for capitals ``height`` high
+            if px < self.MIN_TEXT_PX / 0.72 or not on[lay]:
+                continue
+            wx, wy = w * 0.5 + (x - self._centre[0]) * k, h * 0.5 - (y - self._centre[1]) * k
+            reach = px * (len(string) + 2)
+            if wx < -reach or wx > w + reach or wy < -reach or wy > h + reach:
+                continue
+            font.setPixelSize(max(int(round(px)), 1))
+            fm = QtGui.QFontMetricsF(font)
+            adv = fm.horizontalAdvance(string) or 1.0
+            sx = (width * k / adv) if width > 0 else (wf or 1.0)
+            c = _ink_colours(np.array([rgb], np.uint8), back, dark)[0]
+            p.save()
+            p.translate(wx, wy)
+            p.rotate(-ang)
+            p.scale(sx, 1.0)
+            p.setFont(font)
+            p.setPen(QtGui.QColor(int(c[0]), int(c[1]), int(c[2])))
+            cap = height * k
+            dy = {0: 0.0, 1: -0.22 * cap, 2: 0.5 * cap, 3: cap}.get(up, 0.0)
+            p.drawText(QtCore.QPointF(-0.5 * across * adv, dy), string)
+            p.restore()
+            drawn += 1
+            if drawn >= self.MAX_TEXTS_DRAWN:
+                break
+        p.restore()
+        self._texts_drawn = drawn
 
     def _extent(self) -> Optional[Tuple[float, float, float, float]]:
         d = self.dwg
@@ -425,9 +493,8 @@ class DrawingPreview(QtWidgets.QWidget):
 def render(dwg: Drawing, width: int = 1400, height: int = 1000, layers_off: Sequence[str] = (),
            background=(255, 255, 255), ink=(20, 20, 20)) -> np.ndarray:
     """The picture of a drawing as an image array (for checks and tests; no widget)."""
-    on = np.array([n not in set(layers_off) for n in dwg.layers], bool)
-    m = on[dwg.seg_layer] if len(dwg.seg) else np.zeros(0, bool)
-    s = dwg.seg[m]
+    from . import cadref
+    s, colours = cadref.shown_lines(None, dwg, layers_off)
     if dwg.sheet:
         b = (0.0, 0.0, float(dwg.sheet[0]), float(dwg.sheet[1]))
     elif len(s):
@@ -438,4 +505,4 @@ def render(dwg: Drawing, width: int = 1400, height: int = 1000, layers_off: Sequ
     cx, cy = 0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])
     P = np.column_stack([width * 0.5 + (s[:, 0] - cx) * k, height * 0.5 - (s[:, 1] - cy) * k,
                          width * 0.5 + (s[:, 2] - cx) * k, height * 0.5 - (s[:, 3] - cy) * k])
-    return raster_lines(P, _ink_colours(dwg.seg_rgb[m], background, ink), width, height, background)
+    return raster_lines(P, _ink_colours(colours, background, ink), width, height, background)
